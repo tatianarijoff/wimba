@@ -4,6 +4,8 @@
 
 # WIMBA documentation
 
+- [Setup & quick start](SETUP.md) — install, `wimba setup`, locating IW2D /
+  pytlwall. **Start here.**
 - [Data model](DATA_MODEL.md) — the architecture and the core objects
   (`ImpedanceTerm`, `Element`, `ElementGroup`, `Machine`), beta weighting and how
   to query a machine.
@@ -17,4 +19,4 @@ Planned, as the corresponding code lands:
 - Resistive-wall source (via pytlwall, with optional space charge)
 - Tabulated-data import (CST / ASCII)
 - Optics builder from MAD-X
-- Command-line interface and graphical interface
+- Graphical interface

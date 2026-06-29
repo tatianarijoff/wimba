@@ -57,15 +57,15 @@ pip install -e ".[dev]"
 ## Usage
 
 ```bash
-# Run from the shell   (full command reference will live in docs/)
-wimba ...              # command-line interface - to be defined
-
-# Run the graphical interface   (see above)
-wimba gui              # GUI launcher - to be defined
+# First-time setup: locate IW2D / pytlwall  (skip if you only use the resonator)
+wimba setup
+wimba status
 
 # Test the software
 python -m pytest
 ```
+
+See [docs/SETUP.md](docs/SETUP.md) for the quick start and tool configuration.
 
 ## Status
 

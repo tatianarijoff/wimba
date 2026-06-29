@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "Wake & Impedance Model Builder for Accelerators"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["numpy"]
+dependencies = ["numpy", "pyyaml"]
 authors = [
     { name = "Tatiana Rijoff" },
     { name = "Carlo Zannini" },
@@ -17,6 +17,9 @@ authors = [
 [project.optional-dependencies]
 dev = ["pytest", "xwakes"]
 examples = ["matplotlib"]
+
+[project.scripts]
+wimba = "wimba.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["wimba*"]
