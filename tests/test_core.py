@@ -56,7 +56,7 @@ def test_selection_quantity_and_terms():
     W = m.wake(t, multipole="long")                                  # only long W
     assert set(W) == {"zlong"} and W["zlong"][0] > 0                 # W(0) = alpha*Rs > 0
     assert set(m.impedance(f)) == {"zlong", "zxdip"}                 # all terms
-    assert set(m.wake(t)) == {"zlong"}                               # transverse has no W -> skipped
+    assert set(m.wake(t)) == {"zlong", "zxdip"}                      # transverse now has a wake too
 
 
 def test_group_scope():

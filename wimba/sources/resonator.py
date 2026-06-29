@@ -1,9 +1,13 @@
 """Analytic resonator source.
 
-Longitudinal: closed-form Z(f) and W(t) (standard Chao forms).
-Transverse dipolar/quadrupolar: closed-form Z(f); W(t) to be added later.
+Impedance and wake follow the standard resonator (Chao) formulas and match
+xwakes / pywit term by term, including the sign convention. The wake uses a
+complex damped frequency so the overdamped case (Q < 1/2) is handled by the same
+expression; the value at t = 0 is the full one (the beam-loading factor 1/2 is a
+sampling-time concern, applied where the wake is binned, not here).
 
-Self-contained (numpy only) so the core can be validated without pytlwall.
+Self-contained (numpy only): it also serves as a reference to validate the core
+without an external impedance engine.
 """
 from __future__ import annotations
 
@@ -37,13 +41,12 @@ class ResonatorProvider:
         out: List[ImpedanceTerm] = []
         for r in self.resonators:
             tid = STANDARD_TERMS[r.term]
-            if tid.plane == "z":
-                out.append(ImpedanceTerm(id=r.term, tid=tid, origin="resonator",
-                                         z=_z_long(r.Rs, r.Q, r.fr),
-                                         w=_w_long(r.Rs, r.Q, r.fr)))
-            else:
-                out.append(ImpedanceTerm(id=r.term, tid=tid, origin="resonator",
-                                         z=_z_trans(r.Rs, r.Q, r.fr), w=None))
+            longitudinal = tid.plane == "z"
+            out.append(ImpedanceTerm(
+                id=r.term, tid=tid, origin="resonator",
+                z=(_z_long if longitudinal else _z_trans)(r.Rs, r.Q, r.fr),
+                w=(_w_long if longitudinal else _w_trans)(r.Rs, r.Q, r.fr),
+            ))
         return out
 
 
@@ -61,16 +64,35 @@ def _z_trans(Rs, Q, fr):
     return z
 
 
+def _damped(Q, fr):
+    """Return (omega_r, alpha, omega_bar, root) with a complex root so the same
+    expression covers underdamped (Q > 1/2) and overdamped (Q < 1/2)."""
+    omega_r = 2.0 * np.pi * fr
+    alpha = omega_r / (2.0 * Q)
+    root = np.sqrt(1.0 - 1.0 / (4.0 * Q ** 2) + 0j)
+    return omega_r, alpha, omega_r * root, root
+
+
 def _w_long(Rs, Q, fr):
-    wr = 2.0 * np.pi * fr
-    alpha = wr / (2.0 * Q)
-    wbar = np.sqrt(max(wr * wr - alpha * alpha, 0.0))
+    omega_r, alpha, omega_bar, _ = _damped(Q, fr)
     def w(t):
         t = np.asarray(t, dtype=float)
         out = np.zeros_like(t)
-        pos = t > 0
-        out[pos] = (2.0 * alpha * Rs * np.exp(-alpha * t[pos])
-                    * (np.cos(wbar * t[pos]) - (alpha / wbar) * np.sin(wbar * t[pos])))
-        out[t == 0] = alpha * Rs
+        m = t >= 0
+        out[m] = (omega_r * Rs * np.exp(-alpha * t[m])
+                  * (np.cos(omega_bar * t[m])
+                     - alpha * np.sin(omega_bar * t[m]) / omega_bar) / Q).real
+        return out
+    return w
+
+
+def _w_trans(Rs, Q, fr):
+    omega_r, alpha, omega_bar, root = _damped(Q, fr)
+    def w(t):
+        t = np.asarray(t, dtype=float)
+        out = np.zeros_like(t)
+        m = t >= 0
+        out[m] = (omega_r * Rs * np.exp(-alpha * t[m])
+                  * np.sin(omega_bar * t[m]) / (Q * root)).real
         return out
     return w

@@ -15,7 +15,7 @@ authors = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "xwakes"]
 examples = ["matplotlib"]
 
 [tool.setuptools.packages.find]
