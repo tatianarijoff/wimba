@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="wimba_logo_small.png" alt="WIMBA" width="190">
+  <img src="../img/wimba_logo_small.png" alt="WIMBA" width="190">
 </p>
 
 # WIMBA documentation
@@ -8,12 +8,13 @@
   (`ImpedanceTerm`, `Element`, `ElementGroup`, `Machine`), beta weighting and how
   to query a machine.
 - [Resonator source](RESONATOR.md) — the analytic resonator source: Chao
-  formulas, conventions and limitations.
+  formulas (matching xwakes), conventions and limitations.
+- [Fourier transforms](FOURIER.md) — on-demand wake ↔ impedance transforms for
+  consistency checks.
 
 Planned, as the corresponding code lands:
 
 - Resistive-wall source (via pytlwall, with optional space charge)
 - Tabulated-data import (CST / ASCII)
 - Optics builder from MAD-X
-- Input / output formats
 - Command-line interface and graphical interface

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/wimba_logo.png" alt="WIMBA" width="460">
+  <img src="img/wimba_logo.png" alt="WIMBA" width="400">
 </p>
 
 <p align="center"><em>Wake &amp; Impedance Model Builder for Accelerators</em></p>
@@ -37,6 +37,11 @@ longitudinal, dipolar and quadrupolar impedances and wakes can be read out.
 | `Element` | a physical device, with a swappable impedance source and an optics policy |
 | `ElementGroup` | a named bucket of like devices |
 | `Machine` | the whole ring: groups weighted by the optics, plus pre-weighted additional elements |
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md), starting with the
+[data model](docs/DATA_MODEL.md) and the [resonator source](docs/RESONATOR.md).
 
 ## Install
 

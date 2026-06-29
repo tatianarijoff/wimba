@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="wimba_logo_small.png" alt="WIMBA" width="190">
+  <img src="../img/wimba_logo_small.png" alt="WIMBA" width="190">
 </p>
 
 # Resonator source
