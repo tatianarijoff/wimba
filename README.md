@@ -41,13 +41,25 @@ longitudinal, dipolar and quadrupolar impedances and wakes can be read out.
 ## Install
 
 Use a virtual environment (recommended on Debian/Ubuntu, where the system Python
-is externally managed):
+is externally managed). `[dev]` also pulls in the test tools:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
-pytest
+pip install -e ".[dev]"
+```
+
+## Usage
+
+```bash
+# Run from the shell   (full command reference will live in docs/)
+wimba ...              # command-line interface - to be defined
+
+# Run the graphical interface   (see above)
+wimba gui              # GUI launcher - to be defined
+
+# Test the software
+python -m pytest
 ```
 
 ## Status
