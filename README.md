@@ -40,7 +40,12 @@ longitudinal, dipolar and quadrupolar impedances and wakes can be read out.
 
 ## Install
 
+Use a virtual environment (recommended on Debian/Ubuntu, where the system Python
+is externally managed):
+
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
 pytest
 ```
