@@ -56,6 +56,47 @@ def cmd_setup(args):
     return cmd_status(args)
 
 
+def cmd_build(args):
+    from .builders import load_machine
+    from .store import materialize, ResultStore
+
+    machine, freqs, times = load_machine(args.config)
+    materialize(machine, args.out, freqs=freqs, times=times)
+    store = ResultStore(args.out)
+
+    print(f"Built '{args.config}' -> {args.out}")
+    for g in store.groups():
+        els = store.elements(g)
+        print(f"  group '{g}': {len(els)} element(s) [{', '.join(els)}]")
+    n_add = len(store.manifest.get("additional", []))
+    if n_add:
+        print(f"  additional: {n_add} element(s)")
+    nf = 0 if freqs is None else len(freqs)
+    nt = 0 if times is None else len(times)
+    print(f"  grid: {nf} frequencies, {nt} times")
+    return 0
+
+
+def cmd_show(args):
+    from .store import ResultStore
+
+    store = ResultStore(args.results)
+    print(f"Results in {args.results}")
+    sections = list(store.manifest["groups"].items())
+    if store.manifest.get("additional"):
+        sections.append(("additional", store.manifest["additional"]))
+    for name, records in sections:
+        print(f"  {name}:")
+        for rec in records:
+            terms = sorted({e["term"] for e in rec["terms"]})
+            origins = sorted({e["origin"] for e in rec["terms"]})
+            weight = "pre-weighted" if rec.get("pre_weighted") else \
+                f"beta=({rec.get('beta_x')}, {rec.get('beta_y')})"
+            print(f"    {rec['name']}: terms[{', '.join(terms)}] "
+                  f"origins[{', '.join(origins)}] {weight}")
+    return 0
+
+
 def cmd_status(args):
     s = cfg.tool_status()
     print("WIMBA external tools")
@@ -81,6 +122,15 @@ def main(argv=None):
 
     st = sub.add_parser("status", help="show which external tools WIMBA can find")
     st.set_defaults(func=cmd_status)
+
+    bp = sub.add_parser("build", help="build a machine from a YAML config and write per-element results")
+    bp.add_argument("config", help="path to the machine YAML config")
+    bp.add_argument("--out", default="results", help="output directory (default: results)")
+    bp.set_defaults(func=cmd_build)
+
+    sh = sub.add_parser("show", help="summarise a materialised results directory")
+    sh.add_argument("results", help="path to a results directory")
+    sh.set_defaults(func=cmd_show)
 
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):
