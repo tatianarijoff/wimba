@@ -5,6 +5,7 @@ from .core import (TermId, STANDARD_TERMS, PLANES, MULTIPOLES, ImpedanceTerm,
 from .sources import Resonator, ResonatorProvider
 from .io import read_impedance, write_impedance, read_wake, write_wake
 from .analysis import FourierTransform
+from .store import materialize, ResultStore
 
 __version__ = "0.0.1"
 __all__ = ["TermId", "STANDARD_TERMS", "PLANES", "MULTIPOLES", "ImpedanceTerm",
@@ -12,4 +13,4 @@ __all__ = ["TermId", "STANDARD_TERMS", "PLANES", "MULTIPOLES", "ImpedanceTerm",
            "PreWeighted", "Element", "ElementGroup", "Machine", "TwissTable",
            "Resonator", "ResonatorProvider",
            "read_impedance", "write_impedance", "read_wake", "write_wake",
-           "FourierTransform"]
+           "FourierTransform", "materialize", "ResultStore"]
