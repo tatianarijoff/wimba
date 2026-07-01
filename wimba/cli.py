@@ -126,7 +126,7 @@ def main(argv=None):
 
     bp = sub.add_parser("build", help="build a machine from a YAML config and write per-element results")
     bp.add_argument("config", help="path to the machine YAML config")
-    bp.add_argument("--out", default="results", help="output directory (default: results)")
+    bp.add_argument("--out", default=None, help="output directory (default: <name>_output)")
     bp.set_defaults(func=cmd_build)
 
     sh = sub.add_parser("show", help="summarise a materialised results directory")
