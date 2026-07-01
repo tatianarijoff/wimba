@@ -23,6 +23,7 @@ class Element:
     length: float
     provider: ImpedanceProvider
     optics: OpticsPolicy = field(default_factory=FromTwiss)
+    meta: dict = field(default_factory=dict)
 
     def terms(self) -> List[ImpedanceTerm]:
         return list(self.provider.terms(self))

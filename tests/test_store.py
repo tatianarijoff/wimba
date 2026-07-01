@@ -1,63 +1,72 @@
-"""The per-element file store must reproduce the in-memory Machine, with the
-same scoping/weighting, while reading one element at a time."""
+"""The store writes per-element files, a resume, and totals, and the lazy
+aggregator reproduces the in-memory machine."""
 import numpy as np
 
-from wimba import (Element, Machine, PreWeighted, Resonator, ResonatorProvider,
-                   ResultStore, TwissTable, materialize)
+from wimba import (Element, Explicit, Machine, PreWeighted, Project, Resonator,
+                   ResonatorProvider, ResultStore, TwissTable, materialize)
 
 
-def _machine():
-    m = Machine(twiss=TwissTable({"c1": (10.0, 20.0), "c2": (30.0, 40.0), "p1": (5.0, 5.0)}))
+def _project():
+    m = Machine(twiss=TwissTable())
     coll = m.add_group("collimators")
-    coll.add(Element("c1", "collimator", 1.0, ResonatorProvider([
-        Resonator("zlong", 100.0, 1.0, 1e9), Resonator("zxdip", 1.0, 1.0, 1e9)])))
-    coll.add(Element("c2", "collimator", 1.0, ResonatorProvider([
-        Resonator("zlong", 200.0, 1.0, 1.2e9)])))
-    m.add_group("pipes").add(Element("p1", "pipe", 1.0, ResonatorProvider([
-        Resonator("zlong", 40.0, 1.0, 0.9e9)])))
-    m.add_additional(Element("crab", "additional", 1.0,
-                             ResonatorProvider([Resonator("zlong", 70.0, 1.0, 0.8e9)]),
-                             optics=PreWeighted()))
-    return m
+    coll.add(Element("c1", "collimator", 1.0,
+                     ResonatorProvider([Resonator("zlong", 1e4, 1.0, 1e9),
+                                        Resonator("zxdip", 1e6, 1.0, 1e9)]),
+                     optics=Explicit(130.0, 85.0),
+                     meta={"position": 100.0, "beta_x": 130.0, "beta_y": 85.0,
+                           "info": {"length": 0.6, "material": "CFC"}}))
+    coll.add(Element("c2", "collimator", 1.0,
+                     ResonatorProvider([Resonator("zlong", 2e4, 1.0, 1.2e9)]),
+                     optics=Explicit(110.0, 160.0),
+                     meta={"position": 145.0, "beta_x": 110.0, "beta_y": 160.0,
+                           "info": {"length": 1.0}}))
+    m.add_additional(Element("crab", "rf", 1.0,
+                             ResonatorProvider([Resonator("zlong", 7e3, 1.0, 0.8e9)]),
+                             optics=PreWeighted(),
+                             meta={"position": None, "beta_x": None, "beta_y": None,
+                                   "info": {"pre_weighted": True}}))
+    f = np.linspace(0.2e9, 2.0e9, 60)
+    t = np.linspace(0.0, 5.0e-9, 60)
+    return Project("Demo", m, f, t)
 
 
-def test_store_reproduces_machine(tmp_path):
-    m = _machine()
-    f = np.linspace(0.2e9, 2.0e9, 80)
-    t = np.linspace(0.0, 5.0e-9, 80)
-    materialize(m, tmp_path / "results", freqs=f, times=t)
-    store = ResultStore(tmp_path / "results")
+def test_resume_totals_and_aggregation(tmp_path):
+    p = _project()
+    materialize(p, tmp_path / "out")
 
-    # per-element files exist and are self-contained
-    assert (tmp_path / "results" / "collimators" / "c1" / "Z__resonator__zlong.dat").is_file()
-    assert set(store.groups()) == {"collimators", "pipes"}
+    # resume + totals exist and are named after the project
+    assert (tmp_path / "out" / "Demo_resume.yaml").is_file()
+    assert (tmp_path / "out" / "total" / "TOT_ZLong.dat").is_file()
+    assert (tmp_path / "out" / "collimators" / "c1" / "c1_res_ZDipX.dat").is_file()
 
-    # whole-machine impedance and wake match the in-memory computation
-    Zmem, Zsto = m.impedance(f), store.impedance()
+    store = ResultStore(tmp_path / "out")
+    assert set(store.resume["components"]) == {"ZLong", "ZDipX"}
+
+    # lazy aggregation reproduces the in-memory machine (with beta weighting)
+    Zmem, Zsto = p.machine.impedance(p.freqs), store.impedance()
     assert set(Zmem) == set(Zsto)
     for k in Zmem:
         assert np.allclose(Zmem[k], Zsto[k])
-    Wmem, Wsto = m.wake(t), store.wake()
-    assert set(Wmem) == set(Wsto)
+    Wmem, Wsto = p.machine.wake(p.times), store.wake()
     for k in Wmem:
         assert np.allclose(Wmem[k], Wsto[k])
 
+    # the total files equal the aggregated totals
+    _, tot = np.loadtxt(tmp_path / "out" / "total" / "TOT_ZLong.dat", unpack=True)[:1], None
+    f, reZ, imZ = np.loadtxt(tmp_path / "out" / "total" / "TOT_ZLong.dat", unpack=True)
+    assert np.allclose(reZ + 1j * imZ, Zsto["zlong"], rtol=1e-4)
 
-def test_store_scoping(tmp_path):
-    m = _machine()
-    f = np.linspace(0.2e9, 2.0e9, 80)
-    materialize(m, tmp_path / "results", freqs=f)
-    store = ResultStore(tmp_path / "results")
 
-    # a single group in isolation ("all the pipes")
-    assert np.allclose(
-        m.impedance(f, groups=["pipes"], include_additional=False)["zlong"],
-        store.impedance(groups=["pipes"], include_additional=False)["zlong"])
-    # by multipole, and excluding the additional bucket
-    assert np.allclose(
-        m.impedance(f, multipole="dip", include_additional=False)["zxdip"],
-        store.impedance(multipole="dip", include_additional=False)["zxdip"])
-    # additional changes the longitudinal total
+def test_scoping_and_origin(tmp_path):
+    p = _project()
+    materialize(p, tmp_path / "out")
+    store = ResultStore(tmp_path / "out")
+
+    # exclude the pre-weighted additional
     with_add = store.impedance(multipole="long")["zlong"]
     without = store.impedance(multipole="long", include_additional=False)["zlong"]
     assert not np.allclose(with_add, without)
+    # single group
+    assert np.allclose(
+        p.machine.impedance(p.freqs, groups=["collimators"], include_additional=False)["zxdip"],
+        store.impedance(groups=["collimators"], include_additional=False)["zxdip"])

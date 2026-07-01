@@ -2,153 +2,115 @@
   <img src="../img/wimba_logo_small.png" alt="WIMBA" width="190">
 </p>
 
-# Machine config (YAML) reference
+# Input config (YAML) reference
 
-This file describes the **accelerator**: its optics and its elements, grouped by
-kind. It is read by `wimba build` (or `load_machine` in Python). It is separate
-from the tool config written by `wimba setup`, which only records where IW2D /
-pytlwall live.
+The input file is a **coordinator**: it says *where* to find things and how to
+group them - it does not repeat information that already lives elsewhere. Optics
+(position, length, beta) are read from a MAD-X twiss file, matched by element
+name; each element only names its source (an analytic resonator, a pytlwall cfg,
+or a pre-computed `.dat`) and any device-specific info MAD-X doesn't carry.
+
+Name the file after the study, e.g. `SubLHC_input.yaml`, `FODO_input.yaml`.
 
 ## Minimal example
 
 ```yaml
+name: SubLHC
+optics: SubLHC.tfs
 grid:
-  freq: {min: 1.0e8, max: 3.0e9, n: 400, log: true}
-
-twiss:
-  c1: [10.0, 20.0]
-
+  frequency: {min: 1.0e8, max: 3.0e9, n: 400, log: true}
 groups:
   collimators:
-    - name: c1
+    - name: TCP.C6L7.B1        # a MAD-X element name
       source: resonator
       resonators:
         - {term: zlong, Rs: 1.0e4, Q: 1.0, fr: 1.0e9}
 ```
 
-## Top-level sections
+## Top-level keys
 
-| section | required | meaning |
-|---------|----------|---------|
-| `grid` | for `build` | the frequency / time grids every element is computed on |
-| `twiss` | optional | element name → `[beta_x, beta_y]`, used for beta weighting |
-| `groups` | yes | named buckets of elements (`collimators`, `pipes`, ...) |
-| `additional` | optional | pre-weighted elements kept apart from the groups |
+| key | meaning |
+|-----|---------|
+| `name` | study name; names the output (`<name>_output/`, `<name>_resume.yaml`) |
+| `optics` | path to a MAD-X twiss (`.tfs`); elements matched by `NAME` |
+| `grid.frequency` / `grid.time` | `{min, max, n, log}` grids (time optional) |
+| `groups` | named categories, each a list of elements |
+| `additional` | elements already summed/weighted, kept apart from the ring sum |
 
-### `grid`
-
-```yaml
-grid:
-  freq: {min: 1.0e8, max: 3.0e9, n: 400, log: true}   # impedance grid
-  time: {min: 0.0,   max: 5.0e-9, n: 400}              # wake grid (optional)
-```
-
-| field | meaning |
-|-------|---------|
-| `min`, `max` | range endpoints (Hz for `freq`, s for `time`) |
-| `n` | number of points |
-| `log` | `true` for logarithmic spacing (default linear) |
-
-If `time` is omitted, only impedances are written; if `freq` is omitted, only
-wakes are written.
-
-### `twiss`
-
-```yaml
-twiss:
-  c1: [10.0, 20.0]      # beta_x, beta_y at element c1
-  p1: [5.0, 5.0]
-```
-
-An element without inline betas looks itself up here **by name**. A name not
-needed here can be omitted (e.g. pre-weighted elements).
+Paths (`optics`, element `file`) are resolved relative to the config file.
+Instead of `optics:` you may inline `twiss: {NAME: [beta_x, beta_y]}` for quick tests.
 
 ## Elements
 
-Each entry in a group (or in `additional`) is an element:
-
 ```yaml
-- name: c1               # required; also the twiss lookup key
-  category: collimator   # optional, default "element"; used for grouping/labels
-  length: 1.0            # optional, default 1.0 (metres)
-  source: resonator      # which engine produces the terms (default "resonator")
+- name: TCP.C6L7.B1       # MAD-X name -> position, length, beta come from optics
+  category: collimator    # optional label (also the group intent)
+  source: resonator       # which engine builds the terms
+  info: {material: CFC}    # optional, free-form, device-specific (variable)
   # ... source-specific fields ...
-  # ... optics (see below) ...
 ```
 
-### Optics: how an element gets its beta
+Optics resolution, in order: `pre_weighted: true` -> summed as-is (weight 1);
+else inline `beta_x`/`beta_y`; else the MAD-X row for `name`. Position and length
+always come from MAD-X when available.
 
-Pick one; checked in this order:
+### Sources
 
-| if you write... | WIMBA uses |
-|-----------------|------------|
-| `pre_weighted: true` | the impedance as-is (beta already included), weight 1 |
-| `beta_x: ...` and `beta_y: ...` | those betas directly |
-| *(nothing)* | a lookup in `twiss` by the element's `name` |
-| `twiss_name: OTHER` | a lookup in `twiss` by `OTHER` instead of `name` |
-
-`pre_weighted` is for contributions already summed/weighted elsewhere — e.g. an
-externally computed model dropped into `additional`.
-
-## Sources (engines)
-
-### `resonator`
-
-Analytic resonator terms.
+**`resonator`** - analytic terms:
 
 ```yaml
 source: resonator
 resonators:
-  - {term: zlong, Rs: 1.0e4, Q: 1.0, fr: 1.0e9}
-  - {term: zxdip, Rs: 1.0e6, Q: 1.0, fr: 1.0e9}
+  - {term: zlong, Rs: 1.0e4, Q: 1.0, fr: 1.0e9}   # term in
+  - {term: zxdip, Rs: 1.0e6, Q: 1.0, fr: 1.0e9}   # zlong/zxdip/zydip/zxquad/zyquad
 ```
 
-| field | meaning |
-|-------|---------|
-| `term` | one of `zlong`, `zxdip`, `zydip`, `zxquad`, `zyquad` |
-| `Rs` | shunt impedance (Ω for `zlong`, Ω/m for transverse) |
-| `Q` | quality factor |
-| `fr` | resonant frequency (Hz) |
-
-*(More engines — `resistive_wall` via pytlwall, tabulated `cst` import — register
-the same way and add their own fields here as they land.)*
-
-## Full annotated example
+**`cst` / `table`** - import an already-computed `.dat`:
 
 ```yaml
-grid:
-  freq: {min: 1.0e8, max: 3.0e9, n: 400, log: true}
-  time: {min: 0.0,   max: 5.0e-9, n: 400}
+source: cst
+file: data/TCP_SC_zlong.dat
+term: zlong
+origin: space_charge_direct   # how it is tagged (res, rw, sc, dsc, cst, ...)
+quantity: impedance           # or "wake"
+```
 
-twiss:
-  c1: [10.0, 20.0]
-  c2: [30.0, 40.0]
-  p1: [5.0, 5.0]
+*(The `tlwall` engine - a single pytlwall chamber via a `cfg:` reference,
+producing resistive-wall and space-charge terms - registers the same way.)*
 
+## What `build` produces (the resume)
+
+`wimba build` writes `<name>_output/` containing per-element files, a `total/`
+folder, and `<name>_resume.yaml`. The resume opens with the grids and the list of
+components, then the totals, then per element its optics/info and what was
+computed:
+
+```yaml
+name: SubLHC
+grid: {frequency: {min: 1.0e8, max: 3.0e9, n: 400}, time: {min: 0.0, max: 5.0e-9, n: 400}}
+components: [ZDipX, ZDipY, ZLong, ZQuadX, ZQuadY]
+total:
+  ZLong: total/TOT_ZLong.dat
+  ZDipX: total/TOT_ZDipX.dat
+  # ... WLong, WDipX, ...
 groups:
   collimators:
-    - name: c1
-      category: collimator
-      source: resonator
-      resonators:
-        - {term: zlong, Rs: 1.0e4, Q: 1.0, fr: 1.0e9}
-        - {term: zxdip, Rs: 1.0e6, Q: 1.0, fr: 1.0e9}
-    - name: c2
-      category: collimator
-      source: resonator
-      resonators:
-        - {term: zlong, Rs: 2.0e4, Q: 1.0, fr: 1.2e9}
-  pipes:
-    - name: p1
-      category: pipe
-      source: resonator
-      resonators:
-        - {term: zlong, Rs: 4.0e1, Q: 1.0, fr: 0.9e9}
-
-additional:
-  - name: crab
-    source: resonator
-    pre_weighted: true
-    resonators:
-      - {term: zlong, Rs: 7.0e3, Q: 1.0, fr: 0.8e9}
+    - name: TCP.C6L7.B1
+      optics: {position: 100.0, beta_x: 130.0, beta_y: 85.0}   # position + beta
+      info: {length: 0.6, material: CFC, half_gap_mm: 3.0}     # variable per device
+      origin: resonator
+      impedance:
+        ZLong: collimators/TCP.C6L7.B1/TCP.C6L7.B1_res_ZLong.dat
+        ZDipX: collimators/TCP.C6L7.B1/TCP.C6L7.B1_res_ZDipX.dat
+        # ...
+      wake:
+        WLong: collimators/TCP.C6L7.B1/TCP.C6L7.B1_res_WLong.dat
+        # ...
 ```
+
+File names read `<Element>_<origin>_<Component>.dat` (e.g. `TCP.C6L7.B1_res_ZLong.dat`,
+`TCP.SC.B1_dsc_ZLong.dat`); totals are `TOT_<Component>.dat`. A device usually has
+one `origin`; a resistive-wall device that also carries space charge will list
+more than one, and the origin tag in each file name keeps them distinct.
+
+See [BUILD.md](BUILD.md) for the commands and how to read/aggregate the output.

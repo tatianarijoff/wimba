@@ -1,1 +1,2 @@
-from .loader import load_machine, SOURCE_BUILDERS
+from .loader import load_project, Project, SOURCE_BUILDERS
+from . import madx

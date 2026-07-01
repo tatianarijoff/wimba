@@ -1,0 +1,65 @@
+# WIMBA input coordinator.
+# It only says WHERE to find things: the MAD-X optics, the source of each
+# element (analytic resonator, or a pre-computed .dat). Optics (position,
+# length, beta) come from the MAD-X file, matched by element name - never
+# retyped here.
+#
+#   wimba build examples/SubLHC_input.yaml
+#   wimba show  SubLHC_output
+
+name: SubLHC
+
+optics: SubLHC.tfs            # MAD-X twiss; elements are matched by NAME
+
+grid:
+  frequency: {min: 1.0e8, max: 3.0e9, n: 400, log: true}
+  time:      {min: 0.0,   max: 5.0e-9, n: 400}
+
+groups:
+
+  collimators:
+    # a full device: all five multipoles
+    - name: TCP.C6L7.B1
+      category: collimator
+      source: resonator
+      info: {material: CFC, half_gap_mm: 3.0}
+      resonators:
+        - {term: zlong,  Rs: 1.0e4, Q: 1.0, fr: 1.0e9}
+        - {term: zxdip,  Rs: 1.0e6, Q: 1.0, fr: 1.0e9}
+        - {term: zydip,  Rs: 1.2e6, Q: 1.0, fr: 1.0e9}
+        - {term: zxquad, Rs: 3.0e5, Q: 1.0, fr: 1.0e9}
+        - {term: zyquad, Rs: 3.5e5, Q: 1.0, fr: 1.0e9}
+    - name: TCSG.A6L7.B1
+      category: collimator
+      source: resonator
+      info: {material: MoGr, half_gap_mm: 5.0}
+      resonators:
+        - {term: zlong, Rs: 2.0e4, Q: 1.0, fr: 1.2e9}
+        - {term: zxdip, Rs: 8.0e5, Q: 1.0, fr: 1.2e9}
+
+  pipes:
+    - name: MB.A8L7.B1
+      category: pipe
+      source: resonator
+      info: {material: beam_screen, radius_mm: 18.4}
+      resonators:
+        - {term: zlong, Rs: 4.0e1, Q: 1.0, fr: 0.9e9}
+
+  space_charge:
+    # a pre-computed direct space-charge term, imported from a file
+    - name: TCP.SC.B1
+      category: space_charge
+      source: cst
+      file: data/TCP_SC_zlong.dat
+      term: zlong
+      origin: space_charge_direct
+
+# already-weighted contributions (beta baked in) kept apart from the ring sum
+additional:
+  - name: crab
+    category: rf
+    source: cst
+    file: data/crab_zlong.dat
+    term: zlong
+    origin: cst
+    pre_weighted: true

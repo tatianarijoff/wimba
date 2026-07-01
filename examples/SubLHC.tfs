@@ -1,0 +1,9 @@
+@ NAME             %05s "TWISS"
+@ TYPE             %05s "TWISS"
+@ SEQUENCE         %06s "SUBLHC"
+* NAME                          S               L            BETX            BETY
+$ %s                           %le             %le             %le             %le
+ "TCP.C6L7.B1"               100.00            0.60          130.00           85.00
+ "TCSG.A6L7.B1"              145.00            1.00          110.00          160.00
+ "MB.A8L7.B1"                310.50           14.30           95.00          178.00
+ "TCP.SC.B1"                 148.00            1.00          110.00          160.00

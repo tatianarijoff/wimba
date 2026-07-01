@@ -9,8 +9,7 @@
 - [Data model](DATA_MODEL.md) — the architecture and the core objects
   (`ImpedanceTerm`, `Element`, `ElementGroup`, `Machine`), beta weighting and how
   to query a machine.
-- [Building a machine](BUILD.md) — `wimba build` and `wimba show`, and how the
-  per-element results are written and summed.
+- [Building a machine](BUILD.md) — `wimba build` and `wimba show`; output layout, resume and totals.
 - [Machine config reference](CONFIG.md) — the YAML format, field by field.
 - [Resonator source](RESONATOR.md) — the analytic resonator source: Chao
   formulas (matching xwakes), conventions and limitations.

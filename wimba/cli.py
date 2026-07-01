@@ -57,23 +57,24 @@ def cmd_setup(args):
 
 
 def cmd_build(args):
-    from .builders import load_machine
+    from .builders import load_project
     from .store import materialize, ResultStore
 
-    machine, freqs, times = load_machine(args.config)
-    materialize(machine, args.out, freqs=freqs, times=times)
-    store = ResultStore(args.out)
+    project = load_project(args.config)
+    out = args.out or f"{project.name}_output"
+    resume = materialize(project, out)
+    store = ResultStore(out)
 
-    print(f"Built '{args.config}' -> {args.out}")
+    print(f"Built '{project.name}' from '{args.config}' -> {out}/")
+    print(f"  resume: {resume.name}")
     for g in store.groups():
         els = store.elements(g)
         print(f"  group '{g}': {len(els)} element(s) [{', '.join(els)}]")
-    n_add = len(store.manifest.get("additional", []))
+    n_add = len(store.resume.get("additional", []))
     if n_add:
         print(f"  additional: {n_add} element(s)")
-    nf = 0 if freqs is None else len(freqs)
-    nt = 0 if times is None else len(times)
-    print(f"  grid: {nf} frequencies, {nt} times")
+    print(f"  components: {', '.join(store.resume.get('components', []))}")
+    print(f"  totals in {out}/total/")
     return 0
 
 
@@ -81,19 +82,19 @@ def cmd_show(args):
     from .store import ResultStore
 
     store = ResultStore(args.results)
-    print(f"Results in {args.results}")
-    sections = list(store.manifest["groups"].items())
-    if store.manifest.get("additional"):
-        sections.append(("additional", store.manifest["additional"]))
+    r = store.resume
+    print(f"Project '{r.get('name')}'  (grid: {r.get('grid')})")
+    print(f"  components: {', '.join(r.get('components', []))}")
+    sections = list(r["groups"].items())
+    if r.get("additional"):
+        sections.append(("additional", r["additional"]))
     for name, records in sections:
         print(f"  {name}:")
         for rec in records:
-            terms = sorted({e["term"] for e in rec["terms"]})
-            origins = sorted({e["origin"] for e in rec["terms"]})
-            weight = "pre-weighted" if rec.get("pre_weighted") else \
-                f"beta=({rec.get('beta_x')}, {rec.get('beta_y')})"
-            print(f"    {rec['name']}: terms[{', '.join(terms)}] "
-                  f"origins[{', '.join(origins)}] {weight}")
+            comps = sorted(rec.get("impedance", {})) + sorted(rec.get("wake", {}))
+            print(f"    {rec['name']}: optics{dict(rec['optics'])} "
+                  f"info{dict(rec['info'])} origin={rec['origin']}")
+            print(f"        computed: {', '.join(comps)}")
     return 0
 
 

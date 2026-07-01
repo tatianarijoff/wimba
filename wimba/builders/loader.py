@@ -1,32 +1,52 @@
-"""Build a Machine from a YAML config file (the configurator).
+"""Build a project from a YAML config that *coordinates* input files.
 
-The config describes the optics and the elements, grouped by kind. Each element
-names a source ("engine") that produces its impedance/wake terms. New engines
-register in ``SOURCE_BUILDERS`` and become available in the config with no other
-change.
+The config says where to find things - the MAD-X optics file, per-element source
+files (pytlwall cfg, tabulated impedances) - so the same information is never
+written twice. Optics (position, length, beta) come from the MAD-X twiss, matched
+by element name; the config only adds what MAD-X doesn't know (the source and any
+device-specific info).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import yaml
 
 from ..core.element import Element
 from ..core.machine import Machine, TwissTable
-from ..core.optics import Explicit, FromTwiss, PreWeighted
+from ..core.optics import Explicit, PreWeighted
 from ..sources.resonator import Resonator, ResonatorProvider
+from ..sources.table import TableProvider
+from . import madx
 
 
-def _build_resonator(el):
-    resonators = [Resonator(r["term"], float(r["Rs"]), float(r["Q"]), float(r["fr"]))
-                  for r in el["resonators"]]
-    return ResonatorProvider(resonators)
+@dataclass
+class Project:
+    name: str
+    machine: Machine
+    freqs: Optional[np.ndarray] = None
+    times: Optional[np.ndarray] = None
 
 
-#: source name -> function(element_dict) -> ImpedanceProvider
+def _build_resonator(el, base):
+    res = [Resonator(r["term"], float(r["Rs"]), float(r["Q"]), float(r["fr"]))
+           for r in el["resonators"]]
+    return ResonatorProvider(res)
+
+
+def _build_table(el, base):
+    return TableProvider(str(base / el["file"]), term=el["term"],
+                         origin=el.get("origin", "imported"),
+                         quantity=el.get("quantity", "impedance"))
+
+
 SOURCE_BUILDERS = {
     "resonator": _build_resonator,
+    "cst": _build_table,
+    "table": _build_table,
 }
 
 
@@ -39,44 +59,61 @@ def _grid(spec):
     return np.linspace(lo, hi, n)
 
 
-def _optics(el):
-    if el.get("pre_weighted"):
-        return PreWeighted()
-    if "beta_x" in el and "beta_y" in el:
-        return Explicit(float(el["beta_x"]), float(el["beta_y"]))
-    return FromTwiss(el.get("twiss_name"))
-
-
-def _provider(el):
+def _provider(el, base):
     source = el.get("source", "resonator")
     builder = SOURCE_BUILDERS.get(source)
     if builder is None:
-        raise ValueError(
-            f"element '{el.get('name')}' uses unknown source '{source}'. "
-            f"Known sources: {', '.join(sorted(SOURCE_BUILDERS))}.")
-    return builder(el)
+        raise ValueError(f"element '{el.get('name')}' uses unknown source '{source}'. "
+                         f"Known: {', '.join(sorted(SOURCE_BUILDERS))}.")
+    return builder(el, base)
 
 
-def _element(el):
-    return Element(name=el["name"],
-                   category=el.get("category", "element"),
-                   length=float(el.get("length", 1.0)),
-                   provider=_provider(el),
-                   optics=_optics(el))
+def _element(el, base, twiss):
+    name = el["name"]
+    row = twiss.get(name, {})
+    pos = madx.get(row, "S", "POSITION")
+    length = madx.get(row, "L", "LENGTH", default=el.get("length", 1.0))
+    bx = madx.get(row, "BETX", "BETA_X")
+    by = madx.get(row, "BETY", "BETA_Y")
+
+    info = {"length": float(length) if length is not None else None}
+    info.update(el.get("info", {}))
+
+    if el.get("pre_weighted") or (bx is None and "beta_x" not in el):
+        optics = PreWeighted()
+        meta = {"position": pos, "beta_x": None, "beta_y": None,
+                "info": {**info, "pre_weighted": True}}
+    else:
+        bx = float(el.get("beta_x", bx))
+        by = float(el.get("beta_y", by))
+        optics = Explicit(bx, by)
+        meta = {"position": pos, "beta_x": bx, "beta_y": by, "info": info}
+
+    return Element(name=name, category=el.get("category", "element"),
+                   length=float(length) if length is not None else 1.0,
+                   provider=_provider(el, base), optics=optics, meta=meta)
 
 
-def load_machine(path):
-    """Read a YAML machine config. Returns (machine, freqs, times)."""
-    data = yaml.safe_load(Path(path).read_text()) or {}
-    twiss = TwissTable({k: (float(v[0]), float(v[1]))
-                        for k, v in (data.get("twiss") or {}).items()})
-    machine = Machine(twiss=twiss)
+def load_project(path) -> Project:
+    cfg_path = Path(path)
+    base = cfg_path.parent
+    data = yaml.safe_load(cfg_path.read_text()) or {}
+
+    twiss = madx.read_twiss(base / data["optics"]) if data.get("optics") else {}
+    # inline twiss (name -> [bx, by]) as a fallback / simple case
+    for k, v in (data.get("twiss") or {}).items():
+        twiss.setdefault(k, {"NAME": k, "BETX": float(v[0]), "BETY": float(v[1])})
+
+    machine = Machine(twiss=TwissTable())  # optics carried per element (Explicit)
     for group_name, elements in (data.get("groups") or {}).items():
         group = machine.add_group(group_name)
         for el in elements:
-            group.add(_element(el))
+            group.add(_element(el, base, twiss))
     for el in (data.get("additional") or []):
-        machine.add_additional(_element(el))
+        machine.add_additional(_element(el, base, twiss))
 
     grid = data.get("grid") or {}
-    return machine, _grid(grid.get("freq")), _grid(grid.get("time"))
+    freqs = _grid(grid.get("frequency") or grid.get("freq"))
+    times = _grid(grid.get("time"))
+    return Project(name=data.get("name", cfg_path.stem), machine=machine,
+                   freqs=freqs, times=times)
