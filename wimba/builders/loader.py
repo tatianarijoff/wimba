@@ -29,6 +29,7 @@ class Project:
     machine: Machine
     freqs: Optional[np.ndarray] = None
     times: Optional[np.ndarray] = None
+    output: Optional[str] = None
 
 
 def _build_resonator(el, base):
@@ -116,4 +117,4 @@ def load_project(path) -> Project:
     freqs = _grid(grid.get("frequency") or grid.get("freq"))
     times = _grid(grid.get("time"))
     return Project(name=data.get("name", cfg_path.stem), machine=machine,
-                   freqs=freqs, times=times)
+                   freqs=freqs, times=times, output=data.get("output"))

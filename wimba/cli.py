@@ -61,7 +61,15 @@ def cmd_build(args):
     from .store import materialize, ResultStore
 
     project = load_project(args.config)
-    out = args.out or f"{project.name}_output"
+    cfg_dir = Path(args.config).parent
+    if args.out:
+        out = args.out
+    elif project.output:
+        out = project.output
+        if not Path(out).is_absolute():
+            out = str(cfg_dir / out)
+    else:
+        out = str(cfg_dir / project.name / "output")
     resume = materialize(project, out)
     store = ResultStore(out)
 

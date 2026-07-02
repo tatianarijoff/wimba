@@ -31,7 +31,8 @@ groups:
 
 | key | meaning |
 |-----|---------|
-| `name` | study name; names the output (`<name>_output/`, `<name>_resume.yaml`) |
+| `name` | study name; names the resume (`<name>_resume.yaml`) |
+| `output` | optional output dir (relative to the config); see BUILD.md for precedence |
 | `optics` | path to a MAD-X twiss (`.tfs`); elements matched by `NAME` |
 | `grid.frequency` / `grid.time` | `{min, max, n, log}` grids (time optional) |
 | `groups` | named categories, each a list of elements |
@@ -69,14 +70,17 @@ resonators:
 
 ```yaml
 source: cst
-file: data/TCP_SC_zlong.dat
+file: data/crab_zlong.dat
 term: zlong
-origin: space_charge_direct   # how it is tagged (res, rw, sc, dsc, cst, ...)
+origin: cst                   # how it is tagged (res, rw, sc, dsc, cst, ...)
 quantity: impedance           # or "wake"
 ```
 
-*(The `tlwall` engine - a single pytlwall chamber via a `cfg:` reference,
-producing resistive-wall and space-charge terms - registers the same way.)*
+Space charge (longitudinal, dipolar, quadrupolar) and resistive wall are NOT
+imported by hand: they are computed per chamber by the `tlwall` engine
+(`source: tlwall`, a pytlwall `cfg:` reference), which registers the same way and
+is coming next. Import (`cst`) is for genuinely external data, e.g. a measured or
+CST-simulated device.
 
 ## What `build` produces (the resume)
 
@@ -109,7 +113,7 @@ groups:
 ```
 
 File names read `<Element>_<origin>_<Component>.dat` (e.g. `TCP.C6L7.B1_res_ZLong.dat`,
-`TCP.SC.B1_dsc_ZLong.dat`); totals are `TOT_<Component>.dat`. A device usually has
+`MB.A8L7.B1_rw_ZDipX.dat`); totals are `TOT_<Component>.dat`. A device usually has
 one `origin`; a resistive-wall device that also carries space charge will list
 more than one, and the origin tag in each file name keeps them distinct.
 

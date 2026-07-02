@@ -4,12 +4,19 @@
 # length, beta) come from the MAD-X file, matched by element name - never
 # retyped here.
 #
-#   wimba build examples/SubLHC_input.yaml
-#   wimba show  SubLHC_output
+#   wimba build examples/SubLHC_input.yaml           # -> examples/SubLHC/output/
+#   wimba show  examples/SubLHC/output
+#
+# Output location, in order of precedence:
+#   1. --out <dir> on the command line
+#   2. the  output:  key below
+#   3. default: <config_dir>/<name>/output   (here: examples/SubLHC/output)
 
 name: SubLHC
 
-optics: SubLHC.tfs            # MAD-X twiss; elements are matched by NAME
+# output: SubLHC/output          # optional; relative to this file
+
+optics: SubLHC/SubLHC.tfs            # MAD-X twiss; elements are matched by NAME
 
 grid:
   frequency: {min: 1.0e8, max: 3.0e9, n: 400, log: true}
@@ -50,7 +57,7 @@ groups:
     - name: TCP.SC.B1
       category: space_charge
       source: cst
-      file: data/TCP_SC_zlong.dat
+      file: SubLHC/data/TCP_SC_zlong.dat
       term: zlong
       origin: space_charge_direct
 
@@ -59,7 +66,7 @@ additional:
   - name: crab
     category: rf
     source: cst
-    file: data/crab_zlong.dat
+    file: SubLHC/data/crab_zlong.dat
     term: zlong
     origin: cst
     pre_weighted: true
