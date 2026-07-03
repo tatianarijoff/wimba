@@ -14,7 +14,8 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings, Qt
-from PyQt6.QtGui import QAction, QActionGroup, QIcon, QKeySequence, QPixmap
+from PyQt6.QtGui import (QAction, QActionGroup, QColor, QIcon, QKeySequence,
+                         QPainter, QPixmap)
 from PyQt6.QtWidgets import (QApplication, QDockWidget, QHBoxLayout, QLabel,
                              QMainWindow, QMessageBox, QTabBar, QTabWidget,
                              QVBoxLayout, QWidget)
@@ -46,6 +47,7 @@ DOCKS = {
 def empty_state(icon: str, title: str, text: str) -> QWidget:
     """A centered empty-state placeholder used until a panel has content."""
     w = QWidget()
+    w.setStyleSheet("background: transparent;")
     lay = QVBoxLayout(w)
     lay.addStretch(1)
     for oid, txt, wrap in (("EmptyIcon", icon, False),
@@ -58,6 +60,34 @@ def empty_state(icon: str, title: str, text: str) -> QWidget:
         lay.addWidget(lab)
     lay.addStretch(2)
     return w
+
+
+class Watermark(QWidget):
+    """A panel that paints the WIMBA logo faintly behind its content."""
+
+    def __init__(self, pixmap):
+        super().__init__()
+        self._pm = pixmap
+        self._bg = QColor("#151b23")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+    def set_bg(self, color):
+        self._bg = QColor(color)
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.fillRect(self.rect(), self._bg)
+        if not self._pm.isNull():
+            side = int(min(self.width(), self.height()) * 0.55)
+            if side > 0:
+                pm = self._pm.scaled(side, side, Qt.AspectRatioMode.KeepAspectRatio,
+                                     Qt.TransformationMode.SmoothTransformation)
+                p.setOpacity(0.06)
+                p.drawPixmap((self.width() - pm.width()) // 2,
+                             (self.height() - pm.height()) // 2, pm)
+        p.end()
 
 
 class MainWindow(QMainWindow):
@@ -91,10 +121,13 @@ class MainWindow(QMainWindow):
         self.center.setTabsClosable(True)
         self.center.tabCloseRequested.connect(self._close_center_tab)
 
-        self.plot_panel = empty_state("\u223f", "No curves plotted",
-            "Drag a result here from an element's Outputs, the basket, or the table.")
-        self.results_panel = empty_state("\u25a6", "No datasets in table",
-            "Drag result chips here to compare elements and methods side by side.")
+        wm = QPixmap(asset("wimba_logo_small.png"))
+        self.plot_panel = Watermark(wm)
+        self.plot_panel.layout().addWidget(empty_state("\u223f", "No curves plotted",
+            "Drag a result here from an element's Outputs, the basket, or the table."))
+        self.results_panel = Watermark(wm)
+        self.results_panel.layout().addWidget(empty_state("\u25a6", "No datasets in table",
+            "Drag result chips here to compare elements and methods side by side."))
         self.center.addTab(self.plot_panel, "Plot Workspace")
         self.center.addTab(self.results_panel, "Results Table")
         for i in range(2):                  # Plot/Results are permanent
@@ -150,7 +183,7 @@ class MainWindow(QMainWindow):
         logo = QLabel()
         pm = QPixmap(asset("wimba_logo_small.png"))
         if not pm.isNull():
-            logo.setPixmap(pm.scaledToHeight(20, Qt.TransformationMode.SmoothTransformation))
+            logo.setPixmap(pm.scaledToHeight(28, Qt.TransformationMode.SmoothTransformation))
         name = QLabel("WIMBA")
         name.setObjectName("Brand")
         h.addWidget(logo)
@@ -247,6 +280,10 @@ class MainWindow(QMainWindow):
         self.theme = name
         QApplication.instance().setStyleSheet(build_style(THEMES[name]))
         self.settings.setValue("theme", name)
+        bg = THEMES[name]["bg"]
+        if hasattr(self, "plot_panel"):
+            self.plot_panel.set_bg(bg)
+            self.results_panel.set_bg(bg)
         if name in self._theme_actions:
             self._theme_actions[name].setChecked(True)
 
