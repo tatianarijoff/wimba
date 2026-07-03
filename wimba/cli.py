@@ -86,6 +86,55 @@ def cmd_build(args):
     return 0
 
 
+def cmd_run(args):
+    from .run import run
+
+    plot = args.plot.split(",") if args.plot else None
+    info = run(args.config, out_dir=args.out, plot=plot, part=args.part)
+    st = info["stats"]
+    print(f"Ran '{args.config}': {info['n_rows']} assignment(s) -> {info['out']}/")
+    print(f"  computed: {st['computed']} | skipped: {st['skipped']} "
+          f"| distinct geometries: {st['geometries']}")
+    print(f"  total: {info['out']}/single_elements/total.csv")
+    if info["plot"]:
+        print(f"  plot:  {info['plot']}")
+    return 0
+
+
+def cmd_plot(args):
+    from pathlib import Path
+    from .plotting import plot_totals
+
+    components = args.components.split(",") if args.components else None
+    out = args.out or str(Path(args.totals).with_suffix(".png"))
+    path = plot_totals(args.totals, components=components, part=args.part, save=out)
+    which = ", ".join(components) if components else "all components"
+    print(f"Plotted {which} ({args.part}) -> {path}")
+    return 0
+
+
+def cmd_assemble(args):
+    from pathlib import Path
+    from .assembly import load_assembly, write_csv
+
+    result = load_assembly(args.config)
+    out_dir = Path(args.out) if args.out else Path(args.config).parent
+    path = write_csv(result, out_dir / f"{result.name}_assignments.csv")
+
+    devices = sum(1 for r in result.rows if r.kind == "device")
+    pipes = len(result.rows) - devices
+    print(f"Assembled '{result.name}': {len(result.rows)} contribution(s) -> {path}")
+    print(f"  devices: {devices} | default_pipe rows: {pipes}")
+    if result.collisions:
+        print(f"  collisions: {len(result.collisions)}")
+        for c in result.collisions[:10]:
+            tag = "intentional" if c.intentional else "ERROR"
+            print(f"    s={c.position:.3f} m: {', '.join(c.names)}  [{tag}]")
+    else:
+        print("  collisions: none")
+    return 0
+
+
 def cmd_show(args):
     from .store import ResultStore
 
@@ -136,6 +185,25 @@ def main(argv=None):
     bp.add_argument("config", help="path to the machine YAML config")
     bp.add_argument("--out", default=None, help="output directory (default: <name>_output)")
     bp.set_defaults(func=cmd_build)
+
+    rn = sub.add_parser("run", help="assemble, compute, write the total and optional plot")
+    rn.add_argument("config", help="path to the assembly YAML coordinator")
+    rn.add_argument("--out", default=None, help="output directory (default: <name>_output)")
+    rn.add_argument("--plot", default=None, help="components to plot, e.g. ZLong,ZDipX")
+    rn.add_argument("--part", default="abs", choices=["abs", "re", "im"])
+    rn.set_defaults(func=cmd_run)
+
+    pl = sub.add_parser("plot", help="plot machine totals from a totals CSV")
+    pl.add_argument("totals", help="path to a single_elements/total.csv")
+    pl.add_argument("--components", default=None, help="comma-separated, e.g. ZLong,ZDipX")
+    pl.add_argument("--part", default="abs", choices=["abs", "re", "im"])
+    pl.add_argument("--out", default=None, help="output image (default: <totals>.png)")
+    pl.set_defaults(func=cmd_plot)
+
+    ap = sub.add_parser("assemble", help="assemble impedance assignments from optics + device files")
+    ap.add_argument("config", help="path to the assembly YAML coordinator")
+    ap.add_argument("--out", default=None, help="output directory (default: next to the config)")
+    ap.set_defaults(func=cmd_assemble)
 
     sh = sub.add_parser("show", help="summarise a materialised results directory")
     sh.add_argument("results", help="path to a results directory")

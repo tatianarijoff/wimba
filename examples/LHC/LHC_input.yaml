@@ -1,0 +1,36 @@
+# WIMBA assembly coordinator for LHC Beam 1.
+# Pulls real data from the pywit LHC model: the MAD-X twiss (optics), the
+# collimator reference (JSON), and the RF-cavity HOMs (JSON). Every lattice
+# location that is not a named device gets the default resistive wall.
+#
+#   wimba assemble examples/LHC/LHC_input.yaml     # -> examples/LHC/LHCB1_assignments.csv
+
+name: LHCB1
+
+optics: data/twiss_lhcb1_beta130cm.tfs        # MAD-X twiss; beta by position, then name
+
+grid:
+  frequency: {min: 1.0e5, max: 1.0e10, n: 30, log: true}
+
+# per-device output only for the devices listed here (total is always written)
+output: [TCP.C6L7.B1]
+
+# default resistive wall applied per lattice row (plain: L only, beta at the end).
+# geometry is a placeholder for now (to be set with sensible LHC values later).
+default_pipe:
+  method: pytlwall
+  space_charge: false
+  radius_mm: 22.0
+  material: stainless_steel
+
+devices:
+  collimators:
+    source: collimators_json
+    file: data/lhc_collimators_reference_b1.json
+    method: pytlwall
+    space_charge: true
+
+  rf_homs:
+    source: resonators_json
+    file: data/lhc_rf_cavities_homs.json
+    method: resonator

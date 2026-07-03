@@ -22,7 +22,7 @@ import numpy as np
 
 from .builders import madx
 
-BASE_METHODS = ("pytlwall", "IW2D", "precalculated", "resonator")
+BASE_METHODS = ("pytlwall", "iw2d", "precalculated", "resonator")
 DEFAULT_TOL = 1e-3   # metres
 
 
@@ -37,14 +37,17 @@ class Device:
     beta: Optional[tuple] = None      # explicit (bx, by) override
     allow_overlap: bool = False
     length: Optional[float] = None
+    geometry: Optional[dict] = None
+    group: str = ""
 
 
 @dataclass
 class DefaultPipe:
     """The default resistive wall applied to uncovered lattice rows (plain)."""
-    method: str = "IW2D"              # pytlwall or IW2D
+    method: str = "pytlwall"           # one of BASE_METHODS
     space_charge: bool = False
     weighted: bool = False            # default pipe is plain: beta applied by WIMBA
+    geometry: Optional[dict] = None
 
 
 @dataclass
@@ -60,6 +63,8 @@ class Assignment:
     beta_source: str                   # "interp" | "name" | "explicit" | "default-1"
     allow_overlap: bool
     length: Optional[float] = None
+    geometry: Optional[dict] = None
+    group: str = ""
 
 
 @dataclass
@@ -121,7 +126,8 @@ def _resolve(dev: Device, twiss: dict, beta: _Beta):
 
 
 def _collisions(rows, tol):
-    placed = sorted((r for r in rows if r.position is not None), key=lambda r: r.position)
+    placed = sorted((r for r in rows if r.position is not None and r.kind == "device"),
+                    key=lambda r: r.position)
     groups = []
     for r in placed:
         if groups and abs(r.position - groups[-1][0]) <= tol:
@@ -153,7 +159,8 @@ def assemble(twiss: dict, devices, default_pipe: Optional[DefaultPipe],
                 if s is not None and abs(float(s) - pos) <= tol:
                     claimed.add(nm)
         rows.append(Assignment(pos, dev.name, "device", dev.method, dev.weighted,
-                               sc, bx, by, src, dev.allow_overlap, dev.length))
+                               sc, bx, by, src, dev.allow_overlap, dev.length,
+                               dev.geometry, dev.group))
 
     if default_pipe is not None:
         for nm, row in sorted(twiss.items(),
@@ -161,14 +168,15 @@ def assemble(twiss: dict, devices, default_pipe: Optional[DefaultPipe],
             if nm in claimed:
                 continue
             s = madx.get(row, "S")
-            if s is None:
+            L = madx.get(row, "L")
+            if s is None or not L or float(L) <= 0.0:
                 continue
             s = float(s)
             bx, by = beta.at(s)
             sc = bool(default_pipe.space_charge and default_pipe.method == "pytlwall")
             rows.append(Assignment(s, nm, "default_pipe", default_pipe.method,
                                    default_pipe.weighted, sc, bx, by, "interp",
-                                   False, madx.get(row, "L")))
+                                   False, float(L), default_pipe.geometry, "default_pipe"))
 
     return AssemblyResult(name, rows, _collisions(rows, tol))
 
@@ -193,3 +201,50 @@ def write_csv(result: AssemblyResult, path) -> Path:
 
 def load_twiss(path) -> dict:
     return madx.read_twiss(path)
+
+
+def load_assembly(path, tol=DEFAULT_TOL) -> AssemblyResult:
+    """Build an assignment array from a YAML coordinator that references a MAD-X
+    twiss, device JSONs, and a default pipe."""
+    import yaml
+    from .io.json_io import read_collimators, read_resonators
+
+    cfg_path = Path(path)
+    base = cfg_path.parent
+    cfg = yaml.safe_load(cfg_path.read_text()) or {}
+
+    twiss = madx.read_twiss(base / cfg["optics"])
+    devices = []
+    for gname, spec in (cfg.get("devices") or {}).items():
+        src = spec.get("source")
+        method = spec.get("method", "pytlwall")
+        weighted = bool(spec.get("weighted", False))
+        sc = bool(spec.get("space_charge", False))
+        overlap = bool(spec.get("allow_overlap", False))
+        if src == "collimators_json":
+            for name, geo in read_collimators(base / spec["file"]).items():
+                geometry = {"radius": geo.get("halfgap", 0.02),
+                            "layers": geo.get("layers"),
+                            "length": geo.get("length")}
+                devices.append(Device(name=name, method=method, weighted=weighted,
+                                      space_charge=sc, allow_overlap=overlap,
+                                      length=geo.get("length"), geometry=geometry, group=gname))
+        elif src == "resonators_json":
+            r = read_resonators(base / spec["file"])
+            devices.append(Device(name=r.get("name", "resonator"), method=method,
+                                  weighted=weighted, space_charge=sc,
+                                  allow_overlap=overlap, length=r.get("length"), group=gname))
+        else:
+            raise ValueError(f"unknown device source '{src}'")
+
+    dp_spec = cfg.get("default_pipe")
+    default_pipe = None
+    if dp_spec:
+        radius = dp_spec.get("radius_mm", 22.0) / 1000.0
+        geometry = {"radius": radius,
+                    "layers": [{"material": dp_spec.get("material", "stainless_steel"),
+                                "thickness": dp_spec.get("thickness_m", 0.002)}]}
+        default_pipe = DefaultPipe(method=dp_spec.get("method", "pytlwall"),
+                                   space_charge=bool(dp_spec.get("space_charge", False)),
+                                   geometry=geometry)
+    return assemble(twiss, devices, default_pipe, name=cfg.get("name", cfg_path.stem), tol=tol)
