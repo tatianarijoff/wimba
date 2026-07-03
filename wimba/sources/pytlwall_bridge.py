@@ -23,6 +23,18 @@ MATERIALS = {
 DEFAULT_SIGMA = 1.0e6
 
 
+def _build_layers(pytlwall, layers):
+    built = []
+    for lay in (layers or [{"material": "copper", "thickness": 0.002}]):
+        thick = lay.get("thickness", 0.002)
+        thick = np.inf if str(thick).lower() == "inf" else float(thick)
+        sigma = lay.get("sigma")
+        sigma = float(sigma) if sigma is not None else _sigma(lay.get("material"))
+        built.append(pytlwall.Layer(layer_type="CW", thick_m=thick, sigmaDC=sigma))
+    built.append(pytlwall.Layer(layer_type="V", thick_m=np.inf, boundary=True))
+    return built
+
+
 def _sigma(material):
     if material is None:
         return DEFAULT_SIGMA
@@ -33,7 +45,15 @@ def compute_chamber(freqs, radius_m, layers=None, length_m=1.0,
                     shape="CIRCULAR", hor_m=None, ver_m=None,
                     gamma=7000.0, betax=1.0, betay=1.0):
     """Return pytlwall's get_all_impedances() for one chamber on `freqs`."""
-    import pytlwall
+    try:
+        import pytlwall
+    except ImportError as exc:
+        raise ImportError(
+            "pytlwall is required for 'pytlwall' calculations but is not installed "
+            "in this environment. Install it into your venv, e.g.\n"
+            "    pip install -e /path/to/TLWallNew\n"
+            "    pip install git+https://github.com/tatianarijoff/TLWallNew.git"
+        ) from exc
 
     built = []
     for lay in (layers or [{"material": "copper", "thickness": 0.002}]):
@@ -82,3 +102,37 @@ def chamber_terms(freqs, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1
         out["ZQuadX"] = out["ZQuadX"] + imp["ZQuadISC"] * betax
         out["ZQuadY"] = out["ZQuadY"] + imp["ZQuadISC"] * betay
     return out
+
+
+WAKE_COMPONENTS = ("WLong", "WDipX", "WDipY", "WQuadX", "WQuadY")
+
+
+def chamber_wake(times, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.0,
+                 gamma=7000.0, shape="CIRCULAR", hor_m=None, ver_m=None):
+    """Compute a chamber's wake with pytlwall (TLWallWake), beta-weighted.
+
+    Evaluated at beta = 1; WIMBA applies the beta weighting (transverse scale with
+    beta, longitudinal does not). This is the real wake from pytlwall, not a
+    Fourier transform of the impedance.
+    """
+    try:
+        import pytlwall
+    except ImportError as exc:
+        raise ImportError(
+            "pytlwall is required for 'pytlwall' wake calculations but is not "
+            "installed. Install it, e.g.  pip install -e /path/to/TLWallNew"
+        ) from exc
+
+    chamber = pytlwall.Chamber(pipe_len_m=float(length_m), pipe_rad_m=float(radius_m),
+                               pipe_hor_m=hor_m, pipe_ver_m=ver_m, chamber_shape=shape,
+                               betax=1.0, betay=1.0, layers=_build_layers(pytlwall, layers))
+    beam = pytlwall.Beam(gammarel=float(gamma))
+    times_obj = pytlwall.Times(time_list=list(np.asarray(times, dtype=float)))
+    w = pytlwall.TLWallWake(chamber=chamber, beam=beam, times=times_obj)
+    return {
+        "WLong":  np.asarray(w.WLong),
+        "WDipX":  np.asarray(w.WDipX) * betax,
+        "WDipY":  np.asarray(w.WDipY) * betay,
+        "WQuadX": np.asarray(w.WQuadX) * betax,
+        "WQuadY": np.asarray(w.WQuadY) * betay,
+    }

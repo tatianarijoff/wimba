@@ -55,3 +55,25 @@ def read_totals(path):
         comps[head[i][3:]] = data[:, i] + 1j * data[:, i + 1]
         i += 2
     return freqs, comps
+
+
+def write_wake_totals(out_dir, times, wakes) -> Path:
+    comps = list(wakes)
+    path = Path(out_dir) / "single_elements" / "total_wake.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["time"] + comps)
+        for i, t in enumerate(times):
+            w.writerow([f"{float(t):.8e}"] +
+                       [f"{float(np.asarray(wakes[c])[i].real):.8e}" for c in comps])
+    return path
+
+
+def read_wake_totals(path):
+    path = Path(path)
+    with open(path) as fh:
+        rows = list(csv.reader(fh))
+    head = rows[0]
+    data = np.array([[float(x) for x in r] for r in rows[1:]], dtype=float)
+    return data[:, 0], {head[i]: data[:, i] for i in range(1, len(head))}

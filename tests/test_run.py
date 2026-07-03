@@ -20,7 +20,7 @@ def _row(name, radius, beta_x=1.0, length=1.0, group="g"):
 
 def test_cache_and_totals(tmp_path):
     rows = [_row("a", 0.02), _row("b", 0.02, beta_x=2.0), _row("c", 0.03)]
-    totals, stats = compute_assignments(rows, F, tmp_path / "out", per_device=["a"])
+    totals, _wake, stats = compute_assignments(rows, F, tmp_path / "out", per_device=["a"])
 
     # two rows share geometry 0.02 -> only two distinct geometries computed
     assert stats["computed"] == 3 and stats["geometries"] == 2
@@ -39,5 +39,16 @@ def test_cache_and_totals(tmp_path):
 def test_non_pytlwall_skipped(tmp_path):
     r = _row("x", 0.02)
     r.method = "resonator"
-    totals, stats = compute_assignments([r], F, tmp_path / "out")
+    totals, _wake, stats = compute_assignments([r], F, tmp_path / "out")
     assert stats["skipped"] == 1 and stats["computed"] == 0
+
+
+def test_wake_totals_native(tmp_path):
+    F2 = np.logspace(6, 9, 6)
+    T = np.linspace(1e-12, 5e-9, 40)
+    rows = [_row("a", 0.02, length=1.0), _row("b", 0.02, beta_x=2.0, length=2.0)]
+    ztot, wtot, stats = compute_assignments(rows, F2, tmp_path / "out", times=T)
+    # wake totals written and native (pytlwall)
+    assert (tmp_path / "out" / "single_elements" / "total_wake.csv").is_file()
+    assert stats["wake_native"] == {"pytlwall"} and not stats["wake_fft"]
+    assert wtot["WLong"].shape == T.shape and np.all(np.isfinite(wtot["WLong"]))

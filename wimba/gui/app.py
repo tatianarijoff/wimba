@@ -16,11 +16,13 @@ from pathlib import Path
 from PyQt6.QtCore import QSettings, Qt
 from PyQt6.QtGui import (QAction, QActionGroup, QColor, QIcon, QKeySequence,
                          QPainter, QPixmap)
-from PyQt6.QtWidgets import (QApplication, QDockWidget, QHBoxLayout, QLabel,
-                             QMainWindow, QMessageBox, QTabBar, QTabWidget,
-                             QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QHBoxLayout,
+                             QInputDialog, QLabel, QMainWindow, QMessageBox,
+                             QTabBar, QTabWidget, QVBoxLayout, QWidget)
 
 from .theme import THEMES, build_style
+from .model import GGroup, from_project, new_element, new_machine
+from .panels import ElementPanel, InspectorPanel, MachineTree, OpticsPanel
 
 ORG = "ImpedanCEI"
 APP = "WIMBA"
@@ -100,6 +102,9 @@ class MainWindow(QMainWindow):
         self.settings = QSettings(ORG, APP)
         self.docks: dict[str, QDockWidget] = {}
         self._theme_actions: dict[str, QAction] = {}
+        self.machine = None
+        self.selected = None
+        self._elem_tabs = {}
 
         self._build_central()
         self._build_docks()
@@ -136,7 +141,9 @@ class MainWindow(QMainWindow):
 
     def _close_center_tab(self, index: int):
         if index >= 2:
+            w = self.center.widget(index)
             self.center.removeTab(index)
+            self._elem_tabs = {k: v for k, v in self._elem_tabs.items() if v is not w}
 
     # ---- dock panels ----
     def _build_docks(self):
@@ -174,6 +181,14 @@ class MainWindow(QMainWindow):
         self.tabifyDockWidget(self.docks["problems"], self.docks["outputs"])
         self.docks["jobs"].raise_()
 
+        self.tree = MachineTree()
+        self.tree.picked.connect(self._on_pick)
+        self.tree.opened.connect(self._open_element)
+        self.inspector = InspectorPanel()
+        self.docks["inspector"].setWidget(self.inspector)
+        self._refresh_machine_panel()
+        self._refresh_optics_panel()
+
     # ---- brand (logo in the menu-bar corner) ----
     def _build_brand(self):
         brand = QWidget()
@@ -195,8 +210,8 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
 
         m = mb.addMenu("&File")
-        self._act(m, "Load Machine\u2026", self._todo, QKeySequence.StandardKey.Open)
-        self._act(m, "New Machine", self._todo, QKeySequence.StandardKey.New)
+        self._act(m, "Load Machine\u2026", self._load_machine, QKeySequence.StandardKey.Open)
+        self._act(m, "New Machine", self._new_machine, QKeySequence.StandardKey.New)
         m.addSeparator()
         self._act(m, "Save Project", self._todo, QKeySequence.StandardKey.Save)
         self._act(m, "Save Project As\u2026", self._todo, QKeySequence.StandardKey.SaveAs)
@@ -230,12 +245,14 @@ class MainWindow(QMainWindow):
         self._act(m, "Restore Default Layout", self._restore_default_layout)
 
         m = mb.addMenu("&Machine")
-        for label in ("Add Group", "Add Element", "Rename Selected",
-                      "Duplicate Selected", "Delete Selected"):
-            self._act(m, label, self._todo)
+        self._act(m, "Add Group", self._add_group)
+        self._act(m, "Add Element", self._add_element)
+        self._act(m, "Rename Selected", self._rename_selected)
+        self._act(m, "Duplicate Selected", self._duplicate_selected)
+        self._act(m, "Delete Selected", self._delete_selected)
 
         m = mb.addMenu("&Optics")
-        self._act(m, "Load Optics\u2026", self._todo)
+        self._act(m, "Load Optics\u2026", self._load_optics)
         self._act(m, "Clear Optics", self._todo)
 
         m = mb.addMenu("&Calculate")
@@ -324,6 +341,189 @@ class MainWindow(QMainWindow):
         box.setInformativeText("Coordinates impedance and wakefield results from "
                                "pytlwall, IW2D, CST and analytic resonators.")
         box.exec()
+
+    # ---- panel refresh ----
+    def _refresh_machine_panel(self):
+        if not self.machine:
+            self.docks["machine"].setWidget(empty_state("\u25c8", "Machine is empty",
+                "File \u2192 Load Machine, or start a new one."))
+            return
+        self.tree.set_machine(self.machine)
+        self.docks["machine"].setWidget(self.tree)
+
+    def _refresh_optics_panel(self):
+        if not self.machine:
+            self.docks["optics"].setWidget(empty_state("\u25cb", "No optics yet",
+                "Load a machine, then load or enter the optics."))
+            return
+        self.docks["optics"].setWidget(OpticsPanel(self.machine, self._after_edit, self._load_optics))
+
+    def _refresh_all(self):
+        self._refresh_machine_panel()
+        self._refresh_optics_panel()
+        self._update_status()
+
+    def _update_status(self):
+        if self.machine:
+            self.lbl_machine.setText(self.machine.name)
+            self.lbl_out.setText("output " + (self.machine.output or f"output/{self.machine.name}/"))
+        else:
+            self.lbl_machine.setText("No machine")
+            self.lbl_out.setText("output \u2014")
+        if self.selected:
+            self.lbl_sel.setText(f"{self.selected['kind']}: {getattr(self.selected['obj'], 'name', '')}")
+        else:
+            self.lbl_sel.setText("nothing selected")
+
+    def _after_edit(self):
+        if self.machine:
+            self.tree.set_machine(self.machine)
+        self._update_status()
+
+    # ---- selection ----
+    def _on_pick(self, ref):
+        self.selected = ref
+        self.inspector.set_ref(ref)
+        self._update_status()
+
+    # ---- file actions ----
+    def _load_machine(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load Machine", "",
+            "WIMBA input (*.yaml *.yml);;All files (*)")
+        if path:
+            self._load_from(path)
+
+    def _load_from(self, path):
+        try:
+            self.machine = from_project(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load failed", f"Could not load machine:\n{exc}")
+            return
+        self.selected = None
+        self.inspector.set_ref(None)
+        self._refresh_all()
+        self.statusBar().showMessage(
+            f"Loaded {self.machine.name} \u2014 root node named '{self.machine.name}'", 4000)
+
+    def _new_machine(self):
+        name, ok = QInputDialog.getText(self, "New Machine", "Machine name:", text="Untitled")
+        if not ok:
+            return
+        self.machine = new_machine(name or "Untitled")
+        self.selected = None
+        self.inspector.set_ref(None)
+        self._refresh_all()
+
+    # ---- machine edits ----
+    def _need_machine(self):
+        if not self.machine:
+            self.statusBar().showMessage("Load or create a machine first", 2500)
+            return False
+        return True
+
+    def _current_group(self):
+        if self.selected:
+            if self.selected["kind"] == "group":
+                return self.selected["obj"]
+            if self.selected["kind"] == "element":
+                return self.selected.get("group") or (self.machine.groups[0] if self.machine.groups else None)
+        return self.machine.groups[0] if self.machine.groups else None
+
+    def _add_group(self):
+        if not self._need_machine():
+            return
+        self.machine.groups.append(GGroup(f"Group {len(self.machine.groups) + 1}", []))
+        self._refresh_all()
+
+    def _add_element(self):
+        if not self._need_machine():
+            return
+        g = self._current_group()
+        if g is None:
+            self._add_group()
+            g = self.machine.groups[-1]
+        e = new_element(f"ELEM.{len(g.elements) + 1}")
+        g.elements.append(e)
+        self._refresh_all()
+        self._open_element(e)
+
+    def _rename_selected(self):
+        if not self.selected:
+            return
+        obj = self.selected["obj"]
+        name, ok = QInputDialog.getText(self, "Rename", "New name:", text=getattr(obj, "name", ""))
+        if ok and name:
+            obj.name = name
+            self._refresh_all()
+
+    def _duplicate_selected(self):
+        if not self.selected:
+            return
+        import copy
+        kind, obj = self.selected["kind"], self.selected["obj"]
+        if kind == "element":
+            g = self.selected.get("group") or self._current_group()
+            c = copy.deepcopy(obj); c.name += "_copy"; g.elements.append(c)
+        elif kind == "group":
+            c = copy.deepcopy(obj); c.name += " copy"; self.machine.groups.append(c)
+        self._refresh_all()
+
+    def _delete_selected(self):
+        if not self.selected or self.selected["kind"] == "machine":
+            return
+        kind, obj = self.selected["kind"], self.selected["obj"]
+        if QMessageBox.question(self, "Delete", f"Delete {getattr(obj, 'name', '')}?") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        if kind == "group":
+            self.machine.groups = [g for g in self.machine.groups if g is not obj]
+        elif kind == "element":
+            g = self.selected.get("group")
+            if g:
+                g.elements = [e for e in g.elements if e is not obj]
+        self.selected = None
+        self.inspector.set_ref(None)
+        self._refresh_all()
+
+    # ---- optics ----
+    def _load_optics(self):
+        if not self._need_machine():
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Load Optics (MAD-X twiss)", "",
+            "TFS twiss (*.tfs *.dat);;All files (*)")
+        if not path:
+            return
+        try:
+            from ..builders import madx
+            tw = madx.read_twiss(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load failed", f"Could not read twiss:\n{exc}")
+            return
+        n = 0
+        for _grp, e in self.machine.all_elements():
+            row = tw.get(e.name)
+            if row:
+                e.optics["s"] = madx.get(row, "S")
+                e.optics["l"] = madx.get(row, "L")
+                e.optics["bx"] = madx.get(row, "BETX")
+                e.optics["by"] = madx.get(row, "BETY")
+                n += 1
+        self._refresh_all()
+        self.statusBar().showMessage(f"Loaded optics \u2014 matched {n} element(s) by name", 3000)
+
+    # ---- element panel ----
+    def _open_element(self, el):
+        key = id(el)
+        if key in self._elem_tabs:
+            self.center.setCurrentWidget(self._elem_tabs[key])
+            return
+        panel = ElementPanel(el, self._after_edit, self._calc_element)
+        self._elem_tabs[key] = panel
+        self.center.setCurrentIndex(self.center.addTab(panel, el.name))
+
+    def _calc_element(self, el):
+        self.statusBar().showMessage(
+            f"Calculate '{el.name}' \u2014 backend + Jobs come in the next phase", 3000)
 
     # ---- placeholder for actions wired in later phases ----
     def _todo(self):

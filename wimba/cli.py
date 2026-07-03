@@ -69,7 +69,7 @@ def cmd_build(args):
         if not Path(out).is_absolute():
             out = str(cfg_dir / out)
     else:
-        out = str(cfg_dir / project.name / "output")
+        out = str(cfg_dir / f"{project.name}_output")
     resume = materialize(project, out)
     store = ResultStore(out)
 
@@ -90,14 +90,16 @@ def cmd_run(args):
     from .run import run
 
     plot = args.plot.split(",") if args.plot else None
-    info = run(args.config, out_dir=args.out, plot=plot, part=args.part)
+    info = run(args.config, out_dir=args.out, plot=plot, wake=args.wake)
     st = info["stats"]
     print(f"Ran '{args.config}': {info['n_rows']} assignment(s) -> {info['out']}/")
     print(f"  computed: {st['computed']} | skipped: {st['skipped']} "
           f"| distinct geometries: {st['geometries']}")
     print(f"  total: {info['out']}/single_elements/total.csv")
-    if info["plot"]:
-        print(f"  plot:  {info['plot']}")
+    for p in info["plots"]:
+        print(f"  plot:  {p}")
+    for p in info["wake_plots"]:
+        print(f"  wake:  {p}")
     return 0
 
 
@@ -106,10 +108,9 @@ def cmd_plot(args):
     from .plotting import plot_totals
 
     components = args.components.split(",") if args.components else None
-    out = args.out or str(Path(args.totals).with_suffix(".png"))
-    path = plot_totals(args.totals, components=components, part=args.part, save=out)
-    which = ", ".join(components) if components else "all components"
-    print(f"Plotted {which} ({args.part}) -> {path}")
+    paths = plot_totals(args.totals, components=components, out_dir=args.out)
+    for p in paths:
+        print(f"Plotted {p}")
     return 0
 
 
@@ -189,15 +190,16 @@ def main(argv=None):
     rn = sub.add_parser("run", help="assemble, compute, write the total and optional plot")
     rn.add_argument("config", help="path to the assembly YAML coordinator")
     rn.add_argument("--out", default=None, help="output directory (default: <name>_output)")
-    rn.add_argument("--plot", default=None, help="components to plot, e.g. ZLong,ZDipX")
-    rn.add_argument("--part", default="abs", choices=["abs", "re", "im"])
+    rn.add_argument("--plot", default=None,
+                    help="components to plot (default: ZLong,ZDipX,ZDipY)")
+    rn.add_argument("--wake", action="store_true", help="also plot the longitudinal wake")
     rn.set_defaults(func=cmd_run)
 
     pl = sub.add_parser("plot", help="plot machine totals from a totals CSV")
     pl.add_argument("totals", help="path to a single_elements/total.csv")
-    pl.add_argument("--components", default=None, help="comma-separated, e.g. ZLong,ZDipX")
-    pl.add_argument("--part", default="abs", choices=["abs", "re", "im"])
-    pl.add_argument("--out", default=None, help="output image (default: <totals>.png)")
+    pl.add_argument("--components", default=None,
+                    help="comma-separated (default: ZLong,ZDipX,ZDipY)")
+    pl.add_argument("--out", default=None, help="output directory (default: next to CSV)")
     pl.set_defaults(func=cmd_plot)
 
     ap = sub.add_parser("assemble", help="assemble impedance assignments from optics + device files")

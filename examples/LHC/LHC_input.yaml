@@ -10,7 +10,7 @@ name: LHCB1
 optics: data/twiss_lhcb1_beta130cm.tfs        # MAD-X twiss; beta by position, then name
 
 grid:
-  frequency: {min: 1.0e5, max: 1.0e10, n: 30, log: true}
+  frequency: {min: 1.0e5, max: 1.0e10, n: 100, log: true}
 
 # per-device output only for the devices listed here (total is always written)
 output: [TCP.C6L7.B1]

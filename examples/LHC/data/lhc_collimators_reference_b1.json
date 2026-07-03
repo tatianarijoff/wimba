@@ -1,0 +1,888 @@
+{
+  "TCL.4R1.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "Cu",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.025,
+    "length": 1.0,
+    "taper_type": "tcl",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCL.5R1.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "Cu",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.025,
+    "length": 1.0,
+    "taper_type": "tcl",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCL.6R1.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.025,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCTPH.4L2.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.007475,
+    "length": 1.0,
+    "taper_type": "tctp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  },
+  "TCTPV.4L2.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0082575,
+    "length": 1.0,
+    "taper_type": "tctp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  },
+  "TDISA.A4L2.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "graphite",
+        "thickness": 0.054
+      }
+    ],
+    "halfgap": 0.0535,
+    "length": 3.13,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TDISB.A4L2.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "Ti-6Al-4V",
+        "thickness": 0.054
+      }
+    ],
+    "halfgap": 0.0535,
+    "length": 0.965,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TDISC.A4L2.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "cucr1zr",
+        "thickness": 0.054
+      }
+    ],
+    "halfgap": 0.0535,
+    "length": 0.6,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLIA.4R2": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "graphite",
+        "thickness": 0.033
+      }
+    ],
+    "halfgap": 0.028,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLIB.6R2.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.025,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLD.A11R2.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.02,
+    "length": 0.6,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCP.6L3.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.00378,
+    "length": 0.6,
+    "taper_type": "tcp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.5L3.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0029225,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.4R3.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.002025,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.A5R3.B1": {
+    "angle": 2.98102,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0026375,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.B5R3.B1": {
+    "angle": 0.19896753,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0029575,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.A5R3.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0058325,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.B5R3.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.00541,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.6R3.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.005,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.7R3.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.003605,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCTPH.4L5.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0099475,
+    "length": 1.0,
+    "taper_type": "tctp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  },
+  "TCTPV.4L5.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.006205,
+    "length": 1.0,
+    "taper_type": "tctp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  },
+  "TCL.4R5.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "Cu",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.025,
+    "length": 1.0,
+    "taper_type": "tcl",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCL.5R5.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "Cu",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.025,
+    "length": 1.0,
+    "taper_type": "tcl",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCL.6R5.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.025,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCDQA.A4R6.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "cu300k_in_tdi",
+        "thickness": 5e-06
+      },
+      {
+        "material": "cfc",
+        "thickness": 0.035
+      },
+      {
+        "material": "graphite",
+        "thickness": 0.04
+      }
+    ],
+    "halfgap": 0.0035691559,
+    "length": 3.0,
+    "taper_type": "tcdq",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [],
+    "asymmetry_factor": 0
+  },
+  "TCDQA.C4R6.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "cu300k_in_tdi",
+        "thickness": 5e-06
+      },
+      {
+        "material": "cfc",
+        "thickness": 0.035
+      },
+      {
+        "material": "graphite",
+        "thickness": 0.04
+      }
+    ],
+    "halfgap": 0.0035691559,
+    "length": 3.0,
+    "taper_type": "tcdq",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [],
+    "asymmetry_factor": 0
+  },
+  "TCDQA.B4R6.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "cu300k_in_tdi",
+        "thickness": 5e-06
+      },
+      {
+        "material": "cfc",
+        "thickness": 0.035
+      },
+      {
+        "material": "graphite",
+        "thickness": 0.04
+      }
+    ],
+    "halfgap": 0.0035691559,
+    "length": 3.0,
+    "taper_type": "tcdq",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [],
+    "asymmetry_factor": 0
+  },
+  "TCSP.A4R6.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0036725,
+    "length": 1.0,
+    "taper_type": "tcsp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  },
+  "TCP.D6L7.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "moc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0009275,
+    "length": 0.6,
+    "taper_type": "tcppm",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCP.C6L7.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "moc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.001305,
+    "length": 0.6,
+    "taper_type": "tcppm",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCP.B6L7.B1": {
+    "angle": 2.215,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.001095,
+    "length": 0.6,
+    "taper_type": "tcp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.A6L7.B1": {
+    "angle": 2.46266,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.001475,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.B5L7.B1": {
+    "angle": 2.50455,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0018175,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.A5L7.B1": {
+    "angle": 0.71035,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0018575,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.D4L7.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "Mo",
+        "thickness": 5e-06
+      },
+      {
+        "material": "moc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0011875,
+    "length": 1.0,
+    "taper_type": "tcspm",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSPM.B4L7.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "Mo",
+        "thickness": 5e-06
+      },
+      {
+        "material": "moc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0016525,
+    "length": 1.0,
+    "taper_type": "tcspm",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.B4L7.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.023,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.A4L7.B1": {
+    "angle": 2.34921,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0016625,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.A4R7.B1": {
+    "angle": 0.80809,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0016675,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.B5R7.B1": {
+    "angle": 2.46964,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.001905,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.D5R7.B1": {
+    "angle": 0.8971,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.001915,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSPM.E5R7.B1": {
+    "angle": 2.27765,
+    "layers": [
+      {
+        "material": "Mo",
+        "thickness": 5e-06
+      },
+      {
+        "material": "moc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0019175,
+    "length": 1.0,
+    "taper_type": "tcspm",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.E5R7.B1": {
+    "angle": 2.27765,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.023,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSPM.6R7.B1": {
+    "angle": 0.00873,
+    "layers": [
+      {
+        "material": "Mo",
+        "thickness": 5e-06
+      },
+      {
+        "material": "moc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0024475,
+    "length": 1.0,
+    "taper_type": "tcspm",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCSG.6R7.B1": {
+    "angle": 0.00873,
+    "layers": [
+      {
+        "material": "cfc",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.023,
+    "length": 1.0,
+    "taper_type": "tcs",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.A6R7.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.001615,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.B6R7.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.002605,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.C6R7.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.002675,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.D6R7.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.00166,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCLA.A7R7.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.001695,
+    "length": 1.0,
+    "taper_type": "tcla",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": []
+  },
+  "TCTPH.4L8.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0073775,
+    "length": 1.0,
+    "taper_type": "tctp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  },
+  "TCTPV.4L8.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0081875,
+    "length": 1.0,
+    "taper_type": "tctp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  },
+  "TCTPH.4L1.B1": {
+    "angle": 0.0,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.0099475,
+    "length": 1.0,
+    "taper_type": "tctp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  },
+  "TCTPV.4L1.B1": {
+    "angle": 1.57079633,
+    "layers": [
+      {
+        "material": "inermet180",
+        "thickness": 0.025
+      }
+    ],
+    "halfgap": 0.006205,
+    "length": 1.0,
+    "taper_type": "tctp",
+    "tilt_1": 0.0,
+    "tilt_2": 0.0,
+    "halfgap_dependent_hom_files": [
+      "TCTPmode_vs_fullgap.json"
+    ]
+  }
+}

@@ -22,7 +22,7 @@ def test_beta_resolution_modes():
         Device("M2", method="resonator"),                                   # by name
         Device("CRAB", method="precalculated", weighted=True),              # end, beta 1
     ]
-    res = assemble(TWISS, devices, DefaultPipe(method="IW2D"), name="Test")
+    res = assemble(TWISS, devices, DefaultPipe(method="iw2d"), name="Test")
 
     tcp = _row(res, "TCP")
     assert tcp.beta_source == "interp"
@@ -45,11 +45,11 @@ def test_space_charge_only_pytlwall():
 
 def test_default_pipe_covers_uncovered_rows():
     # a device claims M2 by name; default pipe should cover M1 and M3 only
-    res = assemble(TWISS, [Device("M2", method="pytlwall")], DefaultPipe(method="IW2D"))
+    res = assemble(TWISS, [Device("M2", method="pytlwall")], DefaultPipe(method="iw2d"))
     pipes = [r for r in res.rows if r.kind == "default_pipe"]
     assert {p.name for p in pipes} == {"M1", "M3"}
     for p in pipes:
-        assert p.weighted is False and p.method == "IW2D"          # plain
+        assert p.weighted is False and p.method == "iw2d"          # plain
     # default pipe beta is the local interpolated value at that row
     assert abs(_row(res, "M1").beta_x - 10.0) < 1e-9
 

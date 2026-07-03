@@ -213,7 +213,7 @@ def load_assembly(path, tol=DEFAULT_TOL) -> AssemblyResult:
     base = cfg_path.parent
     cfg = yaml.safe_load(cfg_path.read_text()) or {}
 
-    twiss = madx.read_twiss(base / cfg["optics"])
+    twiss = madx.read_twiss(base / cfg["optics"]) if cfg.get("optics") else {}
     devices = []
     for gname, spec in (cfg.get("devices") or {}).items():
         src = spec.get("source")
@@ -234,6 +234,21 @@ def load_assembly(path, tol=DEFAULT_TOL) -> AssemblyResult:
             devices.append(Device(name=r.get("name", "resonator"), method=method,
                                   weighted=weighted, space_charge=sc,
                                   allow_overlap=overlap, length=r.get("length"), group=gname))
+        elif src == "chamber":
+            if "radius_m" in spec:
+                radius = float(spec["radius_m"])
+            elif "radius_mm" in spec:
+                radius = float(spec["radius_mm"]) / 1000.0
+            else:
+                radius = 0.02
+            beta = None
+            if "beta_x" in spec and "beta_y" in spec:
+                beta = (float(spec["beta_x"]), float(spec["beta_y"]))
+            geometry = {"radius": radius, "layers": spec.get("layers")}
+            devices.append(Device(name=spec.get("name", gname), method=method,
+                                  weighted=weighted, space_charge=sc, allow_overlap=overlap,
+                                  length=float(spec.get("length_m", 1.0)), beta=beta,
+                                  position=spec.get("position"), geometry=geometry, group=gname))
         else:
             raise ValueError(f"unknown device source '{src}'")
 
