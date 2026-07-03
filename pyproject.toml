@@ -17,9 +17,14 @@ authors = [
 [project.optional-dependencies]
 dev = ["pytest", "xwakes"]
 examples = ["matplotlib"]
+gui = ["PyQt6", "pyqtgraph"]
 
 [project.scripts]
 wimba = "wimba.cli:main"
+wimba-gui = "wimba.gui.app:main"
 
 [tool.setuptools.packages.find]
 include = ["wimba*"]
+
+[tool.setuptools.package-data]
+"wimba.gui" = ["assets/*.png"]
