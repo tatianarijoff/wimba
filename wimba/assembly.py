@@ -1,0 +1,195 @@
+"""Assemble a machine's impedance assignments from optics + device definitions.
+
+Every lattice location gets an impedance assignment: either a user-defined device
+(precalculated file, resonator, or a pytlwall/IW2D geometry) or the default
+resistive wall applied per lattice row. Beta is resolved by position (interpolated
+from the twiss), else by name, else the element is appended at the end of the
+machine with an editable beta defaulting to 1.
+
+The result is an array (one row per contribution) with position, name, how it is
+computed, and beta - written to <name>_assignments.csv - plus collision detection
+so that two contributions at the same position are reported (as an error unless
+they are declared overlapping via allow_overlap).
+"""
+from __future__ import annotations
+
+import csv
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+
+from .builders import madx
+
+BASE_METHODS = ("pytlwall", "IW2D", "precalculated", "resonator")
+DEFAULT_TOL = 1e-3   # metres
+
+
+@dataclass
+class Device:
+    """A user-defined impedance contribution at a location."""
+    name: str
+    method: str = "pytlwall"          # one of BASE_METHODS
+    weighted: bool = False            # True = result already beta-weighted
+    space_charge: bool = False        # only meaningful for pytlwall
+    position: Optional[float] = None  # explicit s [m]; else resolved by name
+    beta: Optional[tuple] = None      # explicit (bx, by) override
+    allow_overlap: bool = False
+    length: Optional[float] = None
+
+
+@dataclass
+class DefaultPipe:
+    """The default resistive wall applied to uncovered lattice rows (plain)."""
+    method: str = "IW2D"              # pytlwall or IW2D
+    space_charge: bool = False
+    weighted: bool = False            # default pipe is plain: beta applied by WIMBA
+
+
+@dataclass
+class Assignment:
+    position: Optional[float]
+    name: str
+    kind: str                          # "device" | "default_pipe"
+    method: str
+    weighted: bool
+    space_charge: bool
+    beta_x: float
+    beta_y: float
+    beta_source: str                   # "interp" | "name" | "explicit" | "default-1"
+    allow_overlap: bool
+    length: Optional[float] = None
+
+
+@dataclass
+class Collision:
+    position: float
+    names: list
+    intentional: bool
+
+
+@dataclass
+class AssemblyResult:
+    name: str
+    rows: list = field(default_factory=list)
+    collisions: list = field(default_factory=list)
+
+
+class _Beta:
+    """Interpolates (beta_x, beta_y) at any s from the twiss points."""
+
+    def __init__(self, twiss: dict):
+        pts = []
+        for row in twiss.values():
+            s = madx.get(row, "S")
+            bx = madx.get(row, "BETX")
+            by = madx.get(row, "BETY")
+            if s is not None and bx is not None:
+                pts.append((float(s), float(bx), float(by if by is not None else bx)))
+        pts.sort()
+        self.ok = len(pts) > 0
+        self.s = np.array([p[0] for p in pts]) if self.ok else np.array([])
+        self.bx = np.array([p[1] for p in pts]) if self.ok else np.array([])
+        self.by = np.array([p[2] for p in pts]) if self.ok else np.array([])
+
+    def at(self, s):
+        if not self.ok:
+            return 1.0, 1.0
+        return float(np.interp(s, self.s, self.bx)), float(np.interp(s, self.s, self.by))
+
+    def end(self):
+        return float(self.s[-1]) if self.ok else 0.0
+
+
+def _resolve(dev: Device, twiss: dict, beta: _Beta):
+    """Return (position, beta_x, beta_y, source) for a device."""
+    if dev.beta is not None:
+        pos = dev.position
+        if pos is None and dev.name in twiss:
+            pos = madx.get(twiss[dev.name], "S")
+        return pos, float(dev.beta[0]), float(dev.beta[1]), "explicit"
+    if dev.position is not None:
+        bx, by = beta.at(dev.position)
+        return float(dev.position), bx, by, "interp"
+    if dev.name in twiss:
+        s = float(madx.get(twiss[dev.name], "S"))
+        bx, by = beta.at(s)
+        return s, bx, by, "name"
+    # not found anywhere: append at end of machine, beta defaults to 1 (editable)
+    return None, 1.0, 1.0, "default-1"
+
+
+def _collisions(rows, tol):
+    placed = sorted((r for r in rows if r.position is not None), key=lambda r: r.position)
+    groups = []
+    for r in placed:
+        if groups and abs(r.position - groups[-1][0]) <= tol:
+            groups[-1][1].append(r)
+        else:
+            groups.append((r.position, [r]))
+    out = []
+    for pos, grp in groups:
+        if len(grp) > 1:
+            out.append(Collision(pos, [x.name for x in grp],
+                                  all(x.allow_overlap for x in grp)))
+    return out
+
+
+def assemble(twiss: dict, devices, default_pipe: Optional[DefaultPipe],
+             name="machine", tol=DEFAULT_TOL) -> AssemblyResult:
+    beta = _Beta(twiss)
+    rows = []
+    claimed = set()
+
+    for dev in devices:
+        pos, bx, by, src = _resolve(dev, twiss, beta)
+        sc = bool(dev.space_charge and dev.method == "pytlwall")
+        if dev.name in twiss:
+            claimed.add(dev.name)
+        if pos is not None:                       # claim twiss rows at this position
+            for nm, row in twiss.items():
+                s = madx.get(row, "S")
+                if s is not None and abs(float(s) - pos) <= tol:
+                    claimed.add(nm)
+        rows.append(Assignment(pos, dev.name, "device", dev.method, dev.weighted,
+                               sc, bx, by, src, dev.allow_overlap, dev.length))
+
+    if default_pipe is not None:
+        for nm, row in sorted(twiss.items(),
+                              key=lambda kv: (madx.get(kv[1], "S") if madx.get(kv[1], "S") is not None else 0.0)):
+            if nm in claimed:
+                continue
+            s = madx.get(row, "S")
+            if s is None:
+                continue
+            s = float(s)
+            bx, by = beta.at(s)
+            sc = bool(default_pipe.space_charge and default_pipe.method == "pytlwall")
+            rows.append(Assignment(s, nm, "default_pipe", default_pipe.method,
+                                   default_pipe.weighted, sc, bx, by, "interp",
+                                   False, madx.get(row, "L")))
+
+    return AssemblyResult(name, rows, _collisions(rows, tol))
+
+
+CSV_COLUMNS = ["position_s", "name", "kind", "method", "weighted", "space_charge",
+               "beta_x", "beta_y", "beta_source", "allow_overlap", "length"]
+
+
+def write_csv(result: AssemblyResult, path) -> Path:
+    path = Path(path)
+    with open(path, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(CSV_COLUMNS)
+        for r in sorted(result.rows, key=lambda r: (r.position is None, r.position or 0.0)):
+            w.writerow(["" if r.position is None else f"{r.position:.6g}",
+                        r.name, r.kind, r.method, int(r.weighted), int(r.space_charge),
+                        f"{r.beta_x:.6g}", f"{r.beta_y:.6g}", r.beta_source,
+                        int(r.allow_overlap),
+                        "" if r.length is None else f"{r.length:.6g}"])
+    return path
+
+
+def load_twiss(path) -> dict:
+    return madx.read_twiss(path)
