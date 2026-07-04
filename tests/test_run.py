@@ -65,3 +65,20 @@ def test_resonator_lumped_in_total(tmp_path):
     assert stats["computed"] == 1 and stats["skipped"] == 0
     assert np.isclose(ztot["ZLong"][0], 1000.0)          # longitudinal peaks at Rs
     assert np.isclose(ztot["ZDipX"][0], 2.0 * 5e5)       # beta applied, length (=5) is NOT
+
+
+def test_precalculated_in_total(tmp_path):
+    from wimba.io.tables import write_impedance
+    f = np.logspace(6, 9, 40)
+    write_impedance(tmp_path / "ZLong.dat", f, 1.0 / f + 1j * 2.0 / f, "z")
+    row = Assignment(position=0.0, name="cst", kind="device", method="precalculated",
+                     weighted=False, space_charge=False, beta_x=1.0, beta_y=1.0,
+                     beta_source="explicit", allow_overlap=False, length=None,
+                     geometry=None, group="imported",
+                     params={"files": {"ZLong": str(tmp_path / "ZLong.dat")}, "wake_files": {}})
+    fq = np.logspace(6, 9, 20)
+    T = np.linspace(1e-12, 5e-9, 40)
+    ztot, wtot, stats = compute_assignments([row], fq, tmp_path / "out", times=T)
+    assert stats["computed"] == 1 and stats["skipped"] == 0
+    assert np.allclose(ztot["ZLong"].real, 1.0 / fq, rtol=1e-3)     # loaded from file
+    assert "precalculated" in stats["wake_fft"]                      # no wake file -> FFT, noted
