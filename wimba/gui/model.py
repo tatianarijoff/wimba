@@ -108,10 +108,18 @@ def _element_from(e):
 
 
 def from_project(path) -> GMachine:
+    import yaml
+    from pathlib import Path
+    data = yaml.safe_load(Path(path).read_text()) or {}
+    if "devices" in data or "default_pipe" in data or ("groups" not in data and "optics" in data):
+        raise ValueError(
+            "This looks like an assemble/run config (optics + devices, no groups).\n"
+            "Use  File \u2192 Open Config  to compute it, not Load Machine.")
+
     from ..builders import load_project
     proj = load_project(path)
-    gm = GMachine(name=proj.name,
-                  output=(proj.output or f"output/{proj.name}/"))
+    out = proj.output if isinstance(proj.output, str) else None
+    gm = GMachine(name=proj.name, output=(out or f"output/{proj.name}/"))
     for g in proj.machine.groups:
         gm.groups.append(GGroup(g.name, [_element_from(e) for e in g.elements]))
     gm.additional = [_element_from(e) for e in proj.machine.additional]

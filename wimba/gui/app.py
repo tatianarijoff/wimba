@@ -10,19 +10,24 @@ Run it with:  python -m wimba.gui
 """
 from __future__ import annotations
 
+import logging
 import sys
+import traceback
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings, Qt
 from PyQt6.QtGui import (QAction, QActionGroup, QColor, QIcon, QKeySequence,
                          QPainter, QPixmap)
 from PyQt6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QHBoxLayout,
-                             QInputDialog, QLabel, QMainWindow, QMessageBox,
+                             QInputDialog, QLabel, QListWidget, QListWidgetItem,
+                             QMainWindow, QMessageBox, QPlainTextEdit, QScrollArea,
                              QTabBar, QTabWidget, QVBoxLayout, QWidget)
 
 from .theme import THEMES, build_style
 from .model import GGroup, from_project, new_element, new_machine
 from .panels import ElementPanel, InspectorPanel, MachineTree, OpticsPanel
+from .runner import RunWorker
+from ..logutil import configure, get_logger, set_level
 
 ORG = "ImpedanCEI"
 APP = "WIMBA"
@@ -62,6 +67,23 @@ def empty_state(icon: str, title: str, text: str) -> QWidget:
         lay.addWidget(lab)
     lay.addStretch(2)
     return w
+
+
+class QtLogHandler(logging.Handler):
+    """Streams log records into a QPlainTextEdit, coloured by level."""
+
+    COLORS = {"CRITICAL": "#ff5c5c", "ERROR": "#ff7b72", "WARNING": "#e0a458",
+              "INFO": "#8ab4f8", "DEBUG": "#7d8590"}
+
+    def __init__(self, widget):
+        super().__init__()
+        self.widget = widget
+        self.setFormatter(logging.Formatter("%(levelname)-8s %(name)s: %(message)s"))
+
+    def emit(self, record):
+        msg = self.format(record).replace("<", "&lt;").replace(">", "&gt;")
+        color = self.COLORS.get(record.levelname, "#c9d1d9")
+        self.widget.appendHtml(f'<span style="color:{color}">{msg}</span>')
 
 
 class Watermark(QWidget):
@@ -105,6 +127,15 @@ class MainWindow(QMainWindow):
         self.machine = None
         self.selected = None
         self._elem_tabs = {}
+        self.config_path = None
+        self.worker = None
+        self._job_item = None
+
+        configure(self.settings.value("loglevel", "info"))
+        self.log = get_logger("gui")
+        self.console_view = QPlainTextEdit()
+        self.console_view.setReadOnly(True)
+        logging.getLogger("wimba").addHandler(QtLogHandler(self.console_view))
 
         self._build_central()
         self._build_docks()
@@ -117,6 +148,8 @@ class MainWindow(QMainWindow):
         self._default_state = self.saveState()
         self._default_geometry = self.saveGeometry()
         self._restore_layout()
+        self._install_excepthook()
+        self.log.info("WIMBA GUI ready.")
 
     # ---- central editor area: Plot Workspace + Results Table (+ element tabs) ----
     def _build_central(self):
@@ -186,6 +219,7 @@ class MainWindow(QMainWindow):
         self.tree.opened.connect(self._open_element)
         self.inspector = InspectorPanel()
         self.docks["inspector"].setWidget(self.inspector)
+        self.docks["console"].setWidget(self.console_view)
         self._refresh_machine_panel()
         self._refresh_optics_panel()
 
@@ -212,6 +246,7 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&File")
         self._act(m, "Load Machine\u2026", self._load_machine, QKeySequence.StandardKey.Open)
         self._act(m, "New Machine", self._new_machine, QKeySequence.StandardKey.New)
+        self._act(m, "Open Config\u2026", self._open_config)
         m.addSeparator()
         self._act(m, "Save Project", self._todo, QKeySequence.StandardKey.Save)
         self._act(m, "Save Project As\u2026", self._todo, QKeySequence.StandardKey.SaveAs)
@@ -238,6 +273,14 @@ class MainWindow(QMainWindow):
             group.addAction(a)
             theme_menu.addAction(a)
             self._theme_actions[name] = a
+        level_menu = m.addMenu("Log Level")
+        lg = QActionGroup(self); lg.setExclusive(True)
+        cur = str(self.settings.value("loglevel", "info"))
+        for lv in ("critical", "error", "warning", "info", "debug"):
+            a = QAction(lv.capitalize(), self, checkable=True)
+            a.setChecked(lv == cur)
+            a.triggered.connect(lambda _=False, x=lv: self._set_loglevel(x))
+            lg.addAction(a); level_menu.addAction(a)
         m.addSeparator()
         self._act(m, "Save Layout", self._save_layout)
         self._act(m, "Load Saved Layout", self._restore_layout)
@@ -256,9 +299,16 @@ class MainWindow(QMainWindow):
         self._act(m, "Clear Optics", self._todo)
 
         m = mb.addMenu("&Calculate")
+        self.fill_pipe_action = QAction("Fill unmodelled lattice with resistive wall",
+                                        self, checkable=True)
+        self.fill_pipe_action.setChecked(True)
+        m.addAction(self.fill_pipe_action)
+        self.wake_action = QAction("Compute wake", self, checkable=True)
+        m.addAction(self.wake_action)
+        m.addSeparator()
         self._act(m, "Selected Element", self._todo, "F5")
         self._act(m, "Selected Group", self._todo)
-        self._act(m, "Whole Machine", self._todo)
+        self._act(m, "Whole Machine (from Config)", self._calc_machine)
 
         m = mb.addMenu("&Results")
         for label in ("Add Selection to Comparison", "Send Basket to Plot",
@@ -397,8 +447,10 @@ class MainWindow(QMainWindow):
         try:
             self.machine = from_project(path)
         except Exception as exc:
+            self.log.error("Load failed for %s: %s", path, exc)
             QMessageBox.critical(self, "Load failed", f"Could not load machine:\n{exc}")
             return
+        self.log.info("Loaded machine '%s'", self.machine.name)
         self.selected = None
         self.inspector.set_ref(None)
         self._refresh_all()
@@ -524,6 +576,122 @@ class MainWindow(QMainWindow):
     def _calc_element(self, el):
         self.statusBar().showMessage(
             f"Calculate '{el.name}' \u2014 backend + Jobs come in the next phase", 3000)
+
+    # ---- logging / robustness ----
+    def _install_excepthook(self):
+        def hook(exc_type, exc, tb):
+            if issubclass(exc_type, KeyboardInterrupt):
+                sys.__excepthook__(exc_type, exc, tb)
+                return
+            self.log.error("Unhandled exception:\n%s",
+                           "".join(traceback.format_exception(exc_type, exc, tb)))
+            try:
+                self.docks["console"].raise_()
+                QMessageBox.critical(self, "Unexpected error",
+                                     f"{exc_type.__name__}: {exc}\n\nSee the Console for details.")
+            except Exception:
+                pass
+        sys.excepthook = hook
+
+    def _set_loglevel(self, level):
+        set_level(level)
+        self.settings.setValue("loglevel", level)
+        self.log.info("Log level set to %s", level)
+
+    # ---- config + compute (front-end over run) ----
+    def _open_config(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Open Assembly Config", "",
+            "YAML (*.yaml *.yml);;All files (*)")
+        if path:
+            self.config_path = path
+            self.statusBar().showMessage(
+                f"Config ready: {path} \u2014 Calculate \u2192 Whole Machine", 5000)
+
+    def _dock_text(self, pid):
+        w = self.docks[pid].widget()
+        if not isinstance(w, QPlainTextEdit):
+            w = QPlainTextEdit(); w.setReadOnly(True)
+            self.docks[pid].setWidget(w)
+        return w
+
+    def _dock_list(self, pid):
+        w = self.docks[pid].widget()
+        if not isinstance(w, QListWidget):
+            w = QListWidget()
+            self.docks[pid].setWidget(w)
+        return w
+
+    def _calc_machine(self):
+        if not self.config_path:
+            self._open_config()
+        if not self.config_path:
+            return
+        con = self._dock_text("console"); con.clear()
+        self.docks["console"].raise_()
+        self._job_item = QListWidgetItem(f"{Path(self.config_path).name} \u2014 running\u2026")
+        self._dock_list("jobs").addItem(self._job_item)
+
+        self.worker = RunWorker(self.config_path,
+                                wake=self.wake_action.isChecked(),
+                                fill_pipe=self.fill_pipe_action.isChecked())
+        self.worker.log.connect(con.appendPlainText)
+        self.worker.done.connect(self._on_calc_done)
+        self.worker.failed.connect(self._on_calc_failed)
+        self.statusBar().showMessage("Calculating\u2026")
+        self.worker.start()
+
+    def _on_calc_done(self, payload):
+        result, info = payload["result"], payload["info"]
+        st = info["stats"]
+        if self._job_item:
+            self._job_item.setText(f"{Path(self.config_path).name} \u2014 done "
+                                   f"({st['computed']} computed)")
+        self._show_plots(info)
+        prob = self._dock_text("problems"); prob.clear()
+        prob.appendPlainText(f"{len(result.rows)} assignments \u2014 "
+                             f"computed {st['computed']}, skipped {st['skipped']}.")
+        if result.collisions:
+            for c in result.collisions:
+                tag = "intentional" if c.intentional else "ERROR"
+                prob.appendPlainText(f"s={c.position:.3f} m: {', '.join(c.names)}  [{tag}]")
+        else:
+            prob.appendPlainText("No collisions.")
+        self.center.setCurrentWidget(self.plot_panel)
+        self.statusBar().showMessage(f"Done \u2192 {info['out']}", 4000)
+
+    def _on_calc_failed(self, tb):
+        if self._job_item:
+            self._job_item.setText(f"{Path(self.config_path).name} \u2014 FAILED")
+        con = self._dock_text("console")
+        con.appendPlainText("\nFAILED:\n" + tb)
+        self.docks["console"].raise_()
+        self.statusBar().showMessage("Calculation failed \u2014 see Console", 5000)
+
+    def _show_plots(self, info):
+        lay = self.plot_panel.layout()
+        while lay.count():
+            it = lay.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        paths = list(info.get("plots") or []) + list(info.get("wake_plots") or [])
+        host = QWidget(); host.setStyleSheet("background: transparent;")
+        hl = QVBoxLayout(host)
+        if not paths:
+            hl.addWidget(QLabel("No plots produced."))
+        for pth in paths:
+            pm = QPixmap(str(pth))
+            if pm.isNull():
+                continue
+            cap = QLabel(Path(pth).name); cap.setObjectName("EmptyText")
+            cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            img = QLabel()
+            img.setPixmap(pm.scaledToWidth(620, Qt.TransformationMode.SmoothTransformation))
+            img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            hl.addWidget(cap); hl.addWidget(img)
+        hl.addStretch(1)
+        sc = QScrollArea(); sc.setWidgetResizable(True); sc.setWidget(host)
+        sc.setStyleSheet("background: transparent;")
+        lay.addWidget(sc)
 
     # ---- placeholder for actions wired in later phases ----
     def _todo(self):
