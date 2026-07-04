@@ -40,7 +40,9 @@ longitudinal, dipolar and quadrupolar impedances and wakes can be read out.
 
 ## Documentation
 
-Full documentation lives in [`docs/`](docs/README.md), starting with the
+Full documentation lives in [`docs/`](docs/README.md). Good starting points: the
+[examples](docs/EXAMPLES.md) and how to run them, the
+[assemble & run flow](docs/ASSEMBLE_AND_RUN.md), the
 [data model](docs/DATA_MODEL.md) and the [resonator source](docs/RESONATOR.md).
 
 ## Install
@@ -56,20 +58,54 @@ pip install -e ".[dev]"
 
 ## Usage
 
-```bash
-# First-time setup: locate IW2D / pytlwall  (skip if you only use the resonator)
-wimba setup
-wimba status
+Most compute paths use **pytlwall**; install it into the same environment (it is
+not on PyPI):
 
-# Test the software
-python -m pytest
+```bash
+pip install -e /path/to/TLWallNew
 ```
 
-See [docs/SETUP.md](docs/SETUP.md) for the quick start and tool configuration.
+**Assemble & run a machine** (optics + devices → machine total):
+
+```bash
+# the assignment array only: positions, names, method, beta, collisions
+wimba assemble examples/RoundChamber/RoundChamber_input.yaml
+
+# assemble + compute + machine total + default Re/Im plots (+ wake)
+wimba run examples/RoundChamber/RoundChamber_input.yaml --wake
+
+# (re)plot chosen components from a totals CSV
+wimba plot examples/RoundChamber/RoundChamber_output/single_elements/total.csv \
+           --components ZLong,ZDipX
+```
+
+**Build a machine from groups of elements** (analytic / imported sources):
+
+```bash
+wimba build examples/SubLHC/SubLHC_input.yaml
+wimba show  examples/SubLHC/SubLHC_output
+```
+
+**First-time tool setup / self-check:**
+
+```bash
+wimba setup      # locate IW2D / pytlwall (skip if you only use the resonator)
+wimba status
+```
+
+The four bundled examples — including a single-chamber verification against known
+values — are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md)**. For tool
+configuration see [docs/SETUP.md](docs/SETUP.md); run the tests with
+`python -m pytest`.
 
 ## Status
 
-Core data model and analytic resonator source: implemented and tested.
-In progress: resistive-wall source (with optional space charge), tabulated-data
-import, optics builder from MAD-X, I/O, command-line interface and graphical
-interface.
+Implemented and tested: the core data model and analytic resonator source; the
+optics builder from MAD-X; the assemble/run pipeline (beta resolution, default
+resistive wall, per-geometry caching, machine total, Re/Im and wake plots); the
+pytlwall compute bridge (impedance and native wake); tabulated-data import; and
+the command-line interface (`assemble`, `run`, `plot`, `build`, `show`, `setup`,
+`status`).
+
+In progress: wiring the resonator / precalculated / IW2D bridges into `run` (so
+lumped resonators such as RF HOMs enter the total), and the graphical interface.

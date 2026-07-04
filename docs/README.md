@@ -9,6 +9,8 @@
 - [Data model](DATA_MODEL.md) — the architecture and the core objects
   (`ImpedanceTerm`, `Element`, `ElementGroup`, `Machine`), beta weighting and how
   to query a machine.
+- [Examples](EXAMPLES.md) — the four bundled examples and how to run them.
+- [Assemble & run](ASSEMBLE_AND_RUN.md) — optics + devices -> machine total (assemble/run/plot).
 - [Building a machine](BUILD.md) — `wimba build` and `wimba show`; output layout, resume and totals.
 - [Machine config reference](CONFIG.md) — the YAML format, field by field.
 - [Resonator source](RESONATOR.md) — the analytic resonator source: Chao
