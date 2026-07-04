@@ -56,7 +56,60 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-## Usage
+## Two ways to build a model
+
+WIMBA has two workflows. Both produce impedance/wake models, but they start from
+different descriptions of the machine - the difference is **what you hand to
+WIMBA**.
+
+### `assemble` / `run` - lattice-driven (covers the whole ring)
+
+You give the **optics** (a MAD-X twiss for the full lattice), a few **named
+devices** (collimators, a cavity, a single chamber...), and one **default
+resistive wall**. WIMBA sweeps every lattice location, assigns each either one of
+your devices or the default pipe, resolves the local beta **by position**
+(interpolated from the twiss, then by name), flags collisions, and sums everything
+into the machine total.
+
+Use it when you want a **realistic model of the entire ring**, where the beam pipe
+contributes everywhere and only some locations carry special devices. This is the
+flow behind the LHC and RoundChamber examples.
+
+```bash
+wimba assemble <config.yaml>   # the assignment array: positions, beta, methods, collisions
+wimba run      <config.yaml>   # + compute + machine total + Re/Im plots (--wake for the wake)
+wimba plot     <name>_output/single_elements/total.csv --components ZLong,ZDipX
+```
+
+### `build` - element-driven (exactly what you list)
+
+You describe the machine as **named groups of elements you list explicitly**. Each
+element gets its impedance from a source (analytic resonator, imported table) and
+is weighted by the optics **matched by name**. There is no automatic beam pipe and
+no full-lattice sweep: the model is exactly the elements you wrote down.
+
+Use it when you have a **defined set of impedance contributions** to combine and
+weight, without covering the whole ring. This is the flow behind the SubLHC
+example.
+
+```bash
+wimba build <config.yaml>      # materialise the machine into <name>_output/
+wimba show  <name>_output      # summarise it
+```
+
+### Which one?
+
+|  | `assemble` / `run` | `build` |
+|---|---|---|
+| you provide | optics + a few devices + a default pipe | a hand-listed set of elements |
+| the beam pipe | default resistive wall on every lattice segment | not added automatically |
+| beta weighting | by position (interpolated), then by name | by name |
+| covers | the whole lattice | exactly what you list |
+| collision check | yes | no |
+| output | machine total (+ opt-in per-device) and plots | per-origin tables + a resume |
+| typical use | realistic full-machine model | combine a defined set of sources |
+
+## Running
 
 Most compute paths use **pytlwall**; install it into the same environment (it is
 not on PyPI):
@@ -65,37 +118,21 @@ not on PyPI):
 pip install -e /path/to/TLWallNew
 ```
 
-**Assemble & run a machine** (optics + devices → machine total):
+Try the single-chamber verification first (quick, and confirms the numbers):
 
 ```bash
-# the assignment array only: positions, names, method, beta, collisions
-wimba assemble examples/RoundChamber/RoundChamber_input.yaml
-
-# assemble + compute + machine total + default Re/Im plots (+ wake)
 wimba run examples/RoundChamber/RoundChamber_input.yaml --wake
-
-# (re)plot chosen components from a totals CSV
-wimba plot examples/RoundChamber/RoundChamber_output/single_elements/total.csv \
-           --components ZLong,ZDipX
 ```
 
-**Build a machine from groups of elements** (analytic / imported sources):
-
-```bash
-wimba build examples/SubLHC/SubLHC_input.yaml
-wimba show  examples/SubLHC/SubLHC_output
-```
-
-**First-time tool setup / self-check:**
+First-time tool setup / self-check:
 
 ```bash
 wimba setup      # locate IW2D / pytlwall (skip if you only use the resonator)
 wimba status
 ```
 
-The four bundled examples — including a single-chamber verification against known
-values — are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md)**. For tool
-configuration see [docs/SETUP.md](docs/SETUP.md); run the tests with
+The four bundled examples are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md)**.
+For tool configuration see [docs/SETUP.md](docs/SETUP.md); run the tests with
 `python -m pytest`.
 
 ## Status
