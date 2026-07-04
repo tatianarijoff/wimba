@@ -18,8 +18,9 @@ from .output import write_single_element, write_totals, write_wake_totals
 from .sources.pytlwall_bridge import (COMPONENTS, WAKE_COMPONENTS, chamber_wake,
                                       compute_chamber)
 from .sources.resonator import resonator_impedance, resonator_wake
+from .sources.precalculated_bridge import precalculated_impedance, precalculated_wake
 
-COMPUTED_METHODS = ("pytlwall", "resonator")   # iw2d / precalculated: coming next
+COMPUTED_METHODS = ("pytlwall", "resonator", "precalculated")   # iw2d: coming next
 
 
 def _grid(cfg):
@@ -100,6 +101,44 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
             if times is not None:
                 wterms = resonator_wake(times, modes, betax=bx, betay=by)
                 stats["wake_native"].add("resonator")
+
+        elif row.method == "precalculated":
+            params = row.params or {}
+            files, wfiles = params.get("files", {}), params.get("wake_files", {})
+            bx = 1.0 if row.weighted else row.beta_x   # data used as-is; beta if plain
+            by = 1.0 if row.weighted else row.beta_y
+
+            def _bw(component):
+                return bx if component.endswith("X") else (by if component.endswith("Y") else 1.0)
+
+            loaded = precalculated_impedance(freqs, files)
+            zterms = {c: np.zeros(len(freqs), dtype=complex) for c in COMPONENTS}
+            for c, v in loaded.items():
+                if c in zterms:
+                    zterms[c] = v * _bw(c)
+
+            if times is not None:
+                wterms = {c: np.zeros(len(times)) for c in WAKE_COMPONENTS}
+                if wfiles:
+                    for c, v in precalculated_wake(times, wfiles).items():
+                        if c in wterms:
+                            wterms[c] = v * _bw(c)
+                    stats["wake_native"].add("precalculated")
+                else:
+                    # no native wake for this data -> Fourier transform of the impedance
+                    from .analysis import FourierTransform
+                    ft = FourierTransform()
+                    zw = {"ZLong": ("WLong", "z"), "ZDipX": ("WDipX", "x"),
+                          "ZDipY": ("WDipY", "y"), "ZQuadX": ("WQuadX", "x"),
+                          "ZQuadY": ("WQuadY", "y")}
+                    for zc, (wc, plane) in zw.items():
+                        if zc in loaded:
+                            try:
+                                w = ft.wake_from_impedance(freqs, zterms[zc], times, plane=plane)
+                                wterms[wc] = np.asarray(w).real
+                            except Exception:
+                                pass
+                    stats["wake_fft"].add("precalculated")
 
         else:
             stats["skipped"] += 1
