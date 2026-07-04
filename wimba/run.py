@@ -17,8 +17,9 @@ from .assembly import load_assembly
 from .output import write_single_element, write_totals, write_wake_totals
 from .sources.pytlwall_bridge import (COMPONENTS, WAKE_COMPONENTS, chamber_wake,
                                       compute_chamber)
+from .sources.resonator import resonator_impedance, resonator_wake
 
-COMPUTED_METHODS = ("pytlwall",)   # iw2d / resonator / precalculated: coming next
+COMPUTED_METHODS = ("pytlwall", "resonator")   # iw2d / precalculated: coming next
 
 
 def _grid(cfg):
@@ -65,40 +66,53 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
     want = set(per_device)
 
     for row in rows:
-        if row.method not in COMPUTED_METHODS:
-            stats["skipped"] += 1
-            continue
-        geo = row.geometry or {"radius": 0.02}
+        zterms, wterms = None, None
 
-        zbase, fresh = _cached(zcache, geo,
-                               lambda g=geo: compute_chamber(freqs, g.get("radius", 0.02),
+        if row.method == "pytlwall":
+            geo = row.geometry or {"radius": 0.02}
+            zbase, fresh = _cached(zcache, geo,
+                                   lambda g=geo: compute_chamber(freqs, g.get("radius", 0.02),
+                                                                 g.get("layers"), length_m=1.0,
+                                                                 betax=1.0, betay=1.0, gamma=gamma))
+            if fresh:
+                stats["geometries"] += 1
+            zterms = _scale(zbase, row, COMPONENTS, "ZLong")   # wall: scales with L and beta
+            if row.space_charge:
+                L = row.length or 1.0
+                zterms["ZLong"] += zbase["ZLongISC"] * L
+                zterms["ZDipX"] += zbase["ZDipISC"] * L * row.beta_x
+                zterms["ZDipY"] += zbase["ZDipISC"] * L * row.beta_y
+                zterms["ZQuadX"] += zbase["ZQuadISC"] * L * row.beta_x
+                zterms["ZQuadY"] += zbase["ZQuadISC"] * L * row.beta_y
+            if times is not None:
+                wbase, _ = _cached(wcache, geo,
+                                   lambda g=geo: chamber_wake(times, g.get("radius", 0.02),
                                                              g.get("layers"), length_m=1.0,
                                                              betax=1.0, betay=1.0, gamma=gamma))
-        if fresh:
-            stats["geometries"] += 1
-        zterms = _scale(zbase, row, COMPONENTS, "ZLong")
-        if row.space_charge:
-            L = row.length or 1.0
-            zterms["ZLong"] = zterms["ZLong"] + zbase["ZLongISC"] * L
-            zterms["ZDipX"] = zterms["ZDipX"] + zbase["ZDipISC"] * L * row.beta_x
-            zterms["ZDipY"] = zterms["ZDipY"] + zbase["ZDipISC"] * L * row.beta_y
-            zterms["ZQuadX"] = zterms["ZQuadX"] + zbase["ZQuadISC"] * L * row.beta_x
-            zterms["ZQuadY"] = zterms["ZQuadY"] + zbase["ZQuadISC"] * L * row.beta_y
+                wterms = _scale(wbase, row, WAKE_COMPONENTS, "WLong")
+                stats["wake_native"].add("pytlwall")
+
+        elif row.method == "resonator":
+            modes = (row.params or {}).get("modes", [])
+            bx = 1.0 if row.weighted else row.beta_x   # lumped: beta applies, length does NOT
+            by = 1.0 if row.weighted else row.beta_y
+            zterms = resonator_impedance(freqs, modes, betax=bx, betay=by)
+            if times is not None:
+                wterms = resonator_wake(times, modes, betax=bx, betay=by)
+                stats["wake_native"].add("resonator")
+
+        else:
+            stats["skipped"] += 1
+            continue
+
         for c in COMPONENTS:
             ztot[c] = ztot[c] + zterms[c]
         stats["computed"] += 1
         if row.name in want:
             write_single_element(out_dir, row.group or row.kind, row.name, freqs, zterms)
-
-        if times is not None:
-            wbase, _ = _cached(wcache, geo,
-                               lambda g=geo: chamber_wake(times, g.get("radius", 0.02),
-                                                         g.get("layers"), length_m=1.0,
-                                                         betax=1.0, betay=1.0, gamma=gamma))
-            wterms = _scale(wbase, row, WAKE_COMPONENTS, "WLong")
+        if times is not None and wterms is not None:
             for c in WAKE_COMPONENTS:
                 wtot[c] = wtot[c] + wterms[c]
-            stats["wake_native"].add(row.method)
 
     write_totals(out_dir, freqs, ztot)
     if times is not None:
@@ -129,6 +143,7 @@ def run(config, out_dir=None, plot=None, wake=False, gamma=7000.0):
     freqs = _grid(cfg)
     out = Path(out_dir) if out_dir else Path(config).parent / f"{result.name}_output"
     per_device = cfg.get("output") or []
+    gamma = float(cfg.get("gamma", gamma))
     times = np.linspace(1.0e-12, 5.0e-9, 500) if wake else None
 
     ztot, wtot, stats = compute_assignments(result.rows, freqs, out,

@@ -39,6 +39,7 @@ class Device:
     length: Optional[float] = None
     geometry: Optional[dict] = None
     group: str = ""
+    params: Optional[dict] = None
 
 
 @dataclass
@@ -65,6 +66,7 @@ class Assignment:
     length: Optional[float] = None
     geometry: Optional[dict] = None
     group: str = ""
+    params: Optional[dict] = None
 
 
 @dataclass
@@ -160,7 +162,7 @@ def assemble(twiss: dict, devices, default_pipe: Optional[DefaultPipe],
                     claimed.add(nm)
         rows.append(Assignment(pos, dev.name, "device", dev.method, dev.weighted,
                                sc, bx, by, src, dev.allow_overlap, dev.length,
-                               dev.geometry, dev.group))
+                               dev.geometry, dev.group, dev.params))
 
     if default_pipe is not None:
         for nm, row in sorted(twiss.items(),
@@ -233,7 +235,8 @@ def load_assembly(path, tol=DEFAULT_TOL) -> AssemblyResult:
             r = read_resonators(base / spec["file"])
             devices.append(Device(name=r.get("name", "resonator"), method=method,
                                   weighted=weighted, space_charge=sc,
-                                  allow_overlap=overlap, length=r.get("length"), group=gname))
+                                  allow_overlap=overlap, length=r.get("length"),
+                                  group=gname, params={"modes": r.get("modes", [])}))
         elif src == "chamber":
             if "radius_m" in spec:
                 radius = float(spec["radius_m"])

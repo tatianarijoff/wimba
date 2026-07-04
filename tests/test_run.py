@@ -38,7 +38,7 @@ def test_cache_and_totals(tmp_path):
 
 def test_non_pytlwall_skipped(tmp_path):
     r = _row("x", 0.02)
-    r.method = "resonator"
+    r.method = "iw2d"
     totals, _wake, stats = compute_assignments([r], F, tmp_path / "out")
     assert stats["skipped"] == 1 and stats["computed"] == 0
 
@@ -52,3 +52,16 @@ def test_wake_totals_native(tmp_path):
     assert (tmp_path / "out" / "single_elements" / "total_wake.csv").is_file()
     assert stats["wake_native"] == {"pytlwall"} and not stats["wake_fft"]
     assert wtot["WLong"].shape == T.shape and np.all(np.isfinite(wtot["WLong"]))
+
+
+def test_resonator_lumped_in_total(tmp_path):
+    F2 = np.array([1e9])                       # exactly at resonance
+    modes = [{"Rl": 1000.0, "Ql": 1.0, "fl": 1e9, "Rxd": 5e5, "Qxd": 1.0, "fxd": 1e9}]
+    row = Assignment(position=0.0, name="RF", kind="device", method="resonator",
+                     weighted=False, space_charge=False, beta_x=2.0, beta_y=1.0,
+                     beta_source="explicit", allow_overlap=False, length=5.0,
+                     geometry=None, group="rf", params={"modes": modes})
+    ztot, _w, stats = compute_assignments([row], F2, tmp_path / "out")
+    assert stats["computed"] == 1 and stats["skipped"] == 0
+    assert np.isclose(ztot["ZLong"][0], 1000.0)          # longitudinal peaks at Rs
+    assert np.isclose(ztot["ZDipX"][0], 2.0 * 5e5)       # beta applied, length (=5) is NOT

@@ -18,7 +18,7 @@ not.
 
 | Example | Flow | Needs pytlwall | What it is for |
 |---------|------|:---:|----------------|
-| [RoundChamber](#roundchamber) | run | yes | verify a single chamber against known values |
+| [RoundChamber](#roundchamber) | run | yes | verify a single chamber (known analytic geometry) |
 | [LHC](#lhc) | assemble / run | yes | a full realistic machine from real LHC data |
 | [SubLHC](#sublhc) | build | no | the group/element build flow end to end |
 | [resonator](#resonator) | script | no | the analytic resonator source, standalone |
@@ -27,10 +27,10 @@ not.
 
 ## RoundChamber
 
-`examples/RoundChamber/` — a single-chamber **verification**. It mirrors the
-Wake2D `RoundChamber` reference (CIRCULAR, radius 2 mm, length 1 m, beta = 1, one
-layer sigma = 2e5 S/m, gamma = 479.605), defined inline in the config with a
-`chamber` source.
+`examples/RoundChamber/` — a single-chamber **verification**. A round beam pipe
+(CIRCULAR, radius 2 mm, length 1 m, beta = 1, one conducting layer of
+sigma = 2e5 S/m, gamma = 479.605) defined inline in the config with a `chamber`
+source, so the whole model is one chamber with a known geometry.
 
 ```bash
 wimba run examples/RoundChamber/RoundChamber_input.yaml --wake
@@ -42,9 +42,9 @@ chamber under `single_elements/round_chamber/…`), the impedance plots
 wake plots `total_W*.png`.
 
 Because beta = 1 and length = 1, WIMBA's numbers here are exactly pytlwall's
-`get_all_impedances` / `TLWallWake` for the chamber — a direct check of the
-bridge. This is the example to run first when you want to confirm the values are
-right before trusting a full machine.
+`get_all_impedances` / `TLWallWake` for that chamber — a direct check of the
+bridge against a single, well-defined geometry. Run this first when you want to
+confirm the values are right before trusting a full machine.
 
 ## LHC
 
@@ -69,10 +69,10 @@ device listed under `output:` in the config, and the plots.
 Notes:
 - The twiss `data/twiss_lhcb1_beta130cm.tfs` is ~5 MB and is **not** in the repo;
   copy it from the pywit model into `examples/LHC/data/` before running.
-- The RF-cavity HOMs use the `resonator` method, which is not yet wired into the
-  compute step, so they appear in the assignment array but are currently skipped
-  in `run` (reported in the run summary). The collimators and the default pipe
-  (both pytlwall) are fully computed.
+- The RF-cavity HOMs (`resonator` method) are now computed and enter the total,
+  as lumped contributions (weighted by beta, not by length). The remaining methods
+  not yet wired into `run` are `iw2d` and `precalculated`; rows with those are
+  reported as skipped in the run summary.
 
 Full explanation of the config, beta resolution, default-pipe caching and output
 layout: [ASSEMBLE_AND_RUN.md](ASSEMBLE_AND_RUN.md).
