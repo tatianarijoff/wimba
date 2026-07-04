@@ -96,3 +96,55 @@ def _w_trans(Rs, Q, fr):
                   * np.sin(omega_bar * t[m]) / (Q * root)).real
         return out
     return w
+
+
+# ---------------------------------------------------------------------------
+# Uniform compute interface for the assemble/run flow.
+# Same signature style as the external-tool bridges, but the logic is native
+# (the formulas above) - so this lives in the source, not in a "_bridge".
+# Modes follow the pywit HOM layout: each may carry a longitudinal resonator
+# (Rl, Ql, fl), transverse dipolar (Rxd/..., Ryd/...) and quadrupolar
+# (Rxq/..., Ryq/...) ones.
+# ---------------------------------------------------------------------------
+
+Z_COMPONENTS = ("ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY")
+W_COMPONENTS = ("WLong", "WDipX", "WDipY", "WQuadX", "WQuadY")
+
+# (R key, Q key, f key, Z component, W component, kind)
+_MODE_MAP = [
+    ("Rl",  "Ql",  "fl",  "ZLong",  "WLong",  "long"),
+    ("Rxd", "Qxd", "fxd", "ZDipX",  "WDipX",  "trans"),
+    ("Ryd", "Qyd", "fyd", "ZDipY",  "WDipY",  "trans"),
+    ("Rxq", "Qxq", "fxq", "ZQuadX", "WQuadX", "trans"),
+    ("Ryq", "Qyq", "fyq", "ZQuadY", "WQuadY", "trans"),
+]
+
+
+def _beta(component, betax, betay):
+    if component.endswith("X"):
+        return betax
+    if component.endswith("Y"):
+        return betay
+    return 1.0
+
+
+def resonator_impedance(freqs, modes, betax=1.0, betay=1.0):
+    freqs = np.asarray(freqs, dtype=float)
+    out = {c: np.zeros(len(freqs), dtype=complex) for c in Z_COMPONENTS}
+    for m in modes:
+        for rk, qk, fk, zc, _wc, kind in _MODE_MAP:
+            if m.get(rk):
+                z = (_z_long if kind == "long" else _z_trans)(float(m[rk]), float(m[qk]), float(m[fk]))
+                out[zc] = out[zc] + z(freqs) * _beta(zc, betax, betay)
+    return out
+
+
+def resonator_wake(times, modes, betax=1.0, betay=1.0):
+    times = np.asarray(times, dtype=float)
+    out = {c: np.zeros(len(times)) for c in W_COMPONENTS}
+    for m in modes:
+        for rk, qk, fk, _zc, wc, kind in _MODE_MAP:
+            if m.get(rk):
+                w = (_w_long if kind == "long" else _w_trans)(float(m[rk]), float(m[qk]), float(m[fk]))
+                out[wc] = out[wc] + w(times) * _beta(wc, betax, betay)
+    return out
