@@ -27,9 +27,9 @@ def test_plot_totals_saves_png(tmp_path):
     from wimba.plotting import plot_totals
     f = np.logspace(6, 9, 20)
     write_totals(tmp_path / "out", f, {"ZLong": 1 / f + 0j, "ZDipX": 10 / f + 0j})
-    out = plot_totals(tmp_path / "out" / "single_elements" / "total.csv",
-                      components=["ZLong"], save=tmp_path / "p.png")
-    assert out.is_file() and out.stat().st_size > 0
+    paths = plot_totals(tmp_path / "out" / "single_elements" / "total.csv",
+                        components=["ZLong", "ZDipX"], out_dir=tmp_path)
+    assert len(paths) == 2 and all(p.is_file() and p.stat().st_size > 0 for p in paths)
 
 
 def test_chamber_terms_beta_weighting(tmp_path):
