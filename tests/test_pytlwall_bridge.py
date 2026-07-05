@@ -42,3 +42,32 @@ def test_multilayer_collimator_like():
     layers = [{"material": "cfc", "thickness": 0.025}]
     imp = compute_chamber(FREQS, radius_m=0.003, layers=layers, length_m=1.0)
     assert np.all(np.isfinite(imp["ZLong"]))
+
+
+def test_build_flow_computes_pytlwall(tmp_path):
+    """A 'build' machine with a pytlwall element now computes (not left empty),
+    using the same engine as run."""
+    from wimba import ResultStore, load_project, materialize
+    from wimba.sources.pytlwall_bridge import compute_chamber
+
+    (tmp_path / "m.tfs").write_text(
+        '@ NAME %05s "T"\n* NAME S L BETX BETY\n$ %s %le %le %le %le\n'
+        ' "C1" 100.0 1.0 130.0 85.0\n')
+    (tmp_path / "c.yaml").write_text(
+        "name: WallBuild\noptics: m.tfs\n"
+        "grid:\n  frequency: {min: 1.0e7, max: 1.0e9, n: 10, log: true}\n"
+        "  time: {min: 0.0, max: 5.0e-9, n: 10}\n"
+        "groups:\n  pipes:\n    - name: C1\n      source: pytlwall\n"
+        "      radius_m: 0.02\n      length: 1.0\n"
+        "      layers: [{material: copper, thickness: 0.002}]\n")
+
+    proj = load_project(tmp_path / "c.yaml")
+    materialize(proj, tmp_path / "out")
+    store = ResultStore(tmp_path / "out")
+    z = store.impedance()
+    assert "zlong" in z and np.any(np.abs(z["zlong"]) > 0)          # actually computed
+    # longitudinal has beta power 0, length 1 -> equals the raw chamber
+    expected = compute_chamber(proj.freqs, radius_m=0.02,
+                               layers=[{"material": "copper", "thickness": 0.002}],
+                               length_m=1.0)["ZLong"]
+    assert np.allclose(z["zlong"], expected, rtol=1e-6)

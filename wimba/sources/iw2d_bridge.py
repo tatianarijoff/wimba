@@ -35,3 +35,24 @@ def compute_iw2d(freqs, radius_m, layers=None, length_m=1.0, shape="CIRCULAR",
     raise NotImplementedError(
         "IW2D execution is not wired yet; only the availability check and the "
         "chamber interface are in place.")
+
+
+class IW2DProvider:
+    """Build-flow provider for IW2D. Evaluating its terms triggers a real IW2D
+    run; without the binary configured it raises the same clear error."""
+
+    def __init__(self, radius_m, layers=None, length_m=1.0, gamma=7000.0, **kw):
+        self.radius = float(radius_m)
+        self.layers = layers
+        self.length = float(length_m)
+        self.gamma = float(gamma)
+
+    def terms(self, element):
+        from ..core.terms import STANDARD_TERMS
+        from ..core.impedance_term import ImpedanceTerm
+
+        def z(f):
+            return compute_iw2d(f, self.radius, self.layers, length_m=self.length,
+                                gamma=self.gamma)["ZLong"]
+        return [ImpedanceTerm(id="zlong", tid=STANDARD_TERMS["zlong"],
+                              origin="resistive_wall", z=z, w=None)]

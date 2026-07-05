@@ -127,7 +127,9 @@ def chamber_wake(times, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.
                                pipe_hor_m=hor_m, pipe_ver_m=ver_m, chamber_shape=shape,
                                betax=1.0, betay=1.0, layers=_build_layers(pytlwall, layers))
     beam = pytlwall.Beam(gammarel=float(gamma))
-    times_obj = pytlwall.Times(time_list=list(np.asarray(times, dtype=float)))
+    times_obj = pytlwall.Times(time_list=list(
+        np.where(np.asarray(times, dtype=float) <= 0.0, 1.0e-15,
+                 np.asarray(times, dtype=float))))
     w = pytlwall.TLWallWake(chamber=chamber, beam=beam, times=times_obj)
     return {
         "WLong":  np.asarray(w.WLong),
@@ -136,3 +138,71 @@ def chamber_wake(times, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.
         "WQuadX": np.asarray(w.WQuadX) * betax,
         "WQuadY": np.asarray(w.WQuadY) * betay,
     }
+
+
+# ---------------------------------------------------------------------------
+# Provider for the build flow (Machine/materialize): same engine, lazy terms.
+# The chamber is evaluated at beta = 1; the Machine applies the beta weighting.
+# ---------------------------------------------------------------------------
+from ..core.impedance_term import ImpedanceTerm   # noqa: E402
+from ..core.terms import STANDARD_TERMS            # noqa: E402
+
+# standard term -> (impedance key, wake key, indirect-space-charge key)
+_CHAMBER_MAP = {
+    "zlong":  ("ZLong",  "WLong",  "ZLongISC"),
+    "zxdip":  ("ZDipX",  "WDipX",  "ZDipISC"),
+    "zydip":  ("ZDipY",  "WDipY",  "ZDipISC"),
+    "zxquad": ("ZQuadX", "WQuadX", "ZQuadISC"),
+    "zyquad": ("ZQuadY", "WQuadY", "ZQuadISC"),
+}
+
+
+class ChamberProvider:
+    """pytlwall-backed provider: gives a Machine element its wall (and optional
+    space-charge) impedance/wake, computed lazily on whatever grid is supplied."""
+
+    def __init__(self, radius_m, layers=None, length_m=1.0, gamma=7000.0,
+                 space_charge=False, shape="CIRCULAR"):
+        self.radius = float(radius_m)
+        self.layers = layers
+        self.length = float(length_m)
+        self.gamma = float(gamma)
+        self.space_charge = bool(space_charge)
+        self.shape = shape
+        self._imp_cache = {}
+        self._wake_cache = {}
+
+    def _imp(self, freqs):
+        freqs = np.asarray(freqs, dtype=float)
+        key = freqs.tobytes()
+        if key not in self._imp_cache:
+            self._imp_cache[key] = compute_chamber(
+                freqs, self.radius, self.layers, length_m=self.length,
+                shape=self.shape, betax=1.0, betay=1.0, gamma=self.gamma)
+        return self._imp_cache[key]
+
+    def _wake(self, times):
+        times = np.asarray(times, dtype=float)
+        key = times.tobytes()
+        if key not in self._wake_cache:
+            self._wake_cache[key] = chamber_wake(
+                times, self.radius, self.layers, length_m=self.length,
+                shape=self.shape, betax=1.0, betay=1.0, gamma=self.gamma)
+        return self._wake_cache[key]
+
+    def _zfun(self, comp):
+        return lambda f: self._imp(f)[comp]
+
+    def _wfun(self, comp):
+        return lambda t: self._wake(t)[comp]
+
+    def terms(self, element):
+        out = []
+        for tkey, (zc, wc, isc) in _CHAMBER_MAP.items():
+            tid = STANDARD_TERMS[tkey]
+            out.append(ImpedanceTerm(id=tkey, tid=tid, origin="resistive_wall",
+                                     z=self._zfun(zc), w=self._wfun(wc)))
+            if self.space_charge:
+                out.append(ImpedanceTerm(id=tkey, tid=tid, origin="space_charge",
+                                         z=self._zfun(isc), w=None))
+        return out

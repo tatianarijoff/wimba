@@ -20,6 +20,8 @@ from ..core.machine import Machine, TwissTable
 from ..core.optics import Explicit, PreWeighted
 from ..sources.resonator import Resonator, ResonatorProvider
 from ..sources.table import TableProvider
+from ..sources.pytlwall_bridge import ChamberProvider
+from ..sources.iw2d_bridge import IW2DProvider
 from . import madx
 
 
@@ -44,10 +46,34 @@ def _build_table(el, base):
                          quantity=el.get("quantity", "impedance"))
 
 
+def _chamber_geom(el, base):
+    if "radius_m" in el:
+        radius = float(el["radius_m"])
+    elif "half_gap_mm" in el:
+        radius = float(el["half_gap_mm"]) / 1000.0
+    elif "radius" in el:
+        radius = float(el["radius"])
+    else:
+        radius = 0.02
+    return dict(radius_m=radius, layers=el.get("layers"),
+                length_m=float(el.get("length", 1.0)), gamma=float(el.get("gamma", 7000.0)))
+
+
+def _build_pytlwall(el, base):
+    return ChamberProvider(space_charge=bool(el.get("space_charge", False)),
+                           **_chamber_geom(el, base))
+
+
+def _build_iw2d(el, base):
+    return IW2DProvider(**_chamber_geom(el, base))
+
+
 SOURCE_BUILDERS = {
     "resonator": _build_resonator,
     "cst": _build_table,
     "table": _build_table,
+    "pytlwall": _build_pytlwall,
+    "iw2d": _build_iw2d,
 }
 
 

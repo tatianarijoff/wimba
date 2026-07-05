@@ -306,9 +306,9 @@ class MainWindow(QMainWindow):
         self.wake_action = QAction("Compute wake", self, checkable=True)
         m.addAction(self.wake_action)
         m.addSeparator()
-        self._act(m, "Selected Element", self._todo, "F5")
-        self._act(m, "Selected Group", self._todo)
-        self._act(m, "Whole Machine (from Config)", self._calc_machine)
+        self._act(m, "Calculate Selected Element", self._todo, "F5")
+        self._act(m, "Calculate Selected Group", self._todo)
+        self._act(m, "Calculate Whole Machine", self._calc_machine)
 
         m = mb.addMenu("&Results")
         for label in ("Add Selection to Comparison", "Send Basket to Plot",
