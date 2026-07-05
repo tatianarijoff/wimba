@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QHBoxLayout
                              QTabBar, QTabWidget, QVBoxLayout, QWidget)
 
 from .theme import THEMES, build_style
-from .model import GGroup, from_project, new_element, new_machine
+from .model import GGroup, from_config, from_project, new_element, new_machine
 from .panels import ElementPanel, InspectorPanel, MachineTree, OpticsPanel
 from .runner import RunWorker
 from ..logutil import configure, get_logger, set_level
@@ -602,10 +602,31 @@ class MainWindow(QMainWindow):
     def _open_config(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open Assembly Config", "",
             "YAML (*.yaml *.yml);;All files (*)")
-        if path:
-            self.config_path = path
-            self.statusBar().showMessage(
-                f"Config ready: {path} \u2014 Calculate \u2192 Whole Machine", 5000)
+        if not path:
+            return
+        self.config_path = path
+        try:
+            import yaml
+            cfg = yaml.safe_load(Path(path).read_text()) or {}
+            self.machine = from_config(path)
+        except Exception as exc:
+            self.log.error("Could not read config %s: %s", path, exc)
+            QMessageBox.critical(self, "Open Config", f"Could not read config:\n{exc}")
+            return
+
+        self.selected = None
+        self.inspector.set_ref(None)
+        self._refresh_all()
+
+        name = cfg.get("name", Path(path).stem)
+        n_dev = len(cfg.get("devices") or {})
+        has_pipe = "default_pipe" in cfg
+        self.fill_pipe_action.setChecked(has_pipe)
+        self.docks["console"].raise_()
+        self.log.info("Opened config '%s' (%s): %d device source(s), default pipe %s.",
+                      name, Path(path).name, n_dev, "on" if has_pipe else "off")
+        self.log.info("Machine and Optics populated. Calculate \u2192 Whole Machine to compute.")
+        self.statusBar().showMessage(f"Config loaded: {name} \u2014 Calculate to compute", 6000)
 
     def _dock_text(self, pid):
         w = self.docks[pid].widget()

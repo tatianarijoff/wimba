@@ -126,6 +126,47 @@ def from_project(path) -> GMachine:
     return gm
 
 
+def from_config(path) -> GMachine:
+    """Build the view-model from an assemble/run config (optics + devices).
+
+    Uses the resolved assignment array, so the Machine tree and the Optics panel
+    show the real per-element positions and betas. The (many) default-pipe lattice
+    rows are summarised as a single entry rather than listed one by one.
+    """
+    from pathlib import Path
+    from ..assembly import load_assembly
+
+    result = load_assembly(str(path))
+    gm = GMachine(name=result.name,
+                  output=f"{Path(path).with_suffix('')}_output/")
+
+    groups = {}
+    order = []
+    pipe_count = 0
+    for r in result.rows:
+        if r.kind == "default_pipe":
+            pipe_count += 1
+            continue
+        g = r.group or "devices"
+        if g not in groups:
+            groups[g] = []
+            order.append(g)
+        groups[g].append(GElement(
+            name=r.name, category=r.method,
+            geometry=dict(r.geometry or {}),
+            optics={"s": r.position, "l": r.length,
+                    "bx": r.beta_x, "by": r.beta_y, "pre": r.weighted},
+            layers=[], models=[]))
+    for g in order:
+        gm.groups.append(GGroup(g, groups[g]))
+    if pipe_count:
+        note = GElement(name=f"default pipe  (\u00d7{pipe_count} lattice segments)",
+                        category="default_pipe", geometry={},
+                        optics={"pre": True}, layers=[], models=[])
+        gm.groups.append(GGroup("default resistive wall", [note]))
+    return gm
+
+
 def new_machine(name="Untitled") -> GMachine:
     return GMachine(name=name, output="", groups=[GGroup("Group 1", [])], additional=[])
 
