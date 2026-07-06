@@ -140,11 +140,19 @@ class ElementPanel(QWidget):
         if key == "length":
             self.el.optics["l"] = _num(value)
 
+    LAYER_COLS = [
+        ("type", "Type"), ("thickness", "Thickness [m]"), ("sigma", "\u03c3 [S/m]"),
+        ("epsr", "\u03b5r"), ("tau", "\u03c4 [s]"), ("k_Hz", "k [Hz]"),
+        ("muinf_Hz", "\u03bc\u221e"), ("RQ", "RQ"),
+    ]
+
     def _layers_tab(self):
         w = QWidget(); v = QVBoxLayout(w)
-        self.ltab = QTableWidget(0, 3)
-        self.ltab.setHorizontalHeaderLabels(["Material", "Thickness [mm]", "\u03c3 [S/m]"])
+        headers = [lbl for _, lbl in self.LAYER_COLS] + ["Boundary"]
+        self.ltab = QTableWidget(0, len(headers))
+        self.ltab.setHorizontalHeaderLabels(headers)
         self.ltab.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.ltab.verticalHeader().setVisible(False)
         for L in self.el.layers:
             self._layer_row(L)
         self.ltab.cellChanged.connect(self._layer_edit)
@@ -154,17 +162,29 @@ class ElementPanel(QWidget):
         rm = QPushButton("Remove selected"); rm.clicked.connect(self._rm_layer)
         row.addWidget(add); row.addWidget(rm); row.addStretch(1)
         v.addLayout(row)
-        if not self.el.layers:
-            v.addWidget(QLabel("No layers. Add the wall build-up from inside out."))
+        v.addWidget(QLabel(
+            "Wall build-up from inside out. Mark the outermost layer as Boundary "
+            "(its thickness is usually \u2018inf\u2019); if none is marked, a vacuum "
+            "boundary is assumed. Thickness and k accept \u2018inf\u2019."))
         return w
+
+    def _default_layer(self):
+        return {"type": "CW", "thickness": 0.002, "sigma": 5.9e7, "epsr": 1.0,
+                "tau": 0.0, "k_Hz": "inf", "muinf_Hz": 0.0, "RQ": 0.0, "boundary": False}
 
     def _layer_row(self, L):
         r = self.ltab.rowCount(); self.ltab.insertRow(r)
-        for c, key in enumerate(("material", "thickness", "sigma")):
-            self.ltab.setItem(r, c, QTableWidgetItem(str(L.get(key, ""))))
+        for c, (key, _) in enumerate(self.LAYER_COLS):
+            val = L.get(key)
+            self.ltab.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
+        chk = QCheckBox(); chk.setChecked(bool(L.get("boundary")))
+        chk.stateChanged.connect(lambda s, LL=L: self._set_boundary(LL, bool(s)))
+        cw = QWidget(); cl = QHBoxLayout(cw); cl.addWidget(chk)
+        cl.setAlignment(Qt.AlignmentFlag.AlignCenter); cl.setContentsMargins(0, 0, 0, 0)
+        self.ltab.setCellWidget(r, len(self.LAYER_COLS), cw)
 
     def _add_layer(self):
-        L = {"material": "copper", "thickness": 2.0, "sigma": 5.9e7}
+        L = self._default_layer()
         self.el.layers.append(L); self._layer_row(L)
 
     def _rm_layer(self):
@@ -173,9 +193,21 @@ class ElementPanel(QWidget):
             self.ltab.removeRow(r); del self.el.layers[r]
 
     def _layer_edit(self, r, c):
-        if r < len(self.el.layers):
-            key = ("material", "thickness", "sigma")[c]
+        if r < len(self.el.layers) and c < len(self.LAYER_COLS):
+            key = self.LAYER_COLS[c][0]
             self.el.layers[r][key] = _num(self.ltab.item(r, c).text())
+
+    def _set_boundary(self, layer, checked):
+        layer["boundary"] = checked
+        if checked:                                       # keep a single boundary
+            for i, other in enumerate(self.el.layers):
+                if other is not layer and other.get("boundary"):
+                    other["boundary"] = False
+                    cw = self.ltab.cellWidget(i, len(self.LAYER_COLS))
+                    box = cw.findChild(QCheckBox) if cw else None
+                    if box:
+                        box.blockSignals(True); box.setChecked(False); box.blockSignals(False)
+        self.on_change()
 
     def _models_tab(self):
         w = QWidget(); v = QVBoxLayout(w)
