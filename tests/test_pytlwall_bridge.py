@@ -71,3 +71,27 @@ def test_build_flow_computes_pytlwall(tmp_path):
                                layers=[{"material": "copper", "thickness": 0.002}],
                                length_m=1.0)["ZLong"]
     assert np.allclose(z["zlong"], expected, rtol=1e-6)
+
+
+def test_full_layer_parameters_and_boundary_match_pytlwall():
+    """Full pytlwall layer parameters pass through, including an explicit
+    conductor boundary (not the default vacuum)."""
+    import pytlwall
+    from wimba.sources.pytlwall_bridge import compute_chamber
+
+    f = np.logspace(3, 10, 20)
+    layers = [
+        {"type": "CW", "thickness": 5e-7, "sigma": 1e6, "epsr": 1.0, "tau": 0.0, "muinf_Hz": 0.0},
+        {"type": "CW", "thickness": "inf", "sigma": 1e9, "boundary": True},   # conductor boundary
+    ]
+    wimba_z = compute_chamber(f, radius_m=0.0184, layers=layers, length_m=1.0,
+                              gamma=10000.0)["ZLong"]
+
+    L0 = pytlwall.Layer(layer_type="CW", thick_m=5e-7, sigmaDC=1e6)
+    Lb = pytlwall.Layer(layer_type="CW", thick_m=np.inf, sigmaDC=1e9, boundary=True)
+    ch = pytlwall.Chamber(pipe_len_m=1.0, pipe_rad_m=0.0184, chamber_shape="CIRCULAR",
+                          betax=1.0, betay=1.0, layers=[L0, Lb])
+    ref = pytlwall.TlWall(chamber=ch, beam=pytlwall.Beam(gammarel=10000.0),
+                          frequencies=pytlwall.Frequencies(freq_list=list(f))
+                          ).get_all_impedances()["ZLong"]
+    assert np.allclose(wimba_z, ref, rtol=1e-9)

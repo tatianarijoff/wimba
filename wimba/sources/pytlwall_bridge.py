@@ -23,15 +23,37 @@ MATERIALS = {
 DEFAULT_SIGMA = 1.0e6
 
 
+def _one_layer(pytlwall, lay, boundary=False):
+    """Build a pytlwall Layer, passing through the full parameter set."""
+    thick = lay.get("thickness", lay.get("thick_m", 0.002))
+    thick = np.inf if str(thick).lower() == "inf" else float(thick)
+    sigma = lay.get("sigma", lay.get("sigmaDC"))
+    sigma = float(sigma) if sigma is not None else _sigma(lay.get("material"))
+    k = lay.get("k_Hz", lay.get("k", np.inf))
+    k = np.inf if str(k).lower() == "inf" else float(k)
+    return pytlwall.Layer(
+        layer_type=lay.get("type", "CW"),
+        thick_m=thick,
+        sigmaDC=sigma,
+        muinf_Hz=float(lay.get("muinf_Hz", lay.get("muinf", 0.0))),
+        k_Hz=k,
+        epsr=float(lay.get("epsr", 1.0)),
+        tau=float(lay.get("tau", 0.0)),
+        RQ=float(lay.get("RQ", 0.0)),
+        boundary=boundary,
+    )
+
+
 def _build_layers(pytlwall, layers):
-    built = []
-    for lay in (layers or [{"material": "copper", "thickness": 0.002}]):
-        thick = lay.get("thickness", 0.002)
-        thick = np.inf if str(thick).lower() == "inf" else float(thick)
-        sigma = lay.get("sigma")
-        sigma = float(sigma) if sigma is not None else _sigma(lay.get("material"))
-        built.append(pytlwall.Layer(layer_type="CW", thick_m=thick, sigmaDC=sigma))
-    built.append(pytlwall.Layer(layer_type="V", thick_m=np.inf, boundary=True))
+    """Build the layer stack. Each layer dict may carry any pytlwall Layer field
+    (type, thickness/thick_m, sigma/sigmaDC or material, muinf_Hz, k_Hz, epsr,
+    tau, RQ). The boundary is the layer marked ``boundary: true``; if none is,
+    a vacuum boundary is appended (back-compatible default)."""
+    layers = layers or [{"material": "copper", "thickness": 0.002}]
+    has_boundary = any(lay.get("boundary") for lay in layers)
+    built = [_one_layer(pytlwall, lay, boundary=bool(lay.get("boundary"))) for lay in layers]
+    if not has_boundary:
+        built.append(pytlwall.Layer(layer_type="V", thick_m=np.inf, boundary=True))
     return built
 
 
@@ -55,16 +77,10 @@ def compute_chamber(freqs, radius_m, layers=None, length_m=1.0,
             "    pip install git+https://github.com/tatianarijoff/TLWallNew.git"
         ) from exc
 
-    built = []
-    for lay in (layers or [{"material": "copper", "thickness": 0.002}]):
-        built.append(pytlwall.Layer(layer_type="CW",
-                                    thick_m=float(lay.get("thickness", 0.002)),
-                                    sigmaDC=_sigma(lay.get("material"))))
-    built.append(pytlwall.Layer(layer_type="V", thick_m=np.inf, boundary=True))
-
     chamber = pytlwall.Chamber(pipe_len_m=float(length_m), pipe_rad_m=float(radius_m),
                                pipe_hor_m=hor_m, pipe_ver_m=ver_m, chamber_shape=shape,
-                               betax=float(betax), betay=float(betay), layers=built)
+                               betax=float(betax), betay=float(betay),
+                               layers=_build_layers(pytlwall, layers))
     beam = pytlwall.Beam(gammarel=float(gamma))
     frequencies = pytlwall.Frequencies(freq_list=list(np.asarray(freqs, dtype=float)))
     wall = pytlwall.TlWall(chamber=chamber, beam=beam, frequencies=frequencies)
