@@ -13,7 +13,8 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayou
                              QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .model import (METHODS, QLABEL, QUANTITIES, QUNITS, GElement, GGroup,
-                    GMachine, GModel, new_element, optics_completeness)
+                    GMachine, GModel, method_needs_file, new_element,
+                    optics_completeness)
 
 ROLE = Qt.ItemDataRole.UserRole
 
@@ -198,15 +199,17 @@ class ElementPanel(QWidget):
             combo = QComboBox(); combo.addItems(METHODS); combo.setCurrentText(m.method)
             combo.currentTextChanged.connect(lambda v, mm=m, row=r: self._set_method(mm, v, row))
             t.setCellWidget(r, 2, combo)
-            fed = QLineEdit(m.file); fed.setPlaceholderText("path to .dat" if "CST" in m.method else "\u2014")
-            fed.setEnabled("CST" in m.method)
+            fed = QLineEdit(m.file)
+            fed.setPlaceholderText("path to .dat" if method_needs_file(m.method) else "\u2014")
+            fed.setEnabled(method_needs_file(m.method))
             fed.textChanged.connect(lambda v, mm=m: self._set_file(mm, v))
             t.setCellWidget(r, 3, fed)
             t.setItem(r, 4, QTableWidgetItem(m.status))
         self.models_table = t
         v.addWidget(t)
-        v.addWidget(QLabel("Each quantity can come from a different backend. PyTLWall / IW2D "
-                           "compute from geometry+layers; CST loads a precomputed file."))
+        v.addWidget(QLabel("Each quantity can come from a different backend. pytlwall / IW2D "
+                           "compute from geometry+layers; precalculated loads a file. "
+                           "\u2018(weighted)\u2019 means the result already includes beta."))
         return w
 
     def _set_enabled(self, m, state):
@@ -215,15 +218,16 @@ class ElementPanel(QWidget):
 
     def _set_method(self, m, value, row):
         m.method = value
-        m.status = ("missing input" if "CST" in value and not m.file else "ready")
+        needs = method_needs_file(value)
+        m.status = ("missing input" if needs and not m.file else "ready")
         self.models_table.item(row, 4).setText(m.status)
         fed = self.models_table.cellWidget(row, 3)
-        fed.setEnabled("CST" in value)
+        fed.setEnabled(needs)
         self.on_change()
 
     def _set_file(self, m, value):
         m.file = value
-        if "CST" in m.method:
+        if method_needs_file(m.method):
             m.status = "loaded" if value else "missing input"
         self.on_change()
 

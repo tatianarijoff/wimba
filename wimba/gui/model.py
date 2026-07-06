@@ -21,15 +21,36 @@ QUANTITIES = [
 ]
 QLABEL = {q: lab for q, lab, _ in QUANTITIES}
 QUNITS = {q: u for q, _, u in QUANTITIES}
-METHODS = ["Calculate with PyTLWall", "Calculate with IW2D",
-           "Precalculated by CST", "As resonator"]
+METHODS = [
+    "pytlwall", "pytlwall (weighted)",
+    "IW2D", "IW2D (weighted)",
+    "precalculated", "precalculated (weighted)",
+    "resonator", "resonator (weighted)",
+]
+
+
+def method_base(method: str) -> str:
+    """'pytlwall (weighted)' -> 'pytlwall'."""
+    return method.replace("(weighted)", "").strip()
+
+
+def method_weighted(method: str) -> bool:
+    return "(weighted)" in (method or "")
+
+
+def method_label(base: str, weighted: bool = False) -> str:
+    return f"{base} (weighted)" if weighted else base
+
+
+def method_needs_file(method: str) -> bool:
+    return method_base(method).lower() == "precalculated"
 
 
 @dataclass
 class GModel:
     q: str
     enabled: bool = False
-    method: str = "As resonator"
+    method: str = "resonator"
     file: str = ""
     origin: str = ""
     status: str = "ready"
@@ -67,7 +88,7 @@ class GMachine:
             yield None, e
 
 
-def default_models(method="As resonator"):
+def default_models(method="resonator"):
     return [GModel(q=q, enabled=(q == "zlong"), method=method) for q, _, _ in QUANTITIES]
 
 
@@ -75,16 +96,23 @@ def default_models(method="As resonator"):
 def _models_from_provider(el):
     from ..sources.resonator import ResonatorProvider
     from ..sources.table import TableProvider
+    from ..sources.pytlwall_bridge import ChamberProvider
+    from ..sources.iw2d_bridge import IW2DProvider
     prov = el.provider
     models = []
     if isinstance(prov, ResonatorProvider):
         for r in prov.resonators:
-            models.append(GModel(q=r.term, enabled=True, method="As resonator",
+            models.append(GModel(q=r.term, enabled=True, method="resonator",
                                  status="ready", params={"Rs": r.Rs, "Q": r.Q, "fr": r.fr}))
     elif isinstance(prov, TableProvider):
-        method = "Precalculated by CST"
-        models.append(GModel(q=prov.term, enabled=True, method=method,
+        models.append(GModel(q=prov.term, enabled=True, method="precalculated",
                              file=prov.path, origin=prov.origin, status="loaded"))
+    elif isinstance(prov, ChamberProvider):
+        for q, _, _ in QUANTITIES:
+            if q != "wake":
+                models.append(GModel(q=q, enabled=True, method="pytlwall", status="ready"))
+    elif isinstance(prov, IW2DProvider):
+        models.append(GModel(q="zlong", enabled=True, method="IW2D", status="ready"))
     # fill the remaining quantities as disabled rows so the table is uniform
     present = {m.q for m in models}
     for q, _, _ in QUANTITIES:
@@ -156,7 +184,8 @@ def from_config(path) -> GMachine:
             geometry=dict(r.geometry or {}),
             optics={"s": r.position, "l": r.length,
                     "bx": r.beta_x, "by": r.beta_y, "pre": r.weighted},
-            layers=[], models=[]))
+            layers=list(r.geometry.get("layers") or []) if r.geometry else [],
+            models=default_models(method_label(r.method, r.weighted))))
     for g in order:
         gm.groups.append(GGroup(g, groups[g]))
     if pipe_count:

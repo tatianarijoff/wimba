@@ -45,3 +45,14 @@ def test_from_config_populates_machine(tmp_path):
     assert "collimators" in names and "default resistive wall" in names
     c1 = gm.groups[0].elements[0]
     assert c1.name == "C1" and c1.optics["bx"] == 130.0 and c1.optics["s"] == 100.0
+
+
+def test_method_helpers():
+    from wimba.gui.model import (METHODS, method_base, method_label,
+                                 method_needs_file, method_weighted)
+    assert "pytlwall" in METHODS and "pytlwall (weighted)" in METHODS
+    assert len(METHODS) == 8
+    assert method_base("IW2D (weighted)") == "IW2D" and method_weighted("IW2D (weighted)")
+    assert not method_weighted("resonator")
+    assert method_label("pytlwall", True) == "pytlwall (weighted)"
+    assert method_needs_file("precalculated") and not method_needs_file("pytlwall")
