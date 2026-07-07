@@ -32,9 +32,15 @@ def _grid(cfg):
 
 
 def _geo_key(geo):
-    layers = tuple((l.get("material"), round(float(l.get("thickness", 0.0)), 9))
+    def _num(x, default=0.0):
+        try:
+            return round(float(x), 9)
+        except (TypeError, ValueError):
+            return str(x)                      # e.g. thickness 'inf'
+    layers = tuple(tuple(sorted((k, _num(v)) for k, v in l.items()))
                    for l in (geo.get("layers") or []))
-    return (round(float(geo.get("radius", 0.02)), 9), layers)
+    return (round(float(geo.get("radius", 0.02)), 9), geo.get("shape", "CIRCULAR"),
+            geo.get("hor"), geo.get("ver"), layers)
 
 
 def _cached(cache, geo, factory):
@@ -70,25 +76,35 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
         zterms, wterms = None, None
 
         if row.method == "pytlwall":
-            geo = row.geometry or {"radius": 0.02}
+            geo = row.geometry
+            if not geo or geo.get("radius") is None:
+                raise ValueError(
+                    f"device '{row.name}' uses pytlwall but has no geometry/radius; "
+                    "check its config (radius_m / radius_mm or halfgap).")
             zbase, fresh = _cached(zcache, geo,
                                    lambda g=geo: compute_chamber(freqs, g.get("radius", 0.02),
                                                                  g.get("layers"), length_m=1.0,
+                                                                 shape=g.get("shape", "CIRCULAR"),
+                                                                 hor_m=g.get("hor"), ver_m=g.get("ver"),
                                                                  betax=1.0, betay=1.0, gamma=gamma))
             if fresh:
                 stats["geometries"] += 1
             zterms = _scale(zbase, row, COMPONENTS, "ZLong")   # wall: scales with L and beta
             if row.space_charge:
+                # indirect space charge: kept as separate components (ZLongISC, ...),
+                # NOT folded into the wall columns; the full impedance is wall + ISC.
                 L = row.length or 1.0
-                zterms["ZLong"] += zbase["ZLongISC"] * L
-                zterms["ZDipX"] += zbase["ZDipISC"] * L * row.beta_x
-                zterms["ZDipY"] += zbase["ZDipISC"] * L * row.beta_y
-                zterms["ZQuadX"] += zbase["ZQuadISC"] * L * row.beta_x
-                zterms["ZQuadY"] += zbase["ZQuadISC"] * L * row.beta_y
+                zterms["ZLongISC"] = zbase["ZLongISC"] * L
+                zterms["ZDipXISC"] = zbase["ZDipISC"] * L * row.beta_x
+                zterms["ZDipYISC"] = zbase["ZDipISC"] * L * row.beta_y
+                zterms["ZQuadXISC"] = zbase["ZQuadISC"] * L * row.beta_x
+                zterms["ZQuadYISC"] = zbase["ZQuadISC"] * L * row.beta_y
             if times is not None:
                 wbase, _ = _cached(wcache, geo,
                                    lambda g=geo: chamber_wake(times, g.get("radius", 0.02),
                                                              g.get("layers"), length_m=1.0,
+                                                             shape=g.get("shape", "CIRCULAR"),
+                                                             hor_m=g.get("hor"), ver_m=g.get("ver"),
                                                              betax=1.0, betay=1.0, gamma=gamma))
                 wterms = _scale(wbase, row, WAKE_COMPONENTS, "WLong")
                 stats["wake_native"].add("pytlwall")
@@ -144,8 +160,10 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
             stats["skipped"] += 1
             continue
 
-        for c in COMPONENTS:
-            ztot[c] = ztot[c] + zterms[c]
+        for c, v in zterms.items():
+            if c not in ztot:
+                ztot[c] = np.zeros(len(freqs), dtype=complex)
+            ztot[c] = ztot[c] + v
         stats["computed"] += 1
         if row.name in want:
             write_single_element(out_dir, row.group or row.kind, row.name, freqs, zterms)

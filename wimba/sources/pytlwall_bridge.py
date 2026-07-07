@@ -98,8 +98,9 @@ def chamber_terms(freqs, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1
 
     The chamber is evaluated at beta = 1 (beta-free), then WIMBA applies the beta
     weighting: dipolar and quadrupolar scale with beta, longitudinal does not. If
-    space_charge is True the indirect space charge (ISC) is added, matching
-    pytlwall's Total = wall + ISC.
+    space_charge is True the indirect space charge is returned as SEPARATE
+    components (ZLongISC, ZDipXISC, ...), beta-weighted; the full impedance is
+    wall + ISC, summed downstream.
     """
     imp = compute_chamber(freqs, radius_m, layers=layers, length_m=length_m,
                           shape=shape, hor_m=hor_m, ver_m=ver_m, gamma=gamma,
@@ -112,11 +113,11 @@ def chamber_terms(freqs, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1
         "ZQuadY": imp["ZQuadY"] * betay,
     }
     if space_charge:
-        out["ZLong"] = out["ZLong"] + imp["ZLongISC"]
-        out["ZDipX"] = out["ZDipX"] + imp["ZDipISC"] * betax
-        out["ZDipY"] = out["ZDipY"] + imp["ZDipISC"] * betay
-        out["ZQuadX"] = out["ZQuadX"] + imp["ZQuadISC"] * betax
-        out["ZQuadY"] = out["ZQuadY"] + imp["ZQuadISC"] * betay
+        out["ZLongISC"] = imp["ZLongISC"]
+        out["ZDipXISC"] = imp["ZDipISC"] * betax
+        out["ZDipYISC"] = imp["ZDipISC"] * betay
+        out["ZQuadXISC"] = imp["ZQuadISC"] * betax
+        out["ZQuadYISC"] = imp["ZQuadISC"] * betay
     return out
 
 
@@ -178,13 +179,15 @@ class ChamberProvider:
     space-charge) impedance/wake, computed lazily on whatever grid is supplied."""
 
     def __init__(self, radius_m, layers=None, length_m=1.0, gamma=7000.0,
-                 space_charge=False, shape="CIRCULAR"):
+                 space_charge=False, shape="CIRCULAR", hor_m=None, ver_m=None):
         self.radius = float(radius_m)
         self.layers = layers
         self.length = float(length_m)
         self.gamma = float(gamma)
         self.space_charge = bool(space_charge)
         self.shape = shape
+        self.hor = hor_m
+        self.ver = ver_m
         self._imp_cache = {}
         self._wake_cache = {}
 
@@ -194,7 +197,8 @@ class ChamberProvider:
         if key not in self._imp_cache:
             self._imp_cache[key] = compute_chamber(
                 freqs, self.radius, self.layers, length_m=self.length,
-                shape=self.shape, betax=1.0, betay=1.0, gamma=self.gamma)
+                shape=self.shape, hor_m=self.hor, ver_m=self.ver,
+                betax=1.0, betay=1.0, gamma=self.gamma)
         return self._imp_cache[key]
 
     def _wake(self, times):
@@ -203,7 +207,8 @@ class ChamberProvider:
         if key not in self._wake_cache:
             self._wake_cache[key] = chamber_wake(
                 times, self.radius, self.layers, length_m=self.length,
-                shape=self.shape, betax=1.0, betay=1.0, gamma=self.gamma)
+                shape=self.shape, hor_m=self.hor, ver_m=self.ver,
+                betax=1.0, betay=1.0, gamma=self.gamma)
         return self._wake_cache[key]
 
     def _zfun(self, comp):

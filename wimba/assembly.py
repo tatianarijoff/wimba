@@ -205,6 +205,15 @@ def load_twiss(path) -> dict:
     return madx.read_twiss(path)
 
 
+def _half_axis(spec, name):
+    """Read a half-axis: <name>_m or <name>_mm; None if absent."""
+    if f"{name}_m" in spec:
+        return float(spec[f"{name}_m"])
+    if f"{name}_mm" in spec:
+        return float(spec[f"{name}_mm"]) / 1000.0
+    return None
+
+
 def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     """Build an assignment array from a YAML coordinator that references a MAD-X
     twiss, device JSONs, and a default pipe."""
@@ -256,7 +265,9 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
             beta = None
             if "beta_x" in spec and "beta_y" in spec:
                 beta = (float(spec["beta_x"]), float(spec["beta_y"]))
-            geometry = {"radius": radius, "layers": spec.get("layers")}
+            geometry = {"radius": radius, "layers": spec.get("layers"),
+                        "shape": spec.get("shape", "CIRCULAR"),
+                        "hor": _half_axis(spec, "hor"), "ver": _half_axis(spec, "ver")}
             devices.append(Device(name=spec.get("name", gname), method=method,
                                   weighted=weighted, space_charge=sc, allow_overlap=overlap,
                                   length=float(spec.get("length_m", 1.0)), beta=beta,
@@ -269,8 +280,11 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     if dp_spec:
         radius = dp_spec.get("radius_mm", 22.0) / 1000.0
         geometry = {"radius": radius,
-                    "layers": [{"material": dp_spec.get("material", "stainless_steel"),
-                                "thickness": dp_spec.get("thickness_m", 0.002)}]}
+                    "layers": dp_spec.get("layers")
+                              or [{"material": dp_spec.get("material", "stainless_steel"),
+                                   "thickness": dp_spec.get("thickness_m", 0.002)}],
+                    "shape": dp_spec.get("shape", "CIRCULAR"),
+                    "hor": _half_axis(dp_spec, "hor"), "ver": _half_axis(dp_spec, "ver")}
         default_pipe = DefaultPipe(method=dp_spec.get("method", "pytlwall"),
                                    space_charge=bool(dp_spec.get("space_charge", False)),
                                    geometry=geometry)

@@ -55,8 +55,15 @@ def _chamber_geom(el, base):
         radius = float(el["radius"])
     else:
         radius = 0.02
+    def _axis(name):
+        if f"{name}_m" in el:
+            return float(el[f"{name}_m"])
+        if f"{name}_mm" in el:
+            return float(el[f"{name}_mm"]) / 1000.0
+        return None
     return dict(radius_m=radius, layers=el.get("layers"),
-                length_m=float(el.get("length", 1.0)), gamma=float(el.get("gamma", 7000.0)))
+                length_m=float(el.get("length", 1.0)), gamma=float(el.get("gamma", 7000.0)),
+                shape=el.get("shape", "CIRCULAR"), hor_m=_axis("hor"), ver_m=_axis("ver"))
 
 
 def _build_pytlwall(el, base):

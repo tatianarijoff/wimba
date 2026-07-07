@@ -82,3 +82,67 @@ def test_precalculated_in_total(tmp_path):
     assert stats["computed"] == 1 and stats["skipped"] == 0
     assert np.allclose(ztot["ZLong"].real, 1.0 / fq, rtol=1e-3)     # loaded from file
     assert "precalculated" in stats["wake_fft"]                      # no wake file -> FFT, noted
+
+
+def test_elliptical_chamber_end_to_end(tmp_path):
+    """A PS-like ELLIPTICAL chamber through the run config matches direct
+    pytlwall, and the geometry cache distinguishes shapes."""
+    import pytlwall
+    from wimba.run import run as run_study
+
+    (tmp_path / "c.yaml").write_text(
+        "name: EllTest\ngamma: 27.7\n"
+        "grid:\n  frequency: {min: 1.0e6, max: 1.0e9, n: 8, log: true}\n"
+        "devices:\n  ps_pipe:\n    source: chamber\n    name: PSPIPE\n"
+        "    method: pytlwall\n    shape: ELLIPTICAL\n"
+        "    hor_m: 0.073\n    ver_m: 0.035\n    radius_m: 0.073\n"
+        "    length_m: 1.0\n    beta_x: 1.0\n    beta_y: 1.0\n"
+        "    layers:\n      - {sigma: 1.4e6, thickness: 0.002}\n")
+    info = run_study(tmp_path / "c.yaml", out_dir=tmp_path / "out")
+    from wimba.output import read_totals
+    f, comps = read_totals(tmp_path / "out" / "single_elements" / "total.csv")
+
+    ss = pytlwall.Layer(layer_type="CW", thick_m=0.002, sigmaDC=1.4e6)
+    vac = pytlwall.Layer(layer_type="V", thick_m=np.inf, boundary=True)
+    ch = pytlwall.Chamber(pipe_len_m=1.0, pipe_rad_m=0.073, pipe_hor_m=0.073,
+                          pipe_ver_m=0.035, chamber_shape="ELLIPTICAL",
+                          betax=1.0, betay=1.0, layers=[ss, vac])
+    ref = pytlwall.TlWall(chamber=ch, beam=pytlwall.Beam(gammarel=27.7),
+                          frequencies=pytlwall.Frequencies(freq_list=list(f))
+                          ).get_all_impedances()
+    assert np.allclose(comps["ZLong"], ref["ZLong"], rtol=1e-6)
+    assert np.allclose(comps["ZDipX"], ref["ZDipX"], rtol=1e-6)
+    assert np.allclose(comps["ZDipY"], ref["ZDipY"], rtol=1e-6)
+    assert not np.allclose(comps["ZDipX"], comps["ZDipY"])   # elliptical: x != y
+
+
+def test_cache_distinguishes_shape(tmp_path):
+    """Same radius/layers but different shape must not share a cache entry."""
+    geo = {"radius": 0.02, "layers": [{"sigma": 1e6, "thickness": 0.002}]}
+    r1 = _row("a", 0.02); r1.geometry = dict(geo)
+    r2 = _row("b", 0.02); r2.geometry = dict(geo, shape="ELLIPTICAL", hor=0.02, ver=0.01)
+    ztot, _w, stats = compute_assignments([r1, r2], F, tmp_path / "out")
+    assert stats["geometries"] == 2                      # two distinct entries
+
+
+def test_isc_separate_and_geometry_error(tmp_path):
+    """ZLong accumulates the wall only; the indirect space charge goes to
+    separate ZLongISC/... columns (beta-weighted). A pytlwall device without
+    geometry raises a clear error instead of silently using a default radius."""
+    r = _row("a", 0.02, beta_x=2.0)
+    r.space_charge = True
+    ztot, _w, stats = compute_assignments([r], F, tmp_path / "out")
+    assert "ZLongISC" in ztot and "ZDipXISC" in ztot           # separate columns
+
+    from wimba.sources.pytlwall_bridge import compute_chamber
+    base = compute_chamber(F, radius_m=0.02,
+                           layers=[{"material": "copper", "thickness": 0.002}],
+                           length_m=1.0)
+    assert np.allclose(ztot["ZLong"], base["ZLong"])            # wall only, no ISC folded
+    assert np.allclose(ztot["ZLongISC"], base["ZLongISC"])      # ISC separate
+    assert np.allclose(ztot["ZDipXISC"], base["ZDipISC"] * 2.0) # beta-weighted
+
+    bad = _row("nogeo", 0.02)
+    bad.geometry = None
+    with pytest.raises(ValueError, match="nogeo"):
+        compute_assignments([bad], F, tmp_path / "out2")
