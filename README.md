@@ -146,3 +146,7 @@ the command-line interface (`assemble`, `run`, `plot`, `build`, `show`, `setup`,
 
 In progress: wiring the resonator / precalculated / IW2D bridges into `run` (so
 lumped resonators such as RF HOMs enter the total), and the graphical interface.
+
+## License
+
+WIMBA is released under the GNU General Public License v3 (see [LICENSE](LICENSE)).
