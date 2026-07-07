@@ -205,7 +205,7 @@ def load_twiss(path) -> dict:
     return madx.read_twiss(path)
 
 
-def load_assembly(path, tol=DEFAULT_TOL) -> AssemblyResult:
+def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     """Build an assignment array from a YAML coordinator that references a MAD-X
     twiss, device JSONs, and a default pipe."""
     import yaml
@@ -213,7 +213,8 @@ def load_assembly(path, tol=DEFAULT_TOL) -> AssemblyResult:
 
     cfg_path = Path(path)
     base = cfg_path.parent
-    cfg = yaml.safe_load(cfg_path.read_text()) or {}
+    if cfg is None:
+        cfg = yaml.safe_load(cfg_path.read_text()) or {}
 
     twiss = madx.read_twiss(base / cfg["optics"]) if cfg.get("optics") else {}
     devices = []

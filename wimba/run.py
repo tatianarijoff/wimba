@@ -176,9 +176,12 @@ def _write_wake_note(out_dir, stats):
     (Path(out_dir) / "single_elements" / "WAKE_NOTES.txt").write_text("\n".join(lines) + "\n")
 
 
-def run(config, out_dir=None, plot=None, wake=False, gamma=7000.0):
+def run(config, out_dir=None, plot=None, wake=False, gamma=7000.0, fill_pipe=True):
     cfg = yaml.safe_load(Path(config).read_text()) or {}
-    result = load_assembly(config)
+    if not fill_pipe:                      # GUI toggle: compute only the listed devices
+        cfg = dict(cfg)
+        cfg.pop("default_pipe", None)
+    result = load_assembly(config, cfg=cfg)
     freqs = _grid(cfg)
     out = Path(out_dir) if out_dir else Path(config).parent / f"{result.name}_output"
     per_device = cfg.get("output") or []
