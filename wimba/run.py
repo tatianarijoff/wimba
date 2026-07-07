@@ -71,6 +71,8 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
     stats = {"computed": 0, "skipped": 0, "geometries": 0,
              "wake_native": set(), "wake_fft": set()}
     want = set(per_device)
+    pipe_acc = ({c: np.zeros(len(freqs), dtype=complex) for c in COMPONENTS}
+                if "default_pipe" in want else None)
 
     for row in rows:
         zterms, wterms = None, None
@@ -167,10 +169,17 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
         stats["computed"] += 1
         if row.name in want:
             write_single_element(out_dir, row.group or row.kind, row.name, freqs, zterms)
+        if pipe_acc is not None and row.kind == "default_pipe":
+            for c, v in zterms.items():
+                if c not in pipe_acc:
+                    pipe_acc[c] = np.zeros(len(freqs), dtype=complex)
+                pipe_acc[c] = pipe_acc[c] + v
         if times is not None and wterms is not None:
             for c in WAKE_COMPONENTS:
                 wtot[c] = wtot[c] + wterms[c]
 
+    if pipe_acc is not None:
+        write_single_element(out_dir, "default_pipe", "default_pipe", freqs, pipe_acc)
     write_totals(out_dir, freqs, ztot)
     if times is not None:
         write_wake_totals(out_dir, times, wtot)

@@ -146,3 +146,23 @@ def test_isc_separate_and_geometry_error(tmp_path):
     bad.geometry = None
     with pytest.raises(ValueError, match="nogeo"):
         compute_assignments([bad], F, tmp_path / "out2")
+
+
+def test_default_pipe_aggregate_output(tmp_path):
+    """output: [default_pipe] writes one aggregated CSV summing all pipe rows."""
+    from wimba.output import read_totals
+    rows = []
+    for i, name in enumerate(("P1", "P2")):
+        r = _row(name, 0.02, length=1.0 + i)
+        r.kind = "default_pipe"
+        rows.append(r)
+    compute_assignments(rows, F, tmp_path / "out", per_device=["default_pipe"])
+    agg = tmp_path / "out" / "single_elements" / "default_pipe" / "default_pipe.csv"
+    assert agg.is_file()
+    _f, comps = read_totals(agg)
+    # aggregate = sum of both pipe rows = (L=1 + L=2) x unit chamber
+    from wimba.sources.pytlwall_bridge import compute_chamber
+    base = compute_chamber(F, radius_m=0.02,
+                           layers=[{"material": "copper", "thickness": 0.002}],
+                           length_m=1.0)["ZLong"]
+    assert np.allclose(comps["ZLong"], 3.0 * base, rtol=1e-6)

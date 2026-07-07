@@ -13,7 +13,7 @@ grid:
   frequency: {min: 1.0e5, max: 1.0e10, n: 100, log: true}
 
 # per-device output only for the devices listed here (total is always written)
-output: [TCP.C6L7.B1]
+output: [TCP.C6L7.B1, RF, default_pipe]
 
 # default resistive wall applied per lattice row (plain: L only, beta at the end).
 # geometry is a placeholder for now (to be set with sensible LHC values later).

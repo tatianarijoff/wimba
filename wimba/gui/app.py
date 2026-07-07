@@ -27,6 +27,8 @@ from .theme import THEMES, build_style
 from .model import GGroup, from_config, from_project, new_element, new_machine
 from .panels import ElementPanel, InspectorPanel, MachineTree, OpticsPanel
 from .runner import RunWorker
+from .results import (PlotWorkspace, ResultsModel, ResultsTablePanel,
+                      ResultsTree)
 from ..logutil import configure, get_logger, set_level
 
 ORG = "ImpedanCEI"
@@ -43,6 +45,7 @@ def asset(name: str) -> str:
 DOCKS = {
     "machine":  ("Machine Explorer", Qt.DockWidgetArea.LeftDockWidgetArea),
     "optics":   ("Optics",           Qt.DockWidgetArea.LeftDockWidgetArea),
+    "results":  ("Results",          Qt.DockWidgetArea.RightDockWidgetArea),
     "inspector":("Inspector",        Qt.DockWidgetArea.RightDockWidgetArea),
     "jobs":     ("Jobs",             Qt.DockWidgetArea.BottomDockWidgetArea),
     "console":  ("Console",          Qt.DockWidgetArea.BottomDockWidgetArea),
@@ -130,6 +133,7 @@ class MainWindow(QMainWindow):
         self.config_path = None
         self.worker = None
         self._job_item = None
+        self.results_model = ResultsModel()
 
         configure(self.settings.value("loglevel", "info"))
         self.log = get_logger("gui")
@@ -159,13 +163,8 @@ class MainWindow(QMainWindow):
         self.center.setTabsClosable(True)
         self.center.tabCloseRequested.connect(self._close_center_tab)
 
-        wm = QPixmap(asset("wimba_logo_small.png"))
-        self.plot_panel = Watermark(wm)
-        self.plot_panel.layout().addWidget(empty_state("\u223f", "No curves plotted",
-            "Drag a result here from an element's Outputs, the basket, or the table."))
-        self.results_panel = Watermark(wm)
-        self.results_panel.layout().addWidget(empty_state("\u25a6", "No datasets in table",
-            "Drag result chips here to compare elements and methods side by side."))
+        self.plot_panel = PlotWorkspace(lambda: self.results_model)
+        self.results_panel = ResultsTablePanel(lambda: self.results_model)
         self.center.addTab(self.plot_panel, "Plot Workspace")
         self.center.addTab(self.results_panel, "Results Table")
         for i in range(2):                  # Plot/Results are permanent
@@ -185,6 +184,8 @@ class MainWindow(QMainWindow):
                         "File \u2192 Load Machine, or start a new one."),
             "optics":  ("\u25cb", "No optics yet",
                         "Load a machine, then load or enter the optics."),
+            "results": ("\u2211", "No results yet",
+                        "Run a calculation (or File \u2192 Open Results) to list computed quantities."),
             "inspector":("\u24d8", "Nothing selected",
                         "Select a node to see its properties and provenance."),
             "jobs":    ("\u29d7", "No jobs yet",
@@ -220,6 +221,9 @@ class MainWindow(QMainWindow):
         self.inspector = InspectorPanel()
         self.docks["inspector"].setWidget(self.inspector)
         self.docks["console"].setWidget(self.console_view)
+        self.results_tree = ResultsTree()
+        self.results_tree.add_requested.connect(self._add_result)
+        self.docks["results"].setWidget(self.results_tree)
         self._refresh_machine_panel()
         self._refresh_optics_panel()
 
@@ -247,6 +251,7 @@ class MainWindow(QMainWindow):
         self._act(m, "Load Machine\u2026", self._load_machine, QKeySequence.StandardKey.Open)
         self._act(m, "New Machine", self._new_machine, QKeySequence.StandardKey.New)
         self._act(m, "Open Config\u2026", self._open_config)
+        self._act(m, "Open Results\u2026", self._open_results)
         m.addSeparator()
         self._act(m, "Save Project", self._todo, QKeySequence.StandardKey.Save)
         self._act(m, "Save Project As\u2026", self._todo, QKeySequence.StandardKey.SaveAs)
@@ -642,6 +647,28 @@ class MainWindow(QMainWindow):
             self.docks[pid].setWidget(w)
         return w
 
+    def _add_result(self, ref):
+        """Route a double-clicked result to the active central tab."""
+        if self.center.currentWidget() is self.results_panel:
+            self.results_panel.add_ref(ref)
+        else:
+            self.center.setCurrentWidget(self.plot_panel)
+            self.plot_panel.add_ref(ref)
+
+    def _open_results(self):
+        path = QFileDialog.getExistingDirectory(self, "Open a WIMBA output folder")
+        if not path:
+            return
+        self.results_model.load(path)
+        if not self.results_model.sources:
+            QMessageBox.warning(self, "Open Results",
+                                "No single_elements/total.csv found in that folder.")
+            return
+        self.results_tree.set_model(self.results_model)
+        self.docks["results"].raise_()
+        self.log.info("Results loaded from %s (%d source(s)).", path,
+                      len(self.results_model.sources))
+
     def _calc_machine(self):
         if not self.config_path:
             self._open_config()
@@ -667,7 +694,9 @@ class MainWindow(QMainWindow):
         if self._job_item:
             self._job_item.setText(f"{Path(self.config_path).name} \u2014 done "
                                    f"({st['computed']} computed)")
-        self._show_plots(info)
+        self.results_model.load(info["out"])
+        self.results_tree.set_model(self.results_model)
+        self.docks["results"].raise_()
         prob = self._dock_text("problems"); prob.clear()
         prob.appendPlainText(f"{len(result.rows)} assignments \u2014 "
                              f"computed {st['computed']}, skipped {st['skipped']}.")
@@ -677,8 +706,8 @@ class MainWindow(QMainWindow):
                 prob.appendPlainText(f"s={c.position:.3f} m: {', '.join(c.names)}  [{tag}]")
         else:
             prob.appendPlainText("No collisions.")
-        self.center.setCurrentWidget(self.plot_panel)
-        self.statusBar().showMessage(f"Done \u2192 {info['out']}", 4000)
+        self.statusBar().showMessage(
+            f"Done \u2192 {info['out']} \u2014 pick quantities from the Results tree", 6000)
 
     def _on_calc_failed(self, tb):
         if self._job_item:
@@ -687,32 +716,6 @@ class MainWindow(QMainWindow):
         con.appendPlainText("\nFAILED:\n" + tb)
         self.docks["console"].raise_()
         self.statusBar().showMessage("Calculation failed \u2014 see Console", 5000)
-
-    def _show_plots(self, info):
-        lay = self.plot_panel.layout()
-        while lay.count():
-            it = lay.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
-        paths = list(info.get("plots") or []) + list(info.get("wake_plots") or [])
-        host = QWidget(); host.setStyleSheet("background: transparent;")
-        hl = QVBoxLayout(host)
-        if not paths:
-            hl.addWidget(QLabel("No plots produced."))
-        for pth in paths:
-            pm = QPixmap(str(pth))
-            if pm.isNull():
-                continue
-            cap = QLabel(Path(pth).name); cap.setObjectName("EmptyText")
-            cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            img = QLabel()
-            img.setPixmap(pm.scaledToWidth(620, Qt.TransformationMode.SmoothTransformation))
-            img.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            hl.addWidget(cap); hl.addWidget(img)
-        hl.addStretch(1)
-        sc = QScrollArea(); sc.setWidgetResizable(True); sc.setWidget(host)
-        sc.setStyleSheet("background: transparent;")
-        lay.addWidget(sc)
 
     # ---- placeholder for actions wired in later phases ----
     def _todo(self):
