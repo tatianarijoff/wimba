@@ -135,17 +135,41 @@ The four bundled examples are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md
 For tool configuration see [docs/SETUP.md](docs/SETUP.md); run the tests with
 `python -m pytest`.
 
+## Graphical interface
+
+The desktop GUI (PyQt6) drives the same engine. Install the extra and launch it:
+
+```bash
+pip install -e ".[gui]"
+python -m wimba.gui        # or: wimba-gui
+```
+
+In the GUI you can load a machine or an assembly config (`File → Load
+Machine` / `Open Config`), inspect elements (geometry, layers with the full
+pytlwall parameter set, models, optics), and run `Calculate → Whole
+Machine`. After a calculation the **Results** panel lists everything that was
+computed - total, per-device and aggregated default pipe; wall, indirect
+space-charge and wall+ISC impedance components; wakes. Double-click or drag
+quantities into the **Plot Workspace** (log/linear axes, editable curve list,
+PNG/CSV export) or the **Results Table** (add/remove columns, CSV export).
+`File → Open Results` reopens an existing output folder without
+recomputing.
+
 ## Status
 
-Implemented and tested: the core data model and analytic resonator source; the
-optics builder from MAD-X; the assemble/run pipeline (beta resolution, default
-resistive wall, per-geometry caching, machine total, Re/Im and wake plots); the
-pytlwall compute bridge (impedance and native wake); tabulated-data import; and
-the command-line interface (`assemble`, `run`, `plot`, `build`, `show`, `setup`,
-`status`).
+Implemented and tested: the core data model; the optics builder from MAD-X; the
+assemble/run pipeline (beta resolution, default resistive wall, per-geometry
+caching, collision detection, machine total); the compute engine shared by both
+workflows - pytlwall (full layer parameter set, CIRCULAR/ELLIPTICAL/RECTANGULAR
+chambers, impedance and native wake, indirect space charge kept as separate
+components), analytic resonator (lumped, e.g. RF HOMs) and precalculated file
+import; the command-line interface (`assemble`, `run`, `plot`, `build`, `show`,
+`setup`, `status`); and the graphical interface with the results workspace
+(tree of computed quantities, plot/table with export).
 
-In progress: wiring the resonator / precalculated / IW2D bridges into `run` (so
-lumped resonators such as RF HOMs enter the total), and the graphical interface.
+In progress: IW2D execution (the bridge is in place, the external binary is not
+wired yet), direct space charge as a separate machine-wide output, saving an
+edited machine back to a config, and per-machine default-pipe presets.
 
 ## License
 
