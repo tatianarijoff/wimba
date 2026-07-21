@@ -12,7 +12,9 @@ WIMBA ships four examples, each self-contained in its own folder under
   impedance is computed (resonator) or imported (tabulated data), weighted by the
   optics (`wimba build`).
 
-Most compute paths need **pytlwall** in the environment
+Each example folder has its own README with the full detail (files
+provided, shell and GUI usage, default and optional outputs); this page is the
+overview. Most compute paths need **pytlwall** in the environment
 (`pip install -e /path/to/TLWallNew`); the resonator and tabulated-import paths do
 not.
 
@@ -54,10 +56,10 @@ RF-cavity HOMs (JSON).
 
 ```bash
 # the assignment array only (positions, names, method, beta, collisions)
-wimba assemble examples/LHC/LHC_input.yaml         # -> LHCB1_assignments.csv
+wimba assemble examples/LHC/LHC_config.yaml         # -> LHCB1_assignments.csv
 
 # assemble + compute + machine total + default plots (+ wake)
-wimba run examples/LHC/LHC_input.yaml --wake
+wimba run examples/LHC/LHC_config.yaml --wake
 ```
 
 `run` resolves beta by position (interpolated) then by name, puts the default
@@ -85,7 +87,7 @@ from tabulated data, weighted by a small synthetic twiss (`SubLHC.tfs`, kept in 
 repo).
 
 ```bash
-wimba build examples/SubLHC/SubLHC_input.yaml       # -> SubLHC_output/
+wimba build examples/SubLHC/SubLHC_config.yaml       # -> SubLHC_output/
 wimba show  examples/SubLHC/SubLHC_output           # summarise the result
 ```
 

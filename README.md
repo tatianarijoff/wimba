@@ -131,9 +131,19 @@ wimba setup      # locate IW2D / pytlwall (skip if you only use the resonator)
 wimba status
 ```
 
-The four bundled examples are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md)**.
-For tool configuration see [docs/SETUP.md](docs/SETUP.md); run the tests with
-`python -m pytest`.
+The four bundled examples are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md)**,
+and each example folder has its own README (files provided, shell and GUI usage,
+outputs). For tool configuration see [docs/SETUP.md](docs/SETUP.md).
+
+### Tests
+
+```bash
+pip install -e ".[dev]"       # pytest (+ xwakes for the resonator cross-checks)
+python -m pytest              # -q for the short summary
+```
+
+Tests that need pytlwall or PyQt6 are skipped automatically when those are not
+installed.
 
 ## Graphical interface
 
