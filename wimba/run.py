@@ -14,6 +14,8 @@ import numpy as np
 import yaml
 
 from .assembly import load_assembly
+from .naming import safe
+from .io.pytlwall_cfg import write_chamber_cfg
 from .output import write_single_element, write_totals, write_wake_totals
 from .sources.pytlwall_bridge import (COMPONENTS, WAKE_COMPONENTS, chamber_wake,
                                       compute_chamber)
@@ -91,6 +93,9 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
                                                                  betax=1.0, betay=1.0, gamma=gamma))
             if fresh:
                 stats["geometries"] += 1
+                write_chamber_cfg(Path(out_dir) / "pytlwall_inputs" /
+                                  f"{stats['geometries']:02d}_{safe(geo.get('name') or row.name)}.cfg",
+                                  geo, gamma=gamma)
             zterms = _scale(zbase, row, COMPONENTS, "ZLong")   # wall: scales with L and beta
             if row.space_charge:
                 # indirect space charge: kept as separate components (ZLongISC, ...),

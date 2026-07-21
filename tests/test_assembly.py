@@ -78,3 +78,27 @@ def test_csv_roundtrip(tmp_path):
     assert {"position_s", "name", "method", "beta_x", "beta_source"} <= set(rows[0])
     tcp = next(r for r in rows if r["name"] == "TCP")
     assert tcp["method"] == "pytlwall" and tcp["beta_source"] == "interp"
+
+
+def test_space_charge_default_on_for_pytlwall(tmp_path):
+    """Per Carlo: pytlwall computes the (indirect) space charge, so it is
+    accumulated by default; an explicit false switches it off."""
+    import yaml
+    (tmp_path / "m.tfs").write_text(
+        '@ NAME %05s "T"\n* NAME S L BETX BETY\n$ %s %le %le %le %le\n'
+        ' "M1" 0.0 1.0 10.0 20.0\n "M2" 10.0 1.0 30.0 40.0\n')
+    (tmp_path / "c.yaml").write_text(
+        "name: SCDef\noptics: m.tfs\n"
+        "default_pipe: {method: pytlwall, radius_mm: 22}\n"          # no flag -> on
+        "devices:\n"
+        "  a: {source: chamber, name: A, method: pytlwall, radius_m: 0.01,\n"
+        "      position: 5.0}\n"                                     # no flag -> on
+        "  b: {source: chamber, name: B, method: pytlwall, radius_m: 0.01,\n"
+        "      position: 7.0, space_charge: false}\n")               # explicit off
+    from wimba.assembly import load_assembly
+    res = load_assembly(tmp_path / "c.yaml")
+    by = {r.name: r for r in res.rows}
+    assert by["A"].space_charge is True
+    assert by["B"].space_charge is False
+    pipe = [r for r in res.rows if r.kind == "default_pipe"]
+    assert pipe and all(p.space_charge for p in pipe)

@@ -302,8 +302,8 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     default_pipe = None
     if dp_spec:
         if "file" in dp_spec:
-            from .io.pipe_cfg import read_pipe_cfg
-            geometry = read_pipe_cfg(base / dp_spec["file"])
+            from .io.json_io import read_pipe
+            geometry = read_pipe(base / dp_spec["file"])
         else:
             radius = dp_spec.get("radius_mm", 22.0) / 1000.0
             geometry = {"radius": radius,
