@@ -1,0 +1,48 @@
+# WIMBA assembly CONFIG for LHC Beam 1 (use it with `wimba run` / GUI Open Config;
+# machine-input files for Load Machine are a different thing).
+# Real data from the pywit LHC model: MAD-X twiss, collimator reference (JSON),
+# RF-cavity HOMs (JSON). Every lattice location that is not a named device gets
+# the default resistive wall, defined in its own external file.
+#
+#   wimba run examples/LHC/LHC_config.yaml --wake
+
+name: LHCB1
+
+optics: data/twiss_lhcb1_beta130cm.tfs        # MAD-X twiss; beta by position, then name
+
+grid:
+  frequency: {min: 1.0e5, max: 1.0e10, n: 100, log: true}
+
+gamma: 7000.0                                 # ~6.5-7 TeV protons
+
+# user-defined conductivities [S/m]: extend/override the built-in table.
+# Unknown materials are an error, never a silent default.
+materials:                                    # values [TO CONFIRM with Carlo]
+  moc: 1.0e6                                  # molybdenum-graphite
+  cu300k_in_tdi: 5.9e7                        # copper at 300 K
+  Ti-6Al-4V: 5.8e5                            # titanium alloy
+  cucr1zr: 4.3e7                              # CuCr1Zr copper alloy
+
+# per-device output only for the devices listed here (total is always written);
+# "default_pipe" writes one aggregated CSV summing all pipe segments.
+output: [TCP.C6L7.B1, RF, default_pipe]
+
+# Default resistive wall: machine data (JSON in data/, like the collimators and
+# the RF HOMs). Geometry + wall build-up with the EM parameter set; no beta /
+# beam info - the machine decides those. WIMBA builds the pytlwall input itself
+# (dumped for debug under <output>/pytlwall_inputs/).
+default_pipe:
+  method: pytlwall
+  file: data/lhc_default_pipe.json
+
+devices:
+  collimators:
+    source: collimators_json
+    file: data/lhc_collimators_reference_b1.json
+    method: pytlwall
+    space_charge: true
+
+  rf_homs:
+    source: resonators_json
+    file: data/lhc_rf_cavities_homs.json
+    method: resonator

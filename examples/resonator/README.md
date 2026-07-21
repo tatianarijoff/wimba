@@ -1,22 +1,29 @@
-# resonator — analytic source, standalone script
+# resonator — analytic source, minimal example
 
-The smallest possible example: a few analytic resonators driven directly from
-the Python API, no config files and no external engines.
+The smallest possible machine: two cavities described by analytic resonators
+(shunt impedance, quality factor, resonant frequency), weighted by a tiny
+inline optics. No external engines and no imported data.
 
 ## Files provided
 
 | file | what it is |
 |------|------------|
-| `resonator_machine.py` | a short script building a machine of analytic resonators (shunt impedance, Q, resonant frequency) and writing impedance/wake tables and figures |
+| `resonator_input.yaml` | the machine **input** (build flow, for `wimba build` / GUI *Load Machine*): two elements with per-quantity resonator terms, grids |
+| `resonator.tfs` | tiny MAD-X-style twiss providing position and beta by element name |
 
-## Run
+## Run from the shell
 
 ```bash
-python examples/resonator/resonator_machine.py
+wimba build examples/resonator/resonator_input.yaml
+wimba show  examples/resonator/resonator_output
 ```
+
+## Run from the GUI
+
+`File → Load Machine` → `resonator_input.yaml`: inspect the two cavities, their
+resonator terms in the Models tab, and the optics.
 
 ## Outputs
 
-`Z_*.dat`, `W_*.dat`, `impedance.png`, `wake.png` next to the script (generated
-artefacts, git-ignored). Useful as a minimal reference for the resonator source
-and the table I/O.
+`resonator_output/`: per-origin impedance/wake tables (`.dat`) and the resume.
+Useful as the minimal reference for the resonator source and the build flow.

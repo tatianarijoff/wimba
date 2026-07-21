@@ -1,0 +1,32 @@
+# WIMBA machine input (build flow): the smallest possible machine, made of
+# analytic resonators only. No external engines, no imported data - just the
+# resonator source, weighted by a tiny inline optics.
+#
+#   wimba build examples/resonator/resonator_input.yaml    # -> examples/resonator/resonator_output/
+#   wimba show  examples/resonator/resonator_output
+
+name: resonator
+
+output: resonator_output
+
+optics: resonator.tfs         # tiny twiss; elements matched by NAME
+
+grid:
+  frequency: {min: 1.0e8, max: 3.0e9, n: 500, log: true}
+  time:      {min: 0.0,   max: 5.0e-9, n: 500}
+
+groups:
+
+  cavities:
+    - name: CAV.1
+      category: cavity
+      source: resonator
+      resonators:
+        - {term: zlong, Rs: 1.0e5, Q: 30.0, fr: 4.0e8}
+        - {term: zxdip, Rs: 5.0e5, Q: 5.0,  fr: 1.0e9}
+    - name: CAV.2
+      category: cavity
+      source: resonator
+      resonators:
+        - {term: zlong, Rs: 4.0e4, Q: 8.0,  fr: 1.2e9}
+        - {term: zydip, Rs: 6.0e5, Q: 4.0,  fr: 8.0e8}

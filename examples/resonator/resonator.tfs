@@ -1,0 +1,5 @@
+@ NAME %05s "RESONATOR"
+* NAME S L BETX BETY
+$ %s %le %le %le %le
+ "CAV.1" 10.0 1.0 40.0 25.0
+ "CAV.2" 30.0 1.0 20.0 55.0

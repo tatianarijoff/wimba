@@ -9,7 +9,7 @@ lattice segment that is not a named device.
 | file | what it is |
 |------|------------|
 | `LHC_config.yaml` | the assembly **config** (for `wimba run` / GUI *Open Config*): optics, frequency grid, gamma, user material conductivities, device sources, default pipe reference, requested per-device outputs |
-| `lhc_beam_screen.cfg` | the **default resistive wall**, as an external pytlwall-chamber-style file: elliptical 23.2 x 18.4 mm half-axes, 75 um co-laminated copper (cryogenic sigma) on 1 mm stainless steel, vacuum boundary. No beta/beam keys: the machine decides those |
+| `data/lhc_default_pipe.json` | the **default resistive wall**, as machine data (JSON like the collimators): elliptical 23.2 x 18.4 mm half-axes, 75 um co-laminated copper (cryogenic sigma) on 1 mm stainless steel, vacuum boundary. No beta/beam keys: the machine decides those. WIMBA builds the pytlwall input from it |
 | `data/twiss_lhcb1_beta130cm.tfs` | MAD-X twiss of the full lattice (~13k rows) - **not in git** (~5 MB): copy it from the pywit model into `data/` before running |
 | `data/lhc_collimators_reference_b1.json` | 55 collimators: half-gap, length, wall build-up by material name |
 | `data/lhc_rf_cavities_homs.json` | RF-cavity higher-order modes (Rl/Ql/fl + transverse), computed as lumped resonators |
@@ -49,6 +49,8 @@ By default (`LHCB1_output/`):
   segments;
 - `total_Z*.png` (and `total_W*.png` with `--wake`), `WAKE_NOTES.txt` with the
   wake provenance;
+- `pytlwall_inputs/NN_<name>.cfg` — the pytlwall chamber input WIMBA generated
+  for every distinct geometry (readable, for debugging: unit length, beta = 1);
 - `LHCB1_assignments.csv` from `wimba assemble` (position, name, method, beta,
   beta source, collisions).
 

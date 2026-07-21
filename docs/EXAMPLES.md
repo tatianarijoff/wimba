@@ -104,7 +104,7 @@ impedance/wake tables and figures. Useful as a minimal, dependency-free referenc
 for the resonator source.
 
 ```bash
-python examples/resonator/resonator_machine.py
+wimba build examples/resonator/resonator_input.yaml
 ```
 
 It writes `Z_*.dat`, `W_*.dat`, `impedance.png` and `wake.png` next to the script

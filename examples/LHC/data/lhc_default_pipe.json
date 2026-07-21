@@ -1,0 +1,34 @@
+{
+  "name": "lhc_default_pipe",
+  "shape": "ELLIPTICAL",
+  "hor_m": 0.0232,
+  "ver_m": 0.0184,
+  "radius_m": 0.0184,
+  "layers": [
+    {
+      "type": "CW",
+      "thickness": 7.5e-05,
+      "sigma": 2000000000.0,
+      "muinf_Hz": 0.0,
+      "k_Hz": "inf",
+      "epsr": 1.0,
+      "tau": 0.0,
+      "RQ": 0.0
+    },
+    {
+      "type": "CW",
+      "thickness": 0.001,
+      "sigma": 1400000.0,
+      "muinf_Hz": 0.0,
+      "k_Hz": "inf",
+      "epsr": 1.0,
+      "tau": 0.0,
+      "RQ": 0.0
+    },
+    {
+      "type": "V",
+      "thickness": "inf",
+      "boundary": true
+    }
+  ]
+}
