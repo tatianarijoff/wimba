@@ -27,12 +27,18 @@ def _one_layer(pytlwall, lay, boundary=False):
     """Build a pytlwall Layer, passing through the full parameter set."""
     thick = lay.get("thickness", lay.get("thick_m", 0.002))
     thick = np.inf if str(thick).lower() == "inf" else float(thick)
+    ltype = str(lay.get("type", "CW"))
     sigma = lay.get("sigma", lay.get("sigmaDC"))
-    sigma = float(sigma) if sigma is not None else _sigma(lay.get("material"))
+    if sigma is not None:
+        sigma = float(sigma)
+    elif ltype.upper() == "V":
+        sigma = 1.0e6                    # vacuum: value irrelevant to pytlwall
+    else:
+        sigma = _sigma(lay.get("material"))
     k = lay.get("k_Hz", lay.get("k", np.inf))
     k = np.inf if str(k).lower() == "inf" else float(k)
     return pytlwall.Layer(
-        layer_type=lay.get("type", "CW"),
+        layer_type=ltype,
         thick_m=thick,
         sigmaDC=sigma,
         muinf_Hz=float(lay.get("muinf_Hz", lay.get("muinf", 0.0))),

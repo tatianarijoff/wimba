@@ -46,7 +46,7 @@ class Device:
 class DefaultPipe:
     """The default resistive wall applied to uncovered lattice rows (plain)."""
     method: str = "pytlwall"           # one of BASE_METHODS
-    space_charge: bool = False
+    space_charge: bool = True          # ISC comes free from pytlwall; off only if asked
     weighted: bool = False            # default pipe is plain: beta applied by WIMBA
     geometry: Optional[dict] = None
 
@@ -226,18 +226,40 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
         cfg = yaml.safe_load(cfg_path.read_text()) or {}
 
     twiss = madx.read_twiss(base / cfg["optics"]) if cfg.get("optics") else {}
+
+    # user-defined materials (name -> sigma [S/m]) extend the built-in table
+    from .sources.pytlwall_bridge import MATERIALS
+    user_mats = {str(k).lower(): float(v) for k, v in (cfg.get("materials") or {}).items()}
+    mat_table = {**MATERIALS, **user_mats}
+
+    def _resolve_layers(layers, owner):
+        unknown = []
+        for lay in (layers or []):
+            if str(lay.get("type", "")).upper() == "V":
+                continue                       # vacuum: no conductivity needed
+            if "sigma" not in lay and "sigmaDC" not in lay:
+                mat = lay.get("material")
+                key = str(mat).lower() if mat is not None else None
+                if key in mat_table:
+                    lay["sigma"] = mat_table[key]
+                else:
+                    unknown.append(f"'{mat}' (in {owner})")
+        return unknown
+
+    unknown_materials = []
     devices = []
     for gname, spec in (cfg.get("devices") or {}).items():
         src = spec.get("source")
         method = spec.get("method", "pytlwall")
         weighted = bool(spec.get("weighted", False))
-        sc = bool(spec.get("space_charge", False))
+        sc = bool(spec.get("space_charge", method == "pytlwall"))
         overlap = bool(spec.get("allow_overlap", False))
         if src == "collimators_json":
             for name, geo in read_collimators(base / spec["file"]).items():
                 geometry = {"radius": geo.get("halfgap", 0.02),
                             "layers": geo.get("layers"),
                             "length": geo.get("length")}
+                unknown_materials += _resolve_layers(geometry["layers"], name)
                 devices.append(Device(name=name, method=method, weighted=weighted,
                                       space_charge=sc, allow_overlap=overlap,
                                       length=geo.get("length"), geometry=geometry, group=gname))
@@ -268,6 +290,7 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
             geometry = {"radius": radius, "layers": spec.get("layers"),
                         "shape": spec.get("shape", "CIRCULAR"),
                         "hor": _half_axis(spec, "hor"), "ver": _half_axis(spec, "ver")}
+            unknown_materials += _resolve_layers(geometry["layers"], spec.get("name", gname))
             devices.append(Device(name=spec.get("name", gname), method=method,
                                   weighted=weighted, space_charge=sc, allow_overlap=overlap,
                                   length=float(spec.get("length_m", 1.0)), beta=beta,
@@ -278,14 +301,27 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     dp_spec = cfg.get("default_pipe")
     default_pipe = None
     if dp_spec:
-        radius = dp_spec.get("radius_mm", 22.0) / 1000.0
-        geometry = {"radius": radius,
-                    "layers": dp_spec.get("layers")
-                              or [{"material": dp_spec.get("material", "stainless_steel"),
-                                   "thickness": dp_spec.get("thickness_m", 0.002)}],
-                    "shape": dp_spec.get("shape", "CIRCULAR"),
-                    "hor": _half_axis(dp_spec, "hor"), "ver": _half_axis(dp_spec, "ver")}
-        default_pipe = DefaultPipe(method=dp_spec.get("method", "pytlwall"),
-                                   space_charge=bool(dp_spec.get("space_charge", False)),
+        if "file" in dp_spec:
+            from .io.pipe_cfg import read_pipe_cfg
+            geometry = read_pipe_cfg(base / dp_spec["file"])
+        else:
+            radius = dp_spec.get("radius_mm", 22.0) / 1000.0
+            geometry = {"radius": radius,
+                        "layers": dp_spec.get("layers")
+                                  or [{"material": dp_spec.get("material", "stainless_steel"),
+                                       "thickness": dp_spec.get("thickness_m", 0.002)}],
+                        "shape": dp_spec.get("shape", "CIRCULAR"),
+                        "hor": _half_axis(dp_spec, "hor"), "ver": _half_axis(dp_spec, "ver")}
+        unknown_materials += _resolve_layers(geometry.get("layers"), "default_pipe")
+        dp_method = dp_spec.get("method", "pytlwall")
+        default_pipe = DefaultPipe(method=dp_method,
+                                   space_charge=bool(dp_spec.get("space_charge",
+                                                                 dp_method == "pytlwall")),
                                    geometry=geometry)
+    if unknown_materials:
+        raise ValueError(
+            "unknown materials with no conductivity on record: "
+            + ", ".join(sorted(set(unknown_materials)))
+            + ". Define them under 'materials:' in the config (name: sigma_S_per_m) "
+              "or give the layer an explicit 'sigma'.")
     return assemble(twiss, devices, default_pipe, name=cfg.get("name", cfg_path.stem), tol=tol)
