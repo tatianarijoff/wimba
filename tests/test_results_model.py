@@ -43,6 +43,6 @@ def test_model_derives_wall_plus_isc(tmp_path):
                                "ZDipX": 2 / f + 0j})
     m = ResultsModel().load(tmp_path)
     _x, comps = m.sources["Total"]["impedance"]
-    assert "ZLongTotal" in comps                      # wall + ISC derived
-    assert np.allclose(comps["ZLongTotal"], 1 / f + 4j / f)
-    assert "ZDipXTotal" not in comps                  # no ISC -> no derived total
+    assert "ZLong+ISC" in comps                       # wall + ISC derived
+    assert np.allclose(comps["ZLong+ISC"], 1 / f + 4j / f)
+    assert "ZDipX+ISC" not in comps                   # no ISC -> no derived sum

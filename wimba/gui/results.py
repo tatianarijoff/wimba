@@ -38,13 +38,13 @@ class ResultsModel:
 
     @staticmethod
     def _with_sc_totals(loaded):
-        """Add derived <base>Total = wall + ISC where both are present
-        (pytlwall's own naming convention)."""
+        """Add derived <base>+ISC = wall + indirect space charge where both are
+        present (the explicit name says exactly what is summed)."""
         x, comps = loaded
         for base in ("ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY"):
             isc = f"{base}ISC"
             if base in comps and isc in comps:
-                comps[f"{base}Total"] = comps[base] + comps[isc]
+                comps[f"{base}+ISC"] = comps[base] + comps[isc]
         return x, comps
 
     def load(self, out_dir) -> "ResultsModel":
