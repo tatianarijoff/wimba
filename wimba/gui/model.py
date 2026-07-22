@@ -170,10 +170,13 @@ def from_config(path) -> GMachine:
 
     groups = {}
     order = []
-    pipe_count = 0
+    pipe_count, pipe_geo, pipe_method = 0, None, "pytlwall"
     for r in result.rows:
         if r.kind == "default_pipe":
             pipe_count += 1
+            if pipe_geo is None and r.geometry:
+                pipe_geo = r.geometry
+                pipe_method = method_label(r.method, r.weighted)
             continue
         g = r.group or "devices"
         if g not in groups:
@@ -189,9 +192,13 @@ def from_config(path) -> GMachine:
     for g in order:
         gm.groups.append(GGroup(g, groups[g]))
     if pipe_count:
-        note = GElement(name=f"default pipe  (\u00d7{pipe_count} lattice segments)",
-                        category="default_pipe", geometry={},
-                        optics={"pre": True}, layers=[], models=[])
+        geo = dict(pipe_geo or {})
+        layers = list(geo.pop("layers", None) or [])
+        pipe_name = geo.pop("name", None) or "default pipe"
+        note = GElement(name=f"{pipe_name}  (\u00d7{pipe_count} lattice segments)",
+                        category="default_pipe", geometry=geo,
+                        optics={"pre": True}, layers=layers,
+                        models=default_models(pipe_method))
         gm.groups.append(GGroup("default resistive wall", [note]))
     return gm
 

@@ -45,6 +45,9 @@ def test_from_config_populates_machine(tmp_path):
     assert "collimators" in names and "default resistive wall" in names
     c1 = gm.groups[0].elements[0]
     assert c1.name == "C1" and c1.optics["bx"] == 130.0 and c1.optics["s"] == 100.0
+    pipe = next(g for g in gm.groups if g.name == "default resistive wall").elements[0]
+    assert pipe.geometry.get("radius") == 0.022          # the pipe shows its geometry
+    assert pipe.layers and "sigma" in pipe.layers[0]     # ... and its wall build-up
 
 
 def test_method_helpers():
