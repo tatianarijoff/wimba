@@ -102,3 +102,14 @@ def test_element_to_config_rejects_non_pytlwall():
                   models=default_models("resonator"))
     with pytest.raises(ValueError, match="resonator"):
         element_to_config(el)
+
+
+def test_models_fill_no_wake_no_duplicates():
+    """The Models table lists each impedance quantity once (no wake row - the
+    wake has its own Calculate actions), for both loaded and new elements."""
+    from wimba.gui.model import QUANTITIES, default_models
+
+    ms = default_models("pytlwall")
+    qs = [m.q for m in ms]
+    assert "wake" not in qs
+    assert len(qs) == len(set(qs)) == len(QUANTITIES) - 1

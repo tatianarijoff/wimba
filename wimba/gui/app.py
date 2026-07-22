@@ -308,12 +308,14 @@ class MainWindow(QMainWindow):
                                         self, checkable=True)
         self.fill_pipe_action.setChecked(True)
         m.addAction(self.fill_pipe_action)
-        self.wake_action = QAction("Compute wake", self, checkable=True)
-        m.addAction(self.wake_action)
         m.addSeparator()
         self._act(m, "Calculate Selected Element", self._calc_selected_element, "F5")
+        self._act(m, "Calculate Selected Element Wake",
+                  lambda: self._calc_selected_element(wake=True), "Shift+F5")
         self._act(m, "Calculate Selected Group", self._todo)
+        m.addSeparator()
         self._act(m, "Calculate Whole Machine", self._calc_machine)
+        self._act(m, "Calculate Whole Machine Wake", lambda: self._calc_machine(wake=True))
 
         m = mb.addMenu("&Results")
         for label in ("Add Selection to Comparison", "Send Basket to Plot",
@@ -578,12 +580,12 @@ class MainWindow(QMainWindow):
         self._elem_tabs[key] = panel
         self.center.setCurrentIndex(self.center.addTab(panel, el.name))
 
-    def _calc_selected_element(self):
+    def _calc_selected_element(self, wake=False):
         ref = self.selected
         if not ref or ref.get("kind") != "element":
             self.statusBar().showMessage("Select an element in the Machine tree first.", 4000)
             return
-        self._calc_element(ref["obj"])
+        self._calc_element(ref["obj"], wake=wake)
 
     def _base_cfg(self):
         if not self.config_path:
@@ -594,7 +596,7 @@ class MainWindow(QMainWindow):
         except Exception:
             return {}
 
-    def _calc_element(self, el):
+    def _calc_element(self, el, wake=False):
         import tempfile
 
         import yaml as _yaml
@@ -618,8 +620,11 @@ class MainWindow(QMainWindow):
         self._job_item = QListWidgetItem(f"{self._job_label} \u2014 running\u2026")
         self._dock_list("jobs").addItem(self._job_item)
 
-        self.worker = RunWorker(str(cfg_path), wake=self.wake_action.isChecked(),
-                                fill_pipe=False)
+        if wake:
+            self.log.info("Wake requested: the native pytlwall wake is computed from the "
+                          "geometry (impedance is recomputed alongside; cached geometries "
+                          "keep it cheap).")
+        self.worker = RunWorker(str(cfg_path), wake=wake, fill_pipe=False)
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_calc_done)
         self.worker.failed.connect(self._on_calc_failed)
@@ -713,7 +718,7 @@ class MainWindow(QMainWindow):
         self.log.info("Results loaded from %s (%d source(s)).", path,
                       len(self.results_model.sources))
 
-    def _calc_machine(self):
+    def _calc_machine(self, wake=False):
         if not self.config_path:
             self._open_config()
         if not self.config_path:
@@ -724,8 +729,10 @@ class MainWindow(QMainWindow):
         self._job_item = QListWidgetItem(f"{self._job_label} \u2014 running\u2026")
         self._dock_list("jobs").addItem(self._job_item)
 
-        self.worker = RunWorker(self.config_path,
-                                wake=self.wake_action.isChecked(),
+        if wake:
+            self.log.info("Wake requested: computed natively from each geometry "
+                          "(impedance recomputed alongside).")
+        self.worker = RunWorker(self.config_path, wake=wake,
                                 fill_pipe=self.fill_pipe_action.isChecked())
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_calc_done)

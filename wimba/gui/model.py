@@ -89,7 +89,9 @@ class GMachine:
 
 
 def default_models(method="resonator"):
-    return [GModel(q=q, enabled=(q == "zlong"), method=method) for q, _, _ in QUANTITIES]
+    # impedance quantities only: the wake has its own explicit Calculate actions
+    return [GModel(q=q, enabled=(q == "zlong"), method=method)
+            for q, _, _ in QUANTITIES if q != "wake"]
 
 
 # ---------- conversion from a loaded wimba Project ----------
@@ -113,11 +115,13 @@ def _models_from_provider(el):
                 models.append(GModel(q=q, enabled=True, method="pytlwall", status="ready"))
     elif isinstance(prov, IW2DProvider):
         models.append(GModel(q="zlong", enabled=True, method="IW2D", status="ready"))
-    # fill the remaining quantities as disabled rows so the table is uniform
+    # fill the remaining impedance quantities as disabled rows (uniform table);
+    # the wake is not a per-quantity model: it has its own Calculate actions
     present = {m.q for m in models}
     for q, _, _ in QUANTITIES:
-        if q not in present:
-            models.append(GModel(q=q, enabled=False, method="As resonator"))
+        if q == "wake" or q in present:
+            continue
+        models.append(GModel(q=q, enabled=False, method="resonator"))
     order = {q: i for i, (q, _, _) in enumerate(QUANTITIES)}
     models.sort(key=lambda m: order.get(m.q, 99))
     return models

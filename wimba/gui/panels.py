@@ -121,6 +121,11 @@ class ElementPanel(QWidget):
         btn = QPushButton("Calculate element")
         btn.clicked.connect(lambda: self.on_calc(self.el))
         fl.addWidget(btn)
+        wbtn = QPushButton("Calculate wake")
+        wbtn.setToolTip("Native wake from the geometry; works on its own "
+                        "(impedance is computed alongside).")
+        wbtn.clicked.connect(lambda: self.on_calc(self.el, True))
+        fl.addWidget(wbtn)
         outer.addWidget(foot)
 
     def _geometry_tab(self):
@@ -241,7 +246,8 @@ class ElementPanel(QWidget):
         v.addWidget(t)
         v.addWidget(QLabel("Each quantity can come from a different backend. pytlwall / IW2D "
                            "compute from geometry+layers; precalculated loads a file. "
-                           "\u2018(weighted)\u2019 means the result already includes beta."))
+                           "\u2018(weighted)\u2019 means the result already includes beta. "
+                           "The wake is not selected here: use the Calculate wake actions."))
         return w
 
     def _set_enabled(self, m, state):
