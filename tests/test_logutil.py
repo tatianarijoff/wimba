@@ -59,3 +59,46 @@ def test_method_helpers():
     assert not method_weighted("resonator")
     assert method_label("pytlwall", True) == "pytlwall (weighted)"
     assert method_needs_file("precalculated") and not method_needs_file("pytlwall")
+
+
+def test_element_to_config_and_run(tmp_path):
+    """The single-element emitter produces a runnable config: grid/gamma
+    inherited, geometry/layers/beta from the element; the run computes it."""
+    pytest.importorskip("pytlwall")
+    import numpy as np
+    import yaml
+
+    from wimba.gui.model import GElement, default_models, element_to_config
+    from wimba.run import run as run_study
+
+    el = GElement(name="lhc_default_pipe  (\u00d711188 lattice segments)",
+                  category="default_pipe",
+                  geometry={"shape": "ELLIPTICAL", "radius": 0.0184,
+                            "hor": 0.0232, "ver": 0.0184},
+                  optics={"bx": 2.0, "by": 1.0, "l": 1.0},
+                  layers=[{"type": "CW", "thickness": 75e-6, "sigma": 2.0e9},
+                          {"type": "CW", "thickness": 1.0e-3, "sigma": 1.4e6},
+                          {"type": "V", "thickness": "inf", "boundary": True}],
+                  models=default_models("pytlwall"))
+    cfg = element_to_config(el, base_cfg={"gamma": 7000.0,
+                                          "grid": {"frequency": {"min": 1e6, "max": 1e9,
+                                                                 "n": 6, "log": True}}})
+    assert cfg["name"] == "lhc_default_pipe_single"          # suffix stripped
+    spec = cfg["devices"]["single"]
+    assert spec["shape"] == "ELLIPTICAL" and spec["beta_x"] == 2.0
+    assert len(spec["layers"]) == 3
+
+    path = tmp_path / "single.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    info = run_study(path, out_dir=tmp_path / "out")
+    assert info["stats"]["computed"] == 1
+    per_dev = tmp_path / "out" / "single_elements" / "single" / "lhc_default_pipe.csv"
+    assert per_dev.is_file()                                  # element has its own output
+
+
+def test_element_to_config_rejects_non_pytlwall():
+    from wimba.gui.model import GElement, default_models, element_to_config
+    el = GElement(name="RF", geometry={"radius": 0.02},
+                  models=default_models("resonator"))
+    with pytest.raises(ValueError, match="resonator"):
+        element_to_config(el)

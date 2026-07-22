@@ -311,7 +311,7 @@ class MainWindow(QMainWindow):
         self.wake_action = QAction("Compute wake", self, checkable=True)
         m.addAction(self.wake_action)
         m.addSeparator()
-        self._act(m, "Calculate Selected Element", self._todo, "F5")
+        self._act(m, "Calculate Selected Element", self._calc_selected_element, "F5")
         self._act(m, "Calculate Selected Group", self._todo)
         self._act(m, "Calculate Whole Machine", self._calc_machine)
 
@@ -578,9 +578,53 @@ class MainWindow(QMainWindow):
         self._elem_tabs[key] = panel
         self.center.setCurrentIndex(self.center.addTab(panel, el.name))
 
+    def _calc_selected_element(self):
+        ref = self.selected
+        if not ref or ref.get("kind") != "element":
+            self.statusBar().showMessage("Select an element in the Machine tree first.", 4000)
+            return
+        self._calc_element(ref["obj"])
+
+    def _base_cfg(self):
+        if not self.config_path:
+            return {}
+        try:
+            import yaml
+            return yaml.safe_load(Path(self.config_path).read_text()) or {}
+        except Exception:
+            return {}
+
     def _calc_element(self, el):
-        self.statusBar().showMessage(
-            f"Calculate '{el.name}' \u2014 backend + Jobs come in the next phase", 3000)
+        import tempfile
+
+        import yaml as _yaml
+
+        from ..naming import safe
+        from .model import element_to_config
+        try:
+            cfg = element_to_config(el, base_cfg=self._base_cfg())
+        except ValueError as exc:
+            self.log.error("Cannot calculate '%s': %s", el.name, exc)
+            QMessageBox.warning(self, "Calculate element", str(exc))
+            return
+        run_dir = Path(tempfile.mkdtemp(prefix="wimba_element_"))
+        cfg_path = run_dir / f"{safe(cfg['name'])}.yaml"
+        cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False))
+
+        con = self._dock_text("console")
+        self.docks["console"].raise_()
+        self.log.info("Single-element config emitted: %s", cfg_path)
+        self._job_label = el.name
+        self._job_item = QListWidgetItem(f"{self._job_label} \u2014 running\u2026")
+        self._dock_list("jobs").addItem(self._job_item)
+
+        self.worker = RunWorker(str(cfg_path), wake=self.wake_action.isChecked(),
+                                fill_pipe=False)
+        self.worker.log.connect(con.appendPlainText)
+        self.worker.done.connect(self._on_calc_done)
+        self.worker.failed.connect(self._on_calc_failed)
+        self.statusBar().showMessage(f"Calculating '{el.name}'\u2026")
+        self.worker.start()
 
     # ---- logging / robustness ----
     def _install_excepthook(self):
@@ -676,7 +720,8 @@ class MainWindow(QMainWindow):
             return
         con = self._dock_text("console"); con.clear()
         self.docks["console"].raise_()
-        self._job_item = QListWidgetItem(f"{Path(self.config_path).name} \u2014 running\u2026")
+        self._job_label = Path(self.config_path).name
+        self._job_item = QListWidgetItem(f"{self._job_label} \u2014 running\u2026")
         self._dock_list("jobs").addItem(self._job_item)
 
         self.worker = RunWorker(self.config_path,
@@ -692,7 +737,7 @@ class MainWindow(QMainWindow):
         result, info = payload["result"], payload["info"]
         st = info["stats"]
         if self._job_item:
-            self._job_item.setText(f"{Path(self.config_path).name} \u2014 done "
+            self._job_item.setText(f"{getattr(self, '_job_label', 'job')} \u2014 done "
                                    f"({st['computed']} computed)")
         self.results_model.load(info["out"])
         self.results_tree.set_model(self.results_model)
@@ -711,7 +756,7 @@ class MainWindow(QMainWindow):
 
     def _on_calc_failed(self, tb):
         if self._job_item:
-            self._job_item.setText(f"{Path(self.config_path).name} \u2014 FAILED")
+            self._job_item.setText(f"{getattr(self, '_job_label', 'job')} \u2014 FAILED")
         con = self._dock_text("console")
         con.appendPlainText("\nFAILED:\n" + tb)
         self.docks["console"].raise_()

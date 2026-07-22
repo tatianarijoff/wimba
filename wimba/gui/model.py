@@ -222,3 +222,58 @@ def optics_completeness(gm: GMachine):
         if e.optics.get("bx") is not None:
             have += 1
     return have, need
+
+
+# ---------- element -> runnable config (single-element calculation) ----------
+def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
+    """Emit an assemble config that computes just this element.
+
+    Grid, gamma and user materials are inherited from the config the machine was
+    opened from (base_cfg); geometry, layers and beta come from the element as
+    edited in the GUI. Only pytlwall elements are supported for now (resonator /
+    precalculated single-element runs come with the full machine->config bridge).
+    """
+    model = next((m for m in el.models if m.enabled), None)
+    base = method_base(model.method) if model else "pytlwall"
+    if base.lower() != "pytlwall":
+        raise ValueError(
+            f"single-element calculation supports pytlwall elements for now "
+            f"(this one is '{base}').")
+
+    geo = el.geometry or {}
+    if geo.get("radius") is None:
+        raise ValueError(f"element '{el.name}' has no radius in its geometry.")
+    name = el.name.split("  (")[0]                     # strip '  (xN lattice segments)'
+
+    spec = {
+        "source": "chamber",
+        "name": name,
+        "method": "pytlwall",
+        "radius_m": float(geo["radius"]),
+        "shape": geo.get("shape", "CIRCULAR"),
+        "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
+        "beta_x": float(el.optics.get("bx") or 1.0),
+        "beta_y": float(el.optics.get("by") or 1.0),
+        "weighted": method_weighted(model.method) if model else False,
+        "layers": [dict(lay) for lay in el.layers],
+    }
+    for axis in ("hor", "ver"):
+        if geo.get(axis) is not None:
+            spec[f"{axis}_m"] = float(geo[axis])
+
+    base_cfg = base_cfg or {}
+    cfg = {
+        "name": f"{name}_single",
+        "grid": base_cfg.get("grid") or {
+            "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},
+        "output": [name],
+        "devices": {"single": spec},
+    }
+    if base_cfg.get("gamma") is not None:
+        cfg["gamma"] = base_cfg["gamma"]
+    if base_cfg.get("materials"):
+        cfg["materials"] = base_cfg["materials"]
+    if "time" not in cfg["grid"]:
+        cfg["grid"] = dict(cfg["grid"])
+        cfg["grid"].setdefault("time", {"min": 1.0e-12, "max": 5.0e-9, "n": 200})
+    return cfg
