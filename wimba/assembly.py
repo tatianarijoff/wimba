@@ -273,10 +273,13 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
             base_dir = cfg_path.parent
             files = {c: str(base_dir / f) for c, f in (spec.get("files") or {}).items()}
             wfiles = {c: str(base_dir / f) for c, f in (spec.get("wake_files") or {}).items()}
+            params = {"files": files, "wake_files": wfiles}
+            if "map" in spec:
+                params["map"] = str(base_dir / spec["map"])
             devices.append(Device(name=spec.get("name", gname), method="precalculated",
                                   weighted=weighted, allow_overlap=overlap,
                                   length=spec.get("length_m"), position=spec.get("position"),
-                                  group=gname, params={"files": files, "wake_files": wfiles}))
+                                  group=gname, params=params))
         elif src == "chamber":
             if "radius_m" in spec:
                 radius = float(spec["radius_m"])

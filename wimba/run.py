@@ -128,13 +128,21 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
         elif row.method == "precalculated":
             params = row.params or {}
             files, wfiles = params.get("files", {}), params.get("wake_files", {})
+            map_data = None
+            if params.get("map"):
+                from .io.import_map import (interp_impedance, interp_wake,
+                                            load_import_map)
+                map_data = load_import_map(params["map"])
             bx = 1.0 if row.weighted else row.beta_x   # data used as-is; beta if plain
             by = 1.0 if row.weighted else row.beta_y
 
             def _bw(component):
                 return bx if component.endswith("X") else (by if component.endswith("Y") else 1.0)
 
-            loaded = precalculated_impedance(freqs, files)
+            if map_data is not None:
+                loaded = interp_impedance(map_data, freqs)
+            else:
+                loaded = precalculated_impedance(freqs, files)
             zterms = {c: np.zeros(len(freqs), dtype=complex) for c in COMPONENTS}
             for c, v in loaded.items():
                 if c in zterms:
@@ -142,7 +150,12 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
 
             if times is not None:
                 wterms = {c: np.zeros(len(times)) for c in WAKE_COMPONENTS}
-                if wfiles:
+                if map_data is not None and map_data.get("wake"):
+                    for c, v in interp_wake(map_data, times).items():
+                        if c in wterms:
+                            wterms[c] = v * _bw(c)
+                    stats["wake_native"].add("precalculated")
+                elif wfiles:
                     for c, v in precalculated_wake(times, wfiles).items():
                         if c in wterms:
                             wterms[c] = v * _bw(c)

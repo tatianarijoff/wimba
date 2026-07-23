@@ -64,7 +64,10 @@ class GElement:
     geometry: dict = field(default_factory=dict)
     optics: dict = field(default_factory=dict)     # s, l, bx, by, pre
     layers: list = field(default_factory=list)
-    models: list = field(default_factory=list)     # list[GModel]
+    models: list = field(default_factory=list)     # list[GModel] (base calculation)
+    compare: list = field(default_factory=list)    # list[GModel]: additional
+                                                   # calculations, q = component
+                                                   # (ZLong, ...), for comparison
 
 
 @dataclass
@@ -266,12 +269,33 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
             spec[f"{axis}_m"] = float(geo[axis])
 
     base_cfg = base_cfg or {}
+    devices = {"single": spec}
+    output = [name]
+    for i, cmp_ in enumerate(getattr(el, "compare", []) or []):
+        cbase = method_base(cmp_.method).lower()
+        cname = f"{name}[{method_base(cmp_.method)} {cmp_.q}]"
+        if cbase == "precalculated":
+            if not cmp_.file:
+                raise ValueError(
+                    f"compare entry {cmp_.q} (precalculated) needs a file "
+                    "(a plain .dat or an import-map .yaml).")
+            key = "map" if cmp_.file.lower().endswith((".yaml", ".yml")) else "files"
+            val = cmp_.file if key == "map" else {cmp_.q: cmp_.file}
+            cspec = {"source": "precalculated", "name": cname, key: val,
+                     "weighted": method_weighted(cmp_.method)}
+        elif cbase in ("pytlwall", "iw2d"):
+            cspec = dict(spec, name=cname, method=cbase,
+                         weighted=method_weighted(cmp_.method))
+        else:
+            raise ValueError(f"compare entry: method '{cmp_.method}' not supported.")
+        devices[f"compare_{i}"] = cspec
+        output.append(cname)
     cfg = {
         "name": f"{name}_single",
         "grid": base_cfg.get("grid") or {
             "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},
-        "output": [name],
-        "devices": {"single": spec},
+        "output": output,
+        "devices": devices,
     }
     if base_cfg.get("gamma") is not None:
         cfg["gamma"] = base_cfg["gamma"]
