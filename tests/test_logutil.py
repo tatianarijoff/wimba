@@ -113,3 +113,40 @@ def test_models_fill_no_wake_no_duplicates():
     qs = [m.q for m in ms]
     assert "wake" not in qs
     assert len(qs) == len(set(qs)) == len(QUANTITIES) - 1
+
+
+def test_element_compare_entries_end_to_end(tmp_path):
+    """Additional calculations: the emitter adds compare devices; the run
+    computes base + compares side by side (single-element study)."""
+    pytest.importorskip("pytlwall")
+    import numpy as np
+    import yaml
+
+    from wimba.gui.model import GElement, GModel, default_models, element_to_config
+    from wimba.io.tables import write_impedance
+    from wimba.run import run as run_study
+
+    f = np.logspace(6, 9, 30)
+    write_impedance(tmp_path / "zlong_cst.dat", f, 7.0 / f + 1j / f, "z")
+
+    el = GElement(name="PIPE", geometry={"radius": 0.02},
+                  optics={"bx": 1.0, "by": 1.0, "l": 1.0},
+                  layers=[{"type": "CW", "thickness": 0.002, "sigma": 1.4e6}],
+                  models=default_models("pytlwall"))
+    el.compare.append(GModel(q="ZLong", enabled=True, method="precalculated",
+                             file=str(tmp_path / "zlong_cst.dat")))
+
+    cfg = element_to_config(el, base_cfg={"grid": {"frequency":
+                                                   {"min": 1e6, "max": 1e9, "n": 8,
+                                                    "log": True}}})
+    assert "compare_0" in cfg["devices"]
+    assert cfg["output"] == ["PIPE", "PIPE[precalculated ZLong]"]
+
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    info = run_study(path, out_dir=tmp_path / "out")
+    assert info["stats"]["computed"] == 2                     # base + compare
+    se = tmp_path / "out" / "single_elements"
+    assert (se / "single" / "PIPE.csv").is_file()
+    assert (se / "compare_0" / "PIPE_precalculated_ZLong_.csv").is_file() or \
+           any(se.glob("compare_0/*.csv"))                    # compare has its own CSV
