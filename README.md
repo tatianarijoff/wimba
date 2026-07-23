@@ -43,6 +43,7 @@ longitudinal, dipolar and quadrupolar impedances and wakes can be read out.
 Full documentation lives in [`docs/`](docs/README.md). Good starting points: the
 [examples](docs/EXAMPLES.md) and how to run them, the
 [assemble & run flow](docs/ASSEMBLE_AND_RUN.md), the
+[precalculated data import](docs/PRECALCULATED.md), the
 [data model](docs/DATA_MODEL.md) and the [resonator source](docs/RESONATOR.md).
 
 ## Install
