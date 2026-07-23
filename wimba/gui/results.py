@@ -185,6 +185,7 @@ class PlotWorkspace(QWidget):
         from matplotlib.figure import Figure
         self.fig = Figure(figsize=(6.4, 4.2), tight_layout=True)
         self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas.setMinimumSize(120, 90)   # keep the central area resizable
         self.ax = self.fig.add_subplot(111)
 
         self.items = QListWidget()

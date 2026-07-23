@@ -214,60 +214,125 @@ class ElementPanel(QWidget):
                         box.blockSignals(True); box.setChecked(False); box.blockSignals(False)
         self.on_change()
 
+    COMPARE_COMPONENTS = ["ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY"]
+
+    def _base_model(self):
+        return self.el.models[0] if self.el.models else None
+
     def _models_tab(self):
+        from .model import method_base, method_needs_file
         w = QWidget(); v = QVBoxLayout(w)
-        t = QTableWidget(len(self.el.models), 5)
-        t.setHorizontalHeaderLabels(["On", "Quantity", "Method", "Source / File", "Status"])
-        h = t.horizontalHeader()
-        h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        t.verticalHeader().setVisible(False)
-        for r, m in enumerate(self.el.models):
-            chk = QCheckBox(); chk.setChecked(m.enabled)
-            chk.stateChanged.connect(lambda s, mm=m: self._set_enabled(mm, s))
-            cw = QWidget(); cl = QHBoxLayout(cw); cl.addWidget(chk)
-            cl.setAlignment(Qt.AlignmentFlag.AlignCenter); cl.setContentsMargins(0, 0, 0, 0)
-            t.setCellWidget(r, 0, cw)
-            t.setItem(r, 1, QTableWidgetItem(f"{QLABEL[m.q]}  ({QUNITS[m.q]})"))
-            t.item(r, 1).setFlags(Qt.ItemFlag.ItemIsEnabled)
-            combo = QComboBox(); combo.addItems(METHODS); combo.setCurrentText(m.method)
-            combo.currentTextChanged.connect(lambda v, mm=m, row=r: self._set_method(mm, v, row))
-            t.setCellWidget(r, 2, combo)
-            fed = QLineEdit(m.file)
-            fed.setPlaceholderText("path to .dat" if method_needs_file(m.method) else "\u2014")
-            fed.setEnabled(method_needs_file(m.method))
-            fed.textChanged.connect(lambda v, mm=m: self._set_file(mm, v))
-            t.setCellWidget(r, 3, fed)
-            t.setItem(r, 4, QTableWidgetItem(m.status))
-        self.models_table = t
-        v.addWidget(t)
-        v.addWidget(QLabel("Each quantity can come from a different backend. pytlwall / IW2D "
-                           "compute from geometry+layers; precalculated loads a file. "
-                           "\u2018(weighted)\u2019 means the result already includes beta. "
-                           "The wake is not selected here: use the Calculate wake actions."))
+
+        base = QTableWidget(2, 3)
+        base.setHorizontalHeaderLabels(["Variable", "Method", "Source / File"])
+        h = base.horizontalHeader()
+        for c in range(3):
+            h.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
+        base.verticalHeader().setVisible(False)
+
+        bm = self._base_model()
+        cur = bm.method if bm else "pytlwall"
+        it = QTableWidgetItem("Impedance  (all components)")
+        it.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        base.setItem(0, 0, it)
+        combo = QComboBox(); combo.addItems(METHODS); combo.setCurrentText(cur)
+        combo.currentTextChanged.connect(self._set_base_method)
+        base.setCellWidget(0, 1, combo)
+        fed = QLineEdit(bm.file if bm else "")
+        fed.setPlaceholderText("path to .dat" if method_needs_file(cur) else "\u2014")
+        fed.setEnabled(method_needs_file(cur))
+        fed.textChanged.connect(self._set_base_file)
+        base.setCellWidget(0, 2, fed)
+        self._base_file_edit = fed
+
+        it = QTableWidgetItem("Wakefield")
+        it.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        base.setItem(1, 0, it)
+        self._wake_label = QTableWidgetItem(self._wake_text(cur))
+        self._wake_label.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        base.setItem(1, 1, self._wake_label)
+        wk = QTableWidgetItem("\u2014")
+        wk.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        base.setItem(1, 2, wk)
+        base.setMaximumHeight(96)
+        v.addWidget(base)
+
+        v.addWidget(QLabel("<b>Additional calculations \u2014 compare</b>  "
+                           "(same element, other methods: plotted side by side)"))
+        self.cmp_table = QTableWidget(0, 3)
+        self.cmp_table.setHorizontalHeaderLabels(["Component", "Method", "Source / File"])
+        ch = self.cmp_table.horizontalHeader()
+        for c in range(3):
+            ch.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
+        self.cmp_table.verticalHeader().setVisible(False)
+        for entry in self.el.compare:
+            self._cmp_row(entry)
+        v.addWidget(self.cmp_table, 1)
+        row = QHBoxLayout()
+        add = QPushButton("+ Add"); add.clicked.connect(self._cmp_add)
+        rm = QPushButton("Remove selected"); rm.clicked.connect(self._cmp_rm)
+        row.addWidget(add); row.addWidget(rm); row.addStretch(1)
+        v.addLayout(row)
+        v.addWidget(QLabel("The base method computes every component (and its wake). "
+                           "Compare entries add the same element with another method "
+                           "for one component \u2014 IW2D runs once its binary is wired."))
         return w
 
-    def _set_enabled(self, m, state):
-        m.enabled = bool(state)
+    @staticmethod
+    def _wake_text(method):
+        from .model import method_base
+        b = method_base(method).lower()
+        if b == "precalculated":
+            return "from wake file if given, else FFT of the impedance"
+        return f"native from {method_base(method)}"
+
+    def _set_base_method(self, value):
+        from .model import method_needs_file
+        for m in self.el.models:
+            m.method = value
+        self._wake_label.setText(self._wake_text(value))
+        self._base_file_edit.setEnabled(method_needs_file(value))
         self.on_change()
 
-    def _set_method(self, m, value, row):
-        m.method = value
-        needs = method_needs_file(value)
-        m.status = ("missing input" if needs and not m.file else "ready")
-        self.models_table.item(row, 4).setText(m.status)
-        fed = self.models_table.cellWidget(row, 3)
-        fed.setEnabled(needs)
+    def _set_base_file(self, value):
+        for m in self.el.models:
+            m.file = value
         self.on_change()
 
-    def _set_file(self, m, value):
-        m.file = value
-        if method_needs_file(m.method):
-            m.status = "loaded" if value else "missing input"
+    def _cmp_row(self, entry):
+        from .model import method_needs_file
+        r = self.cmp_table.rowCount(); self.cmp_table.insertRow(r)
+        comp = QComboBox(); comp.addItems(self.COMPARE_COMPONENTS)
+        comp.setCurrentText(entry.q or "ZLong")
+        comp.currentTextChanged.connect(lambda v, e=entry: setattr(e, "q", v))
+        self.cmp_table.setCellWidget(r, 0, comp)
+        meth = QComboBox(); meth.addItems(METHODS); meth.setCurrentText(entry.method)
+        self.cmp_table.setCellWidget(r, 1, meth)
+        fed = QLineEdit(entry.file)
+        fed.setEnabled(method_needs_file(entry.method))
+        fed.setPlaceholderText("path to .dat" if method_needs_file(entry.method) else "\u2014")
+        fed.textChanged.connect(lambda v, e=entry: setattr(e, "file", v))
+        self.cmp_table.setCellWidget(r, 2, fed)
+
+        def _meth_changed(v, e=entry, f=fed):
+            e.method = v
+            f.setEnabled(method_needs_file(v))
+            f.setPlaceholderText("path to .dat" if method_needs_file(v) else "\u2014")
+            self.on_change()
+        meth.currentTextChanged.connect(_meth_changed)
+
+    def _cmp_add(self):
+        entry = GModel(q="ZLong", enabled=True, method="precalculated")
+        self.el.compare.append(entry)
+        self._cmp_row(entry)
         self.on_change()
+
+    def _cmp_rm(self):
+        r = self.cmp_table.currentRow()
+        if r >= 0:
+            self.cmp_table.removeRow(r)
+            del self.el.compare[r]
+            self.on_change()
 
     def _outputs_tab(self):
         return placeholder("\u25d4", "Nothing computed yet",
