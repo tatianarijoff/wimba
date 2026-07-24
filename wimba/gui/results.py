@@ -47,6 +47,15 @@ class ResultsModel:
                 comps[f"{base}+ISC"] = comps[base] + comps[isc]
         return x, comps
 
+    def merge(self, out_dir) -> "ResultsModel":
+        """Load WITHOUT clearing: new sources are added, same-name replaced.
+        Used by the Component bench, where runs accumulate for comparison."""
+        keep = dict(self.sources)
+        self.load(out_dir)
+        for name, kinds in keep.items():
+            self.sources.setdefault(name, kinds)
+        return self
+
     def load(self, out_dir) -> "ResultsModel":
         self.clear()
         se = Path(out_dir) / "single_elements"

@@ -150,3 +150,44 @@ def test_element_compare_entries_end_to_end(tmp_path):
     assert (se / "single" / "PIPE.csv").is_file()
     assert (se / "compare_0" / "PIPE_precalculated_ZLong_.csv").is_file() or \
            any(se.glob("compare_0/*.csv"))                    # compare has its own CSV
+
+
+def test_component_bench_accumulates(tmp_path):
+    """Component bench: component_config labels sources by method, and merge
+    accumulates runs so different calculations sit side by side."""
+    pytest.importorskip("pytlwall")
+    import numpy as np
+    import yaml
+
+    from wimba.gui.model import GElement, component_config, default_models
+    from wimba.gui.results import ResultsModel
+    from wimba.io.tables import write_impedance
+    from wimba.run import run as run_study
+
+    el = GElement(name="COMP", geometry={"radius": 0.02},
+                  optics={}, layers=[{"type": "CW", "thickness": 0.002,
+                                      "sigma": 1.4e6}],
+                  models=default_models("pytlwall"))
+    grid = {"grid": {"frequency": {"min": 1e6, "max": 1e9, "n": 8, "log": True}}}
+
+    cfg1 = component_config(el, "pytlwall", base_cfg=grid)
+    assert cfg1["output"] == ["COMP[pytlwall]"]
+    p1 = tmp_path / "c1.yaml"; p1.write_text(yaml.safe_dump(cfg1))
+    run_study(p1, out_dir=tmp_path / "o1")
+
+    f = np.logspace(6, 9, 20)
+    write_impedance(tmp_path / "z.dat", f, 5.0 / f + 0j, "z")
+    cfg2 = component_config(el, "precalculated", base_cfg=grid,
+                            data_file=str(tmp_path / "z.dat"))
+    assert cfg2["output"][0].startswith("COMP[precalculated: ")
+    p2 = tmp_path / "c2.yaml"; p2.write_text(yaml.safe_dump(cfg2))
+    run_study(p2, out_dir=tmp_path / "o2")
+
+    m = ResultsModel().load(tmp_path / "o1")
+    m.merge(tmp_path / "o2")                      # accumulate, not replace
+    names = [k for k in m.sources if "[" in k]
+    assert any("pytlwall]" in n for n in names)
+    assert any("precalculated" in n for n in names)
+
+    cfg3 = component_config(el, "IW2D", base_cfg=grid)
+    assert cfg3["devices"]["bench"]["method"] == "iw2d"   # plumbing ready for the binary

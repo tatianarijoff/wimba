@@ -305,3 +305,56 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
         cfg["grid"] = dict(cfg["grid"])
         cfg["grid"].setdefault("time", {"min": 1.0e-12, "max": 5.0e-9, "n": 200})
     return cfg
+
+
+def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
+                     data_file: Optional[str] = None,
+                     data_component: str = "ZLong") -> dict:
+    """Config for the Component bench: ONE calculation of this component with the
+    given method. Source names carry the method label ("NAME[pytlwall]",
+    "NAME[precalculated: file]") so accumulated runs are distinguishable."""
+    from pathlib import Path as _P
+
+    base = method_base(method).lower()
+    name = el.name.split("  (")[0]
+    if base == "precalculated":
+        if not data_file:
+            raise ValueError("Load Precalculated needs a data file "
+                             "(a plain .dat or an import-map .yaml).")
+        label = f"precalculated: {_P(data_file).name}"
+        if str(data_file).lower().endswith((".yaml", ".yml")):
+            spec = {"source": "precalculated", "name": f"{name}[{label}]",
+                    "map": str(data_file), "weighted": True}
+        else:
+            spec = {"source": "precalculated", "name": f"{name}[{label}]",
+                    "files": {data_component: str(data_file)}, "weighted": True}
+    elif base in ("pytlwall", "iw2d"):
+        geo = el.geometry or {}
+        if geo.get("radius") is None:
+            raise ValueError(f"component '{name}' has no radius in its geometry.")
+        label = "IW2D" if base == "iw2d" else "pytlwall"
+        spec = {"source": "chamber", "name": f"{name}[{label}]", "method": base,
+                "radius_m": float(geo["radius"]),
+                "shape": geo.get("shape", "CIRCULAR"),
+                "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
+                "beta_x": float(el.optics.get("bx") or 1.0),
+                "beta_y": float(el.optics.get("by") or 1.0),
+                "weighted": method_weighted(method),
+                "layers": [dict(lay) for lay in el.layers]}
+        for axis in ("hor", "ver"):
+            if geo.get(axis) is not None:
+                spec[f"{axis}_m"] = float(geo[axis])
+    else:
+        raise ValueError(f"component bench: method '{method}' not supported.")
+
+    base_cfg = base_cfg or {}
+    cfg = {"name": f"{name}_component",
+           "grid": base_cfg.get("grid") or {
+               "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},
+           "output": [spec["name"]],
+           "devices": {"bench": spec}}
+    if base_cfg.get("gamma") is not None:
+        cfg["gamma"] = base_cfg["gamma"]
+    if base_cfg.get("materials"):
+        cfg["materials"] = base_cfg["materials"]
+    return cfg

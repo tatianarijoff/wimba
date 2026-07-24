@@ -134,6 +134,7 @@ class MainWindow(QMainWindow):
         self.worker = None
         self._job_item = None
         self.results_model = ResultsModel()
+        self.component = None
 
         configure(self.settings.value("loglevel", "info"))
         self.log = get_logger("gui")
@@ -298,6 +299,18 @@ class MainWindow(QMainWindow):
         self._act(m, "Rename Selected", self._rename_selected)
         self._act(m, "Duplicate Selected", self._duplicate_selected)
         self._act(m, "Delete Selected", self._delete_selected)
+
+        m = mb.addMenu("&Component")
+        self._act(m, "Use Selected Element as Component", self._comp_use_selected)
+        self._act(m, "New Component\u2026", self._comp_new)
+        m.addSeparator()
+        self._act(m, "Calculate with pytlwall", lambda: self._comp_calc("pytlwall"))
+        self._act(m, "Calculate with IW2D", lambda: self._comp_calc("IW2D"))
+        self._act(m, "Load Precalculated\u2026", self._comp_load_precalc)
+        self._act(m, "Calculate Wake (pytlwall)",
+                  lambda: self._comp_calc("pytlwall", wake=True))
+        m.addSeparator()
+        self._act(m, "Clear Component Results", self._comp_clear)
 
         m = mb.addMenu("&Optics")
         self._act(m, "Load Optics\u2026", self._load_optics)
@@ -580,6 +593,103 @@ class MainWindow(QMainWindow):
         self._elem_tabs[key] = panel
         self.center.setCurrentIndex(self.center.addTab(panel, el.name))
 
+    # ---- Component bench: accumulate calculations of one component ----
+    def _comp_use_selected(self):
+        ref = self.selected
+        if not ref or ref.get("kind") != "element":
+            self.statusBar().showMessage("Select an element in the Machine tree first.", 4000)
+            return
+        self.component = ref["obj"]
+        self._open_element(self.component)
+        self.log.info("Component bench: using '%s'.", self.component.name)
+
+    def _comp_new(self):
+        name, ok = QInputDialog.getText(self, "New Component", "Component name:",
+                                        text="COMP")
+        if not ok or not name:
+            return
+        from .model import default_models, new_element
+        el = new_element(name)
+        el.models = default_models("pytlwall")
+        el.layers = [{"type": "CW", "thickness": 0.002, "sigma": 1.4e6}]
+        el.geometry = {"radius": 0.02, "shape": "CIRCULAR"}
+        self.component = el
+        self._open_element(el)
+        self.log.info("Component bench: new component '%s' (edit geometry/layers, "
+                      "then Calculate).", name)
+
+    def _comp_require(self):
+        if getattr(self, "component", None) is None:
+            self.statusBar().showMessage(
+                "No component: use 'Use Selected Element as Component' or "
+                "'New Component' first.", 5000)
+            return None
+        return self.component
+
+    def _comp_calc(self, method, wake=False, data_file=None, data_component="ZLong"):
+        el = self._comp_require()
+        if el is None:
+            return
+        if method.lower() == "iw2d":
+            self.log.warning("IW2D is not wired to its binary yet: this run will "
+                             "report the row as skipped (the plumbing is ready).")
+        import tempfile
+
+        import yaml as _yaml
+
+        from ..naming import safe
+        from .model import component_config
+        try:
+            cfg = component_config(el, method, base_cfg=self._base_cfg(),
+                                   data_file=data_file, data_component=data_component)
+        except ValueError as exc:
+            self.log.error("Component bench: %s", exc)
+            QMessageBox.warning(self, "Component", str(exc))
+            return
+        run_dir = Path(tempfile.mkdtemp(prefix="wimba_component_"))
+        cfg_path = run_dir / f"{safe(cfg['name'])}.yaml"
+        cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False))
+        self.log.info("Component config emitted: %s", cfg_path)
+
+        con = self._dock_text("console")
+        self.docks["console"].raise_()
+        self._job_label = cfg["output"][0]
+        self._job_item = QListWidgetItem(f"{self._job_label} \u2014 running\u2026")
+        self._dock_list("jobs").addItem(self._job_item)
+        self._run_kind = "component"
+        self.worker = RunWorker(str(cfg_path), wake=wake, fill_pipe=False)
+        self.worker.log.connect(con.appendPlainText)
+        self.worker.done.connect(self._on_calc_done)
+        self.worker.failed.connect(self._on_calc_failed)
+        self.statusBar().showMessage(f"Calculating {self._job_label}\u2026")
+        self.worker.start()
+
+    def _comp_load_precalc(self):
+        el = self._comp_require()
+        if el is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load precalculated data", "",
+            "Data or import map (*.dat *.txt *.csv *.yaml *.yml);;All files (*)")
+        if not path:
+            return
+        comp = "ZLong"
+        if not path.lower().endswith((".yaml", ".yml")):
+            comp, ok = QInputDialog.getItem(
+                self, "Component of the data",
+                "This plain file holds one component. Which one?",
+                ["ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY"], 0, False)
+            if not ok:
+                return
+        self._comp_calc("precalculated", data_file=path, data_component=comp)
+
+    def _comp_clear(self):
+        removed = [k for k in self.results_model.sources if "[" in k]
+        for k in removed:
+            self.results_model.sources.pop(k, None)
+        self.results_tree.set_model(self.results_model)
+        self.log.info("Component bench cleared (%d source(s) removed).", len(removed))
+
     def _calc_selected_element(self, wake=False):
         ref = self.selected
         if not ref or ref.get("kind") != "element":
@@ -624,6 +734,7 @@ class MainWindow(QMainWindow):
             self.log.info("Wake requested: the native pytlwall wake is computed from the "
                           "geometry (impedance is recomputed alongside; cached geometries "
                           "keep it cheap).")
+        self._run_kind = "element"
         self.worker = RunWorker(str(cfg_path), wake=wake, fill_pipe=False)
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_calc_done)
@@ -732,6 +843,7 @@ class MainWindow(QMainWindow):
         if wake:
             self.log.info("Wake requested: computed natively from each geometry "
                           "(impedance recomputed alongside).")
+        self._run_kind = "machine"
         self.worker = RunWorker(self.config_path, wake=wake,
                                 fill_pipe=self.fill_pipe_action.isChecked())
         self.worker.log.connect(con.appendPlainText)
@@ -746,7 +858,15 @@ class MainWindow(QMainWindow):
         if self._job_item:
             self._job_item.setText(f"{getattr(self, '_job_label', 'job')} \u2014 done "
                                    f"({st['computed']} computed)")
-        self.results_model.load(info["out"])
+        if getattr(self, "_run_kind", "machine") == "component":
+            self.results_model.merge(info["out"])
+            self.results_model.sources.pop("Total", None)   # bench shows sources only
+        else:
+            self.results_model.load(info["out"])
+        if getattr(self, "_run_kind", "machine") == "element" and \
+                len(self.results_model.sources) > 1:
+            # single-element study: show the element and its compares, not a "Total"
+            self.results_model.sources.pop("Total", None)
         self.results_tree.set_model(self.results_model)
         self.docks["results"].raise_()
         prob = self._dock_text("problems"); prob.clear()
