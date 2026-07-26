@@ -86,3 +86,25 @@ def test_map_in_run(tmp_path):
     from wimba.output import read_totals
     _f, comps = read_totals(tmp_path / "out" / "single_elements" / "total.csv")
     assert np.any(np.abs(comps["ZLong"]) > 0)                      # imported, in the total
+
+
+def test_make_descriptor_roundtrip_on_real_file(tmp_path):
+    """The GUI dialog's builder: descriptor written -> read back -> real values."""
+    import shutil
+
+    from wimba.io.import_map import make_descriptor
+    cwd = __import__("os").getcwd()
+    data = tmp_path / "kicker.txt"
+    shutil.copy(f"{cwd}/{DATA}/fcc_kicker_zlong_1micron.txt", data)
+
+    desc = make_descriptor("impedance", "ZLong", data.name, comment="#",
+                           sep="tab", unit="GHz", fmt="re_im",
+                           col_x=1, col_re=2, col_im=3)
+    mp = tmp_path / "kicker.map.yaml"
+    mp.write_text("# columns numbered from 1\n" + yaml.safe_dump(desc))
+    loaded = load_import_map(mp)
+    f, z = loaded["impedance"]["ZLong"]
+    assert np.isclose(f[1], 0.010239144611436e9) and np.isclose(z[1].real, 3.0195536377705)
+
+    wdesc = make_descriptor("wake", "WLong", data.name, unit="ns", col_x=1, col_z=2)
+    assert "common_wake" in wdesc and wdesc["common_wake"]["time_unit"] == "ns"

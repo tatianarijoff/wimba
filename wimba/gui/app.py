@@ -673,15 +673,14 @@ class MainWindow(QMainWindow):
             "Data or import map (*.dat *.txt *.csv *.yaml *.yml);;All files (*)")
         if not path:
             return
-        comp = "ZLong"
-        if not path.lower().endswith((".yaml", ".yml")):
-            comp, ok = QInputDialog.getItem(
-                self, "Component of the data",
-                "This plain file holds one component. Which one?",
-                ["ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY"], 0, False)
-            if not ok:
-                return
-        self._comp_calc("precalculated", data_file=path, data_component=comp)
+        if path.lower().endswith((".yaml", ".yml")):
+            self._comp_calc("precalculated", data_file=path)
+            return
+        from .import_dialog import ImportMapDialog
+        dlg = ImportMapDialog(path, self)
+        if dlg.exec() and dlg.map_path:
+            self.log.info("Import map written: %s (reusable in configs).", dlg.map_path)
+            self._comp_calc("precalculated", data_file=str(dlg.map_path))
 
     def _comp_clear(self):
         removed = [k for k in self.results_model.sources if "[" in k]

@@ -146,3 +146,30 @@ def interp_wake(data: dict, times) -> dict:
     times = np.asarray(times, dtype=float)
     return {comp: np.interp(times, x, w)
             for comp, (x, w) in data.get("wake", {}).items()}
+
+
+def make_descriptor(kind: str, component: str, file: str, comment: str = "#",
+                    skip_rows: int = 0, sep: str | None = None, unit: str = "Hz",
+                    fmt: str = "re_im", col_x: int = 1, col_re: int = 2,
+                    col_im: int = 3, col_z: int = 2, scale: float = 1.0) -> dict:
+    """Build an import-map descriptor dict for ONE component of one file.
+    kind: "impedance" | "wake". Columns are numbered from 1."""
+    entry = {"file": str(file), "comment": comment}
+    if skip_rows:
+        entry["skip_rows"] = int(skip_rows)
+    if sep:
+        entry["sep"] = sep
+    if kind == "impedance":
+        entry["freq_unit"] = unit
+        entry["format"] = fmt
+        if float(scale) != 1.0:
+            entry["z_scale"] = float(scale)
+        entry["columns"] = ({"freq": int(col_x), "z": int(col_z)} if fmt == "complex"
+                            else {"freq": int(col_x), "re": int(col_re),
+                                  "im": int(col_im)})
+        return {"common_impedance": entry, "components": {component: {}}}
+    entry["time_unit"] = unit
+    if float(scale) != 1.0:
+        entry["w_scale"] = float(scale)
+    entry["columns"] = {"time": int(col_x), "w": int(col_z)}
+    return {"common_wake": entry, "wake_components": {component: {}}}
