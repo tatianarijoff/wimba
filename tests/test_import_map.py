@@ -108,3 +108,51 @@ def test_make_descriptor_roundtrip_on_real_file(tmp_path):
 
     wdesc = make_descriptor("wake", "WLong", data.name, unit="ns", col_x=1, col_z=2)
     assert "common_wake" in wdesc and wdesc["common_wake"]["time_unit"] == "ns"
+
+
+def test_load_pytlwall_cfg_roundtrip(tmp_path):
+    """Her ex_CW-style cfg -> WIMBA element -> bench run matches direct pytlwall
+    (conductor boundary included)."""
+    pytest.importorskip("pytlwall")
+    from wimba.gui.model import GElement, component_config, default_models
+    from wimba.io.pytlwall_cfg import read_chamber_cfg
+    from wimba.output import read_totals
+    from wimba.run import run as run_study
+
+    (tmp_path / "ex_CW.cfg").write_text(
+        "[base_info]\ncomponent_name = newCW\npipe_radius_m = 0.0184\n"
+        "pipe_len_m = 1.0\nbetax = 1.0\nbetay = 1.0\nchamber_shape = CIRCULAR\n"
+        "[layers_info]\nnbr_layers = 1\n"
+        "[layer0]\ntype= CW\nthick_m = 5e-7\nmuinf_Hz= 0\nk_Hz= inf\n"
+        "sigmaDC =1e6\nepsr = 1.0\ntau = 0.0\nRQ = 0.00\n"
+        "[boundary]\ntype= CW\nmuinf_Hz= 0\nk_Hz= inf\nsigmaDC =1e9\n"
+        "epsr = 1.0\ntau = 0.0\nRQ = 0.00\n"
+        "[frequency_info]\nfmin = 3\nfmax = 9\nfstep = 1\n"
+        "[beam_info]\ngammarel = 10000\n")
+    data = read_chamber_cfg(tmp_path / "ex_CW.cfg")
+    assert data["gamma"] == 10000.0 and data["geometry"]["radius"] == 0.0184
+    assert data["geometry"]["layers"][-1]["boundary"] is True
+    assert data["geometry"]["layers"][-1]["sigma"] == 1e9        # conductor boundary
+    assert data["grid"]["frequency"]["n"] == 61                  # 10 pts/decade x 6
+
+    geo = dict(data["geometry"]); layers = geo.pop("layers"); geo.pop("name")
+    el = GElement(name="newCW", geometry=geo,
+                  optics={"bx": 1.0, "by": 1.0, "l": 1.0},
+                  layers=layers, models=default_models("pytlwall"))
+    cfg = component_config(el, "pytlwall",
+                           base_cfg={"gamma": data["gamma"], "grid": data["grid"]})
+    p = tmp_path / "c.yaml"
+    import yaml as _y
+    p.write_text(_y.safe_dump(cfg))
+    run_study(p, out_dir=tmp_path / "out")
+    f, comps = read_totals(tmp_path / "out" / "single_elements" / "total.csv")
+
+    import pytlwall
+    L0 = pytlwall.Layer(layer_type="CW", thick_m=5e-7, sigmaDC=1e6)
+    Lb = pytlwall.Layer(layer_type="CW", thick_m=np.inf, sigmaDC=1e9, boundary=True)
+    ch = pytlwall.Chamber(pipe_len_m=1.0, pipe_rad_m=0.0184, chamber_shape="CIRCULAR",
+                          betax=1.0, betay=1.0, layers=[L0, Lb])
+    ref = pytlwall.TlWall(chamber=ch, beam=pytlwall.Beam(gammarel=10000.0),
+                          frequencies=pytlwall.Frequencies(freq_list=list(f))
+                          ).get_all_impedances()["ZLong"]
+    assert np.allclose(comps["ZLong"], ref, rtol=1e-9)

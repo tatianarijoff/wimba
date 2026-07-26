@@ -303,6 +303,8 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&Component")
         self._act(m, "Use Selected Element as Component", self._comp_use_selected)
         self._act(m, "New Component\u2026", self._comp_new)
+        self._act(m, "Load pytlwall Config\u2026", self._comp_load_pytlwall_cfg)
+        self._act(m, "Load IW2D Config\u2026", self._comp_load_iw2d_cfg)
         m.addSeparator()
         self._act(m, "Calculate with pytlwall", lambda: self._comp_calc("pytlwall"))
         self._act(m, "Calculate with IW2D", lambda: self._comp_calc("IW2D"))
@@ -618,6 +620,40 @@ class MainWindow(QMainWindow):
         self.log.info("Component bench: new component '%s' (edit geometry/layers, "
                       "then Calculate).", name)
 
+    def _comp_load_pytlwall_cfg(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load pytlwall chamber config",
+                                              "", "pytlwall config (*.cfg);;All files (*)")
+        if not path:
+            return
+        from ..io.pytlwall_cfg import read_chamber_cfg
+        from .model import GElement, default_models
+        try:
+            data = read_chamber_cfg(path)
+        except Exception as exc:
+            self.log.error("Could not read %s: %s", path, exc)
+            QMessageBox.critical(self, "Load pytlwall Config", str(exc))
+            return
+        geo = data["geometry"]
+        layers = geo.pop("layers", [])
+        name = geo.pop("name", None) or Path(path).stem
+        el = GElement(name=name, category="component", geometry=geo,
+                      optics={"bx": data["betax"], "by": data["betay"],
+                              "l": data["length"]},
+                      layers=layers, models=default_models("pytlwall"))
+        self.component = el
+        self._component_base = {k: v for k, v in (("gamma", data["gamma"]),
+                                                  ("grid", data["grid"])) if v}
+        self._open_element(el)
+        self.log.info("Component '%s' loaded from pytlwall config %s "
+                      "(gamma/grid inherited from the cfg where given).", name, path)
+
+    def _comp_load_iw2d_cfg(self):
+        QMessageBox.information(
+            self, "Load IW2D Config",
+            "Reading IW2D inputs is planned, but I will not guess the format: "
+            "send a sample IW2D input file and the loader will be calibrated on "
+            "it (as done for the CST exports).")
+
     def _comp_require(self):
         if getattr(self, "component", None) is None:
             self.statusBar().showMessage(
@@ -640,7 +676,9 @@ class MainWindow(QMainWindow):
         from ..naming import safe
         from .model import component_config
         try:
-            cfg = component_config(el, method, base_cfg=self._base_cfg(),
+            base = dict(self._base_cfg())
+            base.update(getattr(self, "_component_base", {}) or {})
+            cfg = component_config(el, method, base_cfg=base,
                                    data_file=data_file, data_component=data_component)
         except ValueError as exc:
             self.log.error("Component bench: %s", exc)

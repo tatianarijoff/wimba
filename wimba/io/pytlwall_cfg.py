@@ -60,3 +60,71 @@ def write_chamber_cfg(path, geometry, gamma=7000.0, length_m=1.0) -> Path:
     lines += ["[beam_info]", f"gammarel = {gamma}", ""]
     path.write_text("\n".join(lines))
     return path
+
+
+def read_chamber_cfg(path) -> dict:
+    """Read a pytlwall chamber .cfg (the format of pytlwall's own examples,
+    e.g. ex_CW) into WIMBA terms: geometry (with the boundary as last layer),
+    betas, length, gamma and the frequency grid.
+
+    frequency_info uses exponents: fmin/fmax are powers of ten, fstep the
+    points-per-decade exponent (fstep=2 -> 100 points per decade).
+    """
+    import configparser
+
+    parser = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+    if not parser.read(Path(path)):
+        raise FileNotFoundError(f"pytlwall config not found: {path}")
+
+    base = parser["base_info"] if parser.has_section("base_info") else {}
+    geometry = {
+        "name": base.get("component_name"),
+        "shape": base.get("chamber_shape", "CIRCULAR").upper(),
+        "radius": float(base["pipe_radius_m"]) if "pipe_radius_m" in base else None,
+        "hor": float(base["pipe_hor_m"]) if "pipe_hor_m" in base else None,
+        "ver": float(base["pipe_ver_m"]) if "pipe_ver_m" in base else None,
+    }
+    if geometry["radius"] is None:
+        geometry["radius"] = geometry["ver"] or geometry["hor"]
+
+    def _layer(sec, boundary=False):
+        lay = {"type": sec.get("type", "CW"), "boundary": boundary}
+        thick = sec.get("thick_m")
+        if thick is not None:
+            lay["thickness"] = thick if str(thick).lower() == "inf" else float(thick)
+        elif boundary:
+            lay["thickness"] = "inf"
+        for k, dst in (("sigmadc", "sigma"), ("muinf_hz", "muinf_Hz"),
+                       ("k_hz", "k_Hz"), ("epsr", "epsr"), ("tau", "tau"),
+                       ("rq", "RQ")):
+            if k in sec:
+                v = sec[k]
+                lay[dst] = v if str(v).lower() == "inf" else float(v)
+        return lay
+
+    layers = []
+    n = int(parser["layers_info"].get("nbr_layers", 0))         if parser.has_section("layers_info") else 0
+    for i in range(n):
+        layers.append(_layer(parser[f"layer{i}"]))
+    if parser.has_section("boundary"):
+        layers.append(_layer(parser["boundary"], boundary=True))
+    geometry["layers"] = layers
+
+    out = {"geometry": geometry,
+           "betax": float(base.get("betax", 1.0)),
+           "betay": float(base.get("betay", 1.0)),
+           "length": float(base.get("pipe_len_m", 1.0)),
+           "gamma": None, "grid": None}
+    if parser.has_section("beam_info"):
+        b = parser["beam_info"]
+        if "gammarel" in b:
+            out["gamma"] = float(b["gammarel"])
+    if parser.has_section("frequency_info"):
+        f = parser["frequency_info"]
+        if "fmin" in f and "fmax" in f:
+            fmin, fmax = float(f["fmin"]), float(f["fmax"])
+            fstep = float(f.get("fstep", 2))
+            n_pts = int(round((fmax - fmin) * (10 ** fstep))) + 1
+            out["grid"] = {"frequency": {"min": 10.0 ** fmin, "max": 10.0 ** fmax,
+                                         "n": n_pts, "log": True}}
+    return out
