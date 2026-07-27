@@ -82,3 +82,24 @@ def test_default_pipe_from_json_and_cfg_dump(tmp_path):
     assert parser["base_info"]["chamber_shape"] == "ELLIPTICAL"
     assert parser["layers_info"]["nbr_layers"] == "2"
     assert parser.has_section("boundary")
+
+
+def test_sigma_none_treated_as_missing(tmp_path):
+    """A layer whose sigma was cleared in the GUI (key present, value None)
+    resolves from the material, or fails with the clear materials error."""
+    import yaml
+    (tmp_path / "m.tfs").write_text(TFS)
+    cfg = {"name": "N", "optics": "m.tfs",
+           "devices": {"a": {"source": "chamber", "name": "A", "method": "pytlwall",
+                             "radius_m": 0.01, "position": 5.0,
+                             "layers": [{"material": "copper", "thickness": 0.002,
+                                         "sigma": None}]}}}
+    (tmp_path / "c.yaml").write_text(yaml.safe_dump(cfg))
+    res = load_assembly(tmp_path / "c.yaml")
+    lay = next(r for r in res.rows if r.name == "A").geometry["layers"][0]
+    assert lay["sigma"] is not None                       # resolved from copper
+
+    cfg["devices"]["a"]["layers"] = [{"thickness": 0.002, "sigma": None}]
+    (tmp_path / "c2.yaml").write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError, match="materials"):
+        load_assembly(tmp_path / "c2.yaml")

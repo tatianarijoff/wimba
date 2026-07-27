@@ -156,3 +156,36 @@ def test_load_pytlwall_cfg_roundtrip(tmp_path):
                           frequencies=pytlwall.Frequencies(freq_list=list(f))
                           ).get_all_impedances()["ZLong"]
     assert np.allclose(comps["ZLong"], ref, rtol=1e-9)
+
+
+def test_pec_boundary_cfg(tmp_path):
+    """Her one_layer.cfg (real file): ELLIPTICAL, sigma present, PEC boundary.
+    The PEC boundary must not trigger the unknown-material error."""
+    pytest.importorskip("pytlwall")
+    import shutil
+
+    from wimba.gui.model import GElement, component_config, default_models
+    from wimba.io.pytlwall_cfg import read_chamber_cfg
+    from wimba.run import run as run_study
+    cwd = __import__("os").getcwd()
+    cfg_path = tmp_path / "one_layer.cfg"
+    shutil.copy(f"{cwd}/{DATA}/one_layer.cfg", cfg_path)
+
+    data = read_chamber_cfg(cfg_path)
+    geo = data["geometry"]
+    assert geo["shape"] == "ELLIPTICAL" and geo["hor"] == 0.02 and geo["ver"] == 0.01
+    assert geo["layers"][0]["sigma"] == 5.8e7            # her sigma, intact
+    assert geo["layers"][-1]["type"] == "PEC" and geo["layers"][-1]["boundary"]
+
+    layers = geo.pop("layers"); geo.pop("name")
+    el = GElement(name="mytest", geometry=geo,
+                  optics={"bx": data["betax"], "by": data["betay"], "l": data["length"]},
+                  layers=layers, models=default_models("pytlwall"))
+    cfg = component_config(el, "pytlwall",
+                           base_cfg={"gamma": data["gamma"],
+                                     "grid": {"frequency": {"min": 1e6, "max": 1e9,
+                                                            "n": 6, "log": True}}})
+    import yaml as _y
+    p = tmp_path / "c.yaml"; p.write_text(_y.safe_dump(cfg))
+    info = run_study(p, out_dir=tmp_path / "out")     # no unknown-material error
+    assert info["stats"]["computed"] == 1

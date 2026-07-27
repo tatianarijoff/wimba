@@ -308,18 +308,43 @@ class ElementPanel(QWidget):
         self.cmp_table.setCellWidget(r, 0, comp)
         meth = QComboBox(); meth.addItems(METHODS); meth.setCurrentText(entry.method)
         self.cmp_table.setCellWidget(r, 1, meth)
+        cell = QWidget(); cl = QHBoxLayout(cell); cl.setContentsMargins(0, 0, 0, 0)
         fed = QLineEdit(entry.file)
         fed.setEnabled(method_needs_file(entry.method))
-        fed.setPlaceholderText("path to .dat" if method_needs_file(entry.method) else "\u2014")
+        fed.setPlaceholderText("path to .dat / .yaml map"
+                               if method_needs_file(entry.method) else "\u2014")
         fed.textChanged.connect(lambda v, e=entry: setattr(e, "file", v))
-        self.cmp_table.setCellWidget(r, 2, fed)
+        browse = QPushButton("\u2026"); browse.setMaximumWidth(28)
+        browse.setEnabled(method_needs_file(entry.method))
+        browse.clicked.connect(lambda _=False, e=entry, f=fed: self._cmp_browse(e, f))
+        cl.addWidget(fed, 1); cl.addWidget(browse)
+        self.cmp_table.setCellWidget(r, 2, cell)
 
-        def _meth_changed(v, e=entry, f=fed):
+        def _meth_changed(v, e=entry, f=fed, b=browse):
             e.method = v
             f.setEnabled(method_needs_file(v))
-            f.setPlaceholderText("path to .dat" if method_needs_file(v) else "\u2014")
+            b.setEnabled(method_needs_file(v))
+            f.setPlaceholderText("path to .dat / .yaml map"
+                                 if method_needs_file(v) else "\u2014")
             self.on_change()
         meth.currentTextChanged.connect(_meth_changed)
+
+    def _cmp_browse(self, entry, fed):
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Precalculated data", "",
+            "Data or import map (*.dat *.txt *.csv *.yaml *.yml);;All files (*)")
+        if not path:
+            return
+        if not path.lower().endswith((".yaml", ".yml")):
+            from .import_dialog import ImportMapDialog
+            dlg = ImportMapDialog(path, self)
+            if not (dlg.exec() and dlg.map_path):
+                return
+            path = str(dlg.map_path)
+        entry.file = path
+        fed.setText(path)
+        self.on_change()
 
     def _cmp_add(self):
         entry = GModel(q="ZLong", enabled=True, method="precalculated")

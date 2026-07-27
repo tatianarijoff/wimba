@@ -31,8 +31,8 @@ def _one_layer(pytlwall, lay, boundary=False):
     sigma = lay.get("sigma", lay.get("sigmaDC"))
     if sigma is not None:
         sigma = float(sigma)
-    elif ltype.upper() == "V":
-        sigma = 1.0e6                    # vacuum: value irrelevant to pytlwall
+    elif ltype.upper() in ("V", "PEC", "PMC"):
+        sigma = 1.0e6                    # vacuum / perfect conductors: value unused
     else:
         sigma = _sigma(lay.get("material"))
     k = lay.get("k_Hz", lay.get("k", np.inf))

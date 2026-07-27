@@ -235,9 +235,9 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     def _resolve_layers(layers, owner):
         unknown = []
         for lay in (layers or []):
-            if str(lay.get("type", "")).upper() == "V":
-                continue                       # vacuum: no conductivity needed
-            if "sigma" not in lay and "sigmaDC" not in lay:
+            if str(lay.get("type", "")).upper() in ("V", "PEC", "PMC"):
+                continue          # vacuum / perfect conductors: no sigma needed
+            if lay.get("sigma") is None and lay.get("sigmaDC") is None:
                 mat = lay.get("material")
                 key = str(mat).lower() if mat is not None else None
                 if key in mat_table:

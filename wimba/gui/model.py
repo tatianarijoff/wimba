@@ -262,7 +262,8 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
         "beta_x": float(el.optics.get("bx") or 1.0),
         "beta_y": float(el.optics.get("by") or 1.0),
         "weighted": method_weighted(model.method) if model else False,
-        "layers": [dict(lay) for lay in el.layers],
+        "layers": [{k: v for k, v in lay.items() if v not in (None, "")}
+                   for lay in el.layers],
     }
     for axis in ("hor", "ver"):
         if geo.get(axis) is not None:
@@ -340,7 +341,8 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
                 "beta_x": float(el.optics.get("bx") or 1.0),
                 "beta_y": float(el.optics.get("by") or 1.0),
                 "weighted": method_weighted(method),
-                "layers": [dict(lay) for lay in el.layers]}
+                "layers": [{k: v for k, v in lay.items() if v not in (None, "")}
+                           for lay in el.layers]}
         for axis in ("hor", "ver"):
             if geo.get(axis) is not None:
                 spec[f"{axis}_m"] = float(geo[axis])
