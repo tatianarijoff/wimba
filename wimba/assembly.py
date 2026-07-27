@@ -250,7 +250,8 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     devices = []
     for gname, spec in (cfg.get("devices") or {}).items():
         src = spec.get("source")
-        method = spec.get("method", "pytlwall")
+        from .config import default_method as _dm
+        method = str(spec.get("method", _dm())).lower()
         weighted = bool(spec.get("weighted", False))
         sc = bool(spec.get("space_charge", method == "pytlwall"))
         overlap = bool(spec.get("allow_overlap", False))
@@ -316,7 +317,8 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
                         "shape": dp_spec.get("shape", "CIRCULAR"),
                         "hor": _half_axis(dp_spec, "hor"), "ver": _half_axis(dp_spec, "ver")}
         unknown_materials += _resolve_layers(geometry.get("layers"), "default_pipe")
-        dp_method = dp_spec.get("method", "pytlwall")
+        from .config import default_method as _dm
+        dp_method = str(dp_spec.get("method", _dm())).lower()
         default_pipe = DefaultPipe(method=dp_method,
                                    space_charge=bool(dp_spec.get("space_charge",
                                                                  dp_method == "pytlwall")),

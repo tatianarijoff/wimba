@@ -103,3 +103,25 @@ def test_sigma_none_treated_as_missing(tmp_path):
     (tmp_path / "c2.yaml").write_text(yaml.safe_dump(cfg))
     with pytest.raises(ValueError, match="materials"):
         load_assembly(tmp_path / "c2.yaml")
+
+
+def test_configurable_default_method(tmp_path, monkeypatch):
+    """default_method in the WIMBA config drives new elements and devices
+    without an explicit method (for the IW2D-minded)."""
+    import yaml
+    cfgfile = tmp_path / "wimba.yaml"
+    cfgfile.write_text(yaml.safe_dump({"default_method": "IW2D"}))
+    monkeypatch.setenv("WIMBA_CONFIG", str(cfgfile))
+
+    from wimba.config import default_method
+    assert default_method() == "IW2D"
+    from wimba.gui.model import default_models
+    assert default_models()[0].method == "IW2D"
+
+    (tmp_path / "m.tfs").write_text(TFS)
+    (tmp_path / "c.yaml").write_text(
+        "name: D\noptics: m.tfs\ndevices:\n"
+        "  a: {source: chamber, name: A, radius_m: 0.01, position: 5.0,\n"
+        "      layers: [{sigma: 1.0e6, thickness: 0.002}]}\n")   # no method:
+    res = load_assembly(tmp_path / "c.yaml")
+    assert next(r for r in res.rows if r.name == "A").method == "iw2d"

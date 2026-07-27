@@ -91,7 +91,10 @@ class GMachine:
             yield None, e
 
 
-def default_models(method="resonator"):
+def default_models(method=None):
+    if method is None:
+        from ..config import default_method
+        method = default_method()
     # impedance quantities only: the wake has its own explicit Calculate actions
     return [GModel(q=q, enabled=(q == "zlong"), method=method)
             for q, _, _ in QUANTITIES if q != "wake"]

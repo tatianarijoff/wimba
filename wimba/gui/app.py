@@ -612,7 +612,7 @@ class MainWindow(QMainWindow):
             return
         from .model import default_models, new_element
         el = new_element(name)
-        el.models = default_models("pytlwall")
+        el.models = default_models()
         el.layers = [{"type": "CW", "thickness": 0.002, "sigma": 1.4e6}]
         el.geometry = {"radius": 0.02, "shape": "CIRCULAR"}
         self.component = el

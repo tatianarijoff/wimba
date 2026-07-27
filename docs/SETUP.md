@@ -63,3 +63,19 @@ Highest priority first:
   or use a checkout with `--pytlwall-path`.
 - **IW2D** — compiled separately (C++); point `wimba setup` at the resulting
   binary. See the IW2D project for build instructions.
+
+## Default compute method
+
+New GUI elements and config devices without an explicit `method:` use the
+configured default (pytlwall if unset). To change it, add to the WIMBA config
+file (`~/.config/wimba/config.yaml`, or `$WIMBA_CONFIG`):
+
+```yaml
+default_method: IW2D        # pytlwall | IW2D (case-insensitive)
+```
+
+The analytic resonator is not offered as a wall default: it models known
+resonant modes (Rs, Q, fr), it does not compute a chamber wall from geometry -
+a resonator default on a chamber element would silently compute the wrong
+physics. When the chosen engine is not installed, WIMBA stops with a clear
+error telling you how to install it.

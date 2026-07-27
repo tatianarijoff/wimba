@@ -114,3 +114,11 @@ def tool_status() -> dict:
         "iw2d_binary": str(iw2d_binary(required=False) or ""),
         "pytlwall_available": pytlwall_available(),
     }
+
+
+def default_method() -> str:
+    """The default compute method for new elements and unspecified devices.
+    User-editable in the WIMBA config file:  default_method: pytlwall | IW2D
+    (pytlwall if unset). Note: the analytic resonator is not a wall engine -
+    it models known resonant modes, so it is not offered as a wall default."""
+    return str(load_config().get("default_method", "pytlwall"))
