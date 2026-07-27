@@ -587,6 +587,8 @@ class MainWindow(QMainWindow):
 
     # ---- element panel ----
     def _open_element(self, el):
+        self.log.debug("Opening element panel for '%s' (category %s, %d layer(s)).",
+                       el.name, el.category, len(el.layers))
         key = id(el)
         if key in self._elem_tabs:
             self.center.setCurrentWidget(self._elem_tabs[key])
@@ -688,6 +690,7 @@ class MainWindow(QMainWindow):
         cfg_path = run_dir / f"{safe(cfg['name'])}.yaml"
         cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False))
         self.log.info("Component config emitted: %s", cfg_path)
+        self.log.debug("Emitted config:\n%s", cfg_path.read_text())
 
         con = self._dock_text("console")
         self.docks["console"].raise_()
@@ -763,6 +766,7 @@ class MainWindow(QMainWindow):
         con = self._dock_text("console")
         self.docks["console"].raise_()
         self.log.info("Single-element config emitted: %s", cfg_path)
+        self.log.debug("Emitted config:\n%s", cfg_path.read_text())
         self._job_label = el.name
         self._job_item = QListWidgetItem(f"{self._job_label} \u2014 running\u2026")
         self._dock_list("jobs").addItem(self._job_item)

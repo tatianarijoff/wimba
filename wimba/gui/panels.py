@@ -111,7 +111,6 @@ class ElementPanel(QWidget):
         tabs.addTab(self._geometry_tab(), "Geometry")
         tabs.addTab(self._layers_tab(), "Layers")
         tabs.addTab(self._models_tab(), "Models")
-        tabs.addTab(self._outputs_tab(), "Outputs")
         outer.addWidget(tabs)
 
         foot = QWidget()

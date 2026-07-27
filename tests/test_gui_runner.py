@@ -31,6 +31,11 @@ def test_mainwindow_instantiates():
         "import wimba.gui.app as A\n"
         "app = QApplication([])\n"
         "w = A.MainWindow()\n"
+        "from wimba.gui.model import GElement, default_models\n"
+        "el = GElement(name='T', geometry={'radius': 0.02},\n"
+        "              layers=[{'type': 'CW', 'thickness': 0.002, 'sigma': 1e6}],\n"
+        "              models=default_models('pytlwall'))\n"
+        "w._open_element(el)\n"
         "print('OK')\n"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True,
