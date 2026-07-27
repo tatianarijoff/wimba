@@ -47,6 +47,18 @@ class ResultsModel:
                 comps[f"{base}+ISC"] = comps[base] + comps[isc]
         return x, comps
 
+    def adopt_total_wake(self, target_name: str) -> None:
+        """Single-element/bench runs: the run's total IS the element, and the
+        wake lives only there - move it onto the element's source, then drop
+        the misleading 'Total'."""
+        tot = self.sources.get("Total") or {}
+        if "wake" in tot:
+            for key, kinds in self.sources.items():
+                if key != "Total" and key.split("/", 1)[-1] == target_name:
+                    kinds["wake"] = tot["wake"]
+                    break
+        self.sources.pop("Total", None)
+
     def merge(self, out_dir) -> "ResultsModel":
         """Load WITHOUT clearing: new sources are added, same-name replaced.
         Used by the Component bench, where runs accumulate for comparison."""

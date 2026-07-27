@@ -359,12 +359,7 @@ class ElementPanel(QWidget):
             del self.el.compare[r]
             self.on_change()
 
-    def _outputs_tab(self):
-        return placeholder("\u25d4", "Nothing computed yet",
-                           "Run Calculate to produce results, or point a quantity at a file in Models.")
 
-
-# ================================================================ optics panel
 class OpticsPanel(QWidget):
     def __init__(self, machine: GMachine, on_change, on_load):
         super().__init__()

@@ -897,13 +897,13 @@ class MainWindow(QMainWindow):
                                    f"({st['computed']} computed)")
         if getattr(self, "_run_kind", "machine") == "component":
             self.results_model.merge(info["out"])
-            self.results_model.sources.pop("Total", None)   # bench shows sources only
+            self.results_model.adopt_total_wake(getattr(self, "_job_label", ""))
         else:
             self.results_model.load(info["out"])
         if getattr(self, "_run_kind", "machine") == "element" and \
                 len(self.results_model.sources) > 1:
-            # single-element study: show the element and its compares, not a "Total"
-            self.results_model.sources.pop("Total", None)
+            # single-element study: the element (with its wake) and its compares
+            self.results_model.adopt_total_wake(getattr(self, "_job_label", ""))
         self.results_tree.set_model(self.results_model)
         self.docks["results"].raise_()
         prob = self._dock_text("problems"); prob.clear()

@@ -46,3 +46,20 @@ def test_model_derives_wall_plus_isc(tmp_path):
     assert "ZLong+ISC" in comps                       # wall + ISC derived
     assert np.allclose(comps["ZLong+ISC"], 1 / f + 4j / f)
     assert "ZDipX+ISC" not in comps                   # no ISC -> no derived sum
+
+
+def test_adopt_total_wake(tmp_path):
+    """Bench/element runs: the total's wake moves onto the element source and
+    'Total' disappears (the total IS the element there)."""
+    f = np.logspace(6, 9, 8)
+    t = np.linspace(1e-12, 5e-9, 6)
+    write_totals(tmp_path, f, {"ZLong": 1 / f + 0j})
+    write_wake_totals(tmp_path, t, {"WLong": np.exp(-t / 1e-9)})
+    write_single_element(tmp_path, "bench", "COMP[pytlwall]", f, {"ZLong": 1 / f + 0j})
+
+    m = ResultsModel().load(tmp_path)
+    m.adopt_total_wake("COMP[pytlwall]")
+    assert "Total" not in m.sources
+    assert "wake" in m.sources["bench/COMP[pytlwall]"]
+    _x, w = m.sources["bench/COMP[pytlwall]"]["wake"]
+    assert "WLong" in w
