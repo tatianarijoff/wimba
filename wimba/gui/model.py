@@ -7,6 +7,7 @@ back into providers when calculating.
 """
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -57,6 +58,9 @@ class GModel:
     params: dict = field(default_factory=dict)
 
 
+_UID = itertools.count(1)
+
+
 @dataclass
 class GElement:
     name: str
@@ -68,6 +72,10 @@ class GElement:
     compare: list = field(default_factory=list)    # list[GModel]: additional
                                                    # calculations, q = component
                                                    # (ZLong, ...), for comparison
+    uid: int = field(default_factory=lambda: next(_UID))
+    # session-unique identity: the NAME is the human descriptor (files, optics,
+    # results stay name-based by design); the uid is what the GUI uses to tell
+    # elements apart, so renames and duplicate names cannot confuse identity
 
 
 @dataclass
