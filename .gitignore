@@ -44,3 +44,4 @@ todo.md
 
 # large MAD-X twiss data (keep out of the repo)
 examples/LHC/data/*.tfs
+examples/CST_KickerFCC/
