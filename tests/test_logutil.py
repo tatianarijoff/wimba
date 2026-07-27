@@ -46,10 +46,14 @@ def test_from_config_populates_machine(tmp_path):
     gm = from_config(str(tmp_path / "c.yaml"))
     assert gm.name == "Mini"
     names = {g.name for g in gm.groups}
-    assert "collimators" in names and "default resistive wall" in names
+    assert "collimators" in names
+    assert any(n.startswith("default resistive wall") for n in names)
     c1 = gm.groups[0].elements[0]
     assert c1.name == "C1" and c1.optics["bx"] == 130.0 and c1.optics["s"] == 100.0
-    pipe = next(g for g in gm.groups if g.name == "default resistive wall").elements[0]
+    grp = next(g for g in gm.groups if g.name.startswith("default resistive wall"))
+    assert "\u00d7" in grp.name                          # multiplicity lives on the group
+    pipe = grp.elements[0]
+    assert "(" not in pipe.name                          # element name stays clean
     assert pipe.geometry.get("radius") == 0.022          # the pipe shows its geometry
     assert pipe.layers and "sigma" in pipe.layers[0]     # ... and its wall build-up
 

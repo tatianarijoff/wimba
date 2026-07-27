@@ -213,11 +213,12 @@ def from_config(path) -> GMachine:
         geo = dict(pipe_geo or {})
         layers = list(geo.pop("layers", None) or [])
         pipe_name = geo.pop("name", None) or "default pipe"
-        note = GElement(name=f"{pipe_name}  (\u00d7{pipe_count} lattice segments)",
+        note = GElement(name=pipe_name,
                         category="default_pipe", geometry=geo,
                         optics={"pre": True}, layers=layers,
                         models=default_models(pipe_method))
-        gm.groups.append(GGroup("default resistive wall", [note]))
+        gm.groups.append(GGroup(
+            f"default resistive wall  (\u00d7{pipe_count} lattice segments)", [note]))
     return gm
 
 

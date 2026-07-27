@@ -51,12 +51,17 @@ class ResultsModel:
         """Single-element/bench runs: the run's total IS the element, and the
         wake lives only there - move it onto the element's source, then drop
         the misleading 'Total'."""
+        import logging
         tot = self.sources.get("Total") or {}
         if "wake" in tot:
             for key, kinds in self.sources.items():
                 if key != "Total" and key.split("/", 1)[-1] == target_name:
                     kinds["wake"] = tot["wake"]
                     break
+            else:
+                logging.getLogger("wimba.gui").debug(
+                    "adopt_total_wake: no source matches '%s' (sources: %s)",
+                    target_name, sorted(self.sources))
         self.sources.pop("Total", None)
 
     def merge(self, out_dir) -> "ResultsModel":
