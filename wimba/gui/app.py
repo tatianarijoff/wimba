@@ -141,6 +141,7 @@ class MainWindow(QMainWindow):
         self.console_view = QPlainTextEdit()
         self.console_view.setReadOnly(True)
         logging.getLogger("wimba").addHandler(QtLogHandler(self.console_view))
+        configure(self.settings.value("loglevel", "info"))
 
         self._build_central()
         self._build_docks()
@@ -154,7 +155,9 @@ class MainWindow(QMainWindow):
         self._default_geometry = self.saveGeometry()
         self._restore_layout()
         self._install_excepthook()
-        self.log.info("WIMBA GUI ready.")
+        from ..logutil import attach_file_handler
+        logpath = attach_file_handler()
+        self.log.info("WIMBA GUI ready. Log file: %s (always at debug level).", logpath)
 
     # ---- central editor area: Plot Workspace + Results Table (+ element tabs) ----
     def _build_central(self):
@@ -589,7 +592,7 @@ class MainWindow(QMainWindow):
     def _open_element(self, el):
         self.log.debug("Opening element panel for '%s' (category %s, %d layer(s)).",
                        el.name, el.category, len(el.layers))
-        key = id(el)
+        key = getattr(el, "uid", None) or id(el)
         if key in self._elem_tabs:
             self.center.setCurrentWidget(self._elem_tabs[key])
             return
@@ -899,6 +902,8 @@ class MainWindow(QMainWindow):
         if self._job_item:
             self._job_item.setText(f"{getattr(self, '_job_label', 'job')} \u2014 done "
                                    f"({st['computed']} computed)")
+            self.log.info("Run finished: %s computed, %s skipped \u2192 %s",
+                          st["computed"], st.get("skipped", 0), info["out"])
         if getattr(self, "_run_kind", "machine") == "component":
             self.results_model.merge(info["out"])
             self.results_model.adopt_total_wake(getattr(self, "_job_label", ""))

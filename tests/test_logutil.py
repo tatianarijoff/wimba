@@ -14,7 +14,11 @@ def test_levels_and_logger_names():
 
 def test_configure_and_set_level():
     configure("warning")
-    assert logging.getLogger("wimba").level == logging.WARNING
+    import logging.handlers
+    root = logging.getLogger("wimba")
+    assert root.level == logging.DEBUG          # root open: handlers filter
+    assert all(h.level == logging.WARNING for h in root.handlers
+               if not isinstance(h, logging.handlers.RotatingFileHandler))
     set_level("debug")
     assert logging.getLogger("wimba").level == logging.DEBUG
 
@@ -191,3 +195,28 @@ def test_component_bench_accumulates(tmp_path):
 
     cfg3 = component_config(el, "IW2D", base_cfg=grid)
     assert cfg3["devices"]["bench"]["method"] == "iw2d"   # plumbing ready for the binary
+
+
+def test_file_logging(tmp_path, monkeypatch):
+    """The rotating file log captures DEBUG regardless of console level."""
+    import logging
+
+    from wimba.logutil import attach_file_handler, log_file_path
+    monkeypatch.setenv("WIMBA_LOG_DIR", str(tmp_path))
+    path = attach_file_handler()
+    assert path == log_file_path()
+    logging.getLogger("wimba.gui").debug("post-mortem line")
+    for h in logging.getLogger("wimba").handlers:
+        h.flush()
+    assert "post-mortem line" in path.read_text()
+
+
+def test_element_uids_are_session_unique():
+    """Elements carry a session uid: names are descriptors, identity is the
+    uid (homonyms and renames cannot confuse the GUI)."""
+    from wimba.gui.model import GElement, from_config
+    a, b = GElement(name="X"), GElement(name="X")
+    assert a.uid != b.uid
+    gm = from_config("examples/LHC/LHC_config.yaml")
+    uids = [el.uid for g in gm.groups for el in g.elements]
+    assert len(uids) == len(set(uids))
