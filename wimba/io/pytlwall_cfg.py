@@ -79,7 +79,9 @@ def read_chamber_cfg(path) -> dict:
     base = parser["base_info"] if parser.has_section("base_info") else {}
     geometry = {
         "name": base.get("component_name"),
-        "shape": base.get("chamber_shape", "CIRCULAR").upper(),
+        "shape": {"ROUND": "CIRCULAR"}.get(
+            base.get("chamber_shape", "CIRCULAR").upper(),
+            base.get("chamber_shape", "CIRCULAR").upper()),   # old cfgs say ROUND
         "radius": float(base["pipe_radius_m"]) if "pipe_radius_m" in base else None,
         "hor": float(base["pipe_hor_m"]) if "pipe_hor_m" in base else None,
         "ver": float(base["pipe_ver_m"]) if "pipe_ver_m" in base else None,
