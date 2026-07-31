@@ -136,6 +136,11 @@ The four bundled examples are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md
 and each example folder has its own README (files provided, shell and GUI usage,
 outputs). For tool configuration see [docs/SETUP.md](docs/SETUP.md).
 
+If you bring in a pytlwall chamber `.cfg`, read
+**[docs/PYTLWALL_CFG.md](docs/PYTLWALL_CFG.md)** first: it says what WIMBA takes
+from the file, why the frequency grid is rebuilt rather than reused, and how to
+get a pure pytlwall result when you need one.
+
 The `examples/LHC` study needs a MAD-X optics table that is too large to track
 in the repository and is distributed separately; see
 **[docs/DATA.md](docs/DATA.md)**. Every other example is self-contained.

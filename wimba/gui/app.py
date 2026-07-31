@@ -629,6 +629,30 @@ class MainWindow(QMainWindow):
         self.log.info("Component bench: new component '%s' (edit geometry/layers, "
                       "then Calculate).", name)
 
+    def _log_run_settings(self, el, source=""):
+        """Say which gamma and frequency grid a calculation will use, and where
+        they come from. Silent inheritance from whatever config is open is the
+        easiest way to compare two runs that were never the same run."""
+        own = getattr(el, "own_base", None) or {}
+        opened = self._base_cfg()
+        gamma = own.get("gamma") or opened.get("gamma")
+        grid = (own.get("grid") or opened.get("grid") or {}).get("frequency") or {}
+        origin = "the element's own config" if own else (
+            f"the open config ({Path(self.config_path).name})" if self.config_path
+            else "built-in defaults")
+        bits = [f"gamma = {gamma}" if gamma is not None else "gamma = (default)"]
+        if grid:
+            bits.append(f"f = {grid.get('min'):g} .. {grid.get('max'):g} Hz, "
+                        f"{grid.get('n')} points")
+        else:
+            bits.append("f = (default grid)")
+        msg = f"{el.name}: " + ", ".join(bits) + f" -- from {origin}"
+        if source:
+            msg += f" [{source}]"
+        self.log.info(msg)
+        self.statusBar().showMessage(msg, 8000)
+        return msg
+
     def _comp_load_pytlwall_cfg(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load pytlwall chamber config",
                                               "", "pytlwall config (*.cfg);;All files (*)")
@@ -645,16 +669,20 @@ class MainWindow(QMainWindow):
         geo = data["geometry"]
         layers = geo.pop("layers", [])
         name = geo.pop("name", None) or Path(path).stem
+        own = {k: v for k, v in (("gamma", data["gamma"]),
+                                 ("grid", data["grid"])) if v}
         el = GElement(name=name, category="component", geometry=geo,
                       optics={"bx": data["betax"], "by": data["betay"],
                               "l": data["length"]},
-                      layers=layers, models=default_models("pytlwall"))
+                      layers=layers, models=default_models("pytlwall"),
+                      own_base=own)
         self.component = el
-        self._component_base = {k: v for k, v in (("gamma", data["gamma"]),
-                                                  ("grid", data["grid"])) if v}
+        # kept for compatibility; the element now carries its own settings, so
+        # they follow it through every calculation path and cannot go stale
+        self._component_base = own
         self._open_element(el)
-        self.log.info("Component '%s' loaded from pytlwall config %s "
-                      "(gamma/grid inherited from the cfg where given).", name, path)
+        self.log.info("Component '%s' loaded from pytlwall config %s", name, path)
+        self._log_run_settings(el, source=f"pytlwall config {Path(path).name}")
 
     def _comp_load_iw2d_cfg(self):
         QMessageBox.information(
@@ -686,7 +714,7 @@ class MainWindow(QMainWindow):
         from .model import component_config
         try:
             base = dict(self._base_cfg())
-            base.update(getattr(self, "_component_base", {}) or {})
+            self._log_run_settings(el)
             cfg = component_config(el, method, base_cfg=base,
                                    data_file=data_file, data_component=data_component)
         except ValueError as exc:
@@ -761,6 +789,7 @@ class MainWindow(QMainWindow):
         from ..naming import safe
         from .model import element_to_config
         try:
+            self._log_run_settings(el)
             cfg = element_to_config(el, base_cfg=self._base_cfg())
         except ValueError as exc:
             self.log.error("Cannot calculate '%s': %s", el.name, exc)

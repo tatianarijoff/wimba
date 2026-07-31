@@ -25,7 +25,10 @@ Two ways, from the **Component** menu:
   vacuum, PEC/PMC for perfect conductors — those need no sigma).
 - **Load pytlwall Config…** — if you already have a pytlwall chamber `.cfg`
   (the format of pytlwall's own examples), WIMBA reads it: geometry, layers,
-  boundary, beta, gamma and the frequency grid come from the file.
+  boundary, beta, gamma and the frequency grid come from the file. The grid is
+  rebuilt by WIMBA from `[frequency_info]`, so it covers the same range as
+  pytlwall's own but does not sample the same points; see
+  **[PYTLWALL_CFG.md](PYTLWALL_CFG.md)** before comparing the two codes.
 
 The **Models** tab shows how the component will be computed: one base method
 for the impedance (all components at once) and a Wakefield line that *declares*

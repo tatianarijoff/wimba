@@ -76,6 +76,12 @@ class GElement:
     # session-unique identity: the NAME is the human descriptor (files, optics,
     # results stay name-based by design); the uid is what the GUI uses to tell
     # elements apart, so renames and duplicate names cannot confuse identity
+    own_base: dict = field(default_factory=dict)
+    # gamma and frequency grid the element brought with it, e.g. from the
+    # [beam_info] and [frequency_info] sections of a pytlwall config. An element
+    # loaded from its own config does not belong to a machine, so these win over
+    # whatever config happens to be open in the GUI. Empty for elements that came
+    # from a machine, which correctly inherit the machine's settings.
 
 
 @dataclass
@@ -248,8 +254,10 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
     """Emit an assemble config that computes just this element.
 
     Grid, gamma and user materials are inherited from the config the machine was
-    opened from (base_cfg); geometry, layers and beta come from the element as
-    edited in the GUI. Only pytlwall elements are supported for now (resonator /
+    opened from (base_cfg), unless the element carries its own (``own_base``),
+    as one loaded from a pytlwall config does: such an element belongs to no
+    machine, so its own settings win. Geometry, layers and beta come from the
+    element as edited in the GUI. Only pytlwall elements are supported for now (resonator /
     precalculated single-element runs come with the full machine->config bridge).
     """
     model = next((m for m in el.models if m.enabled), None)
@@ -281,7 +289,10 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
         if geo.get(axis) is not None:
             spec[f"{axis}_m"] = float(geo[axis])
 
-    base_cfg = base_cfg or {}
+    # An element that carries its own gamma/grid belongs to no machine: its
+    # settings win over the config that happens to be open in the GUI.
+    base_cfg = dict(base_cfg or {})
+    base_cfg.update({k: v for k, v in (getattr(el, "own_base", None) or {}).items() if v})
     devices = {"single": spec}
     output = [name]
     for i, cmp_ in enumerate(getattr(el, "compare", []) or []):
@@ -361,7 +372,8 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
     else:
         raise ValueError(f"component bench: method '{method}' not supported.")
 
-    base_cfg = base_cfg or {}
+    base_cfg = dict(base_cfg or {})
+    base_cfg.update({k: v for k, v in (getattr(el, "own_base", None) or {}).items() if v})
     cfg = {"name": f"{name}_component",
            "grid": base_cfg.get("grid") or {
                "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},

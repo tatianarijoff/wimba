@@ -283,3 +283,73 @@ def test_resolve_data_path_error_lists_what_was_tried(tmp_path, monkeypatch):
     assert "data_dir:" in msg
     assert "docs/DATA.md" in msg
     assert str(tmp_path / "data" / "missing.tfs") in msg
+
+
+def test_element_own_grid_wins_over_open_machine_config():
+    """An element loaded from its own pytlwall config belongs to no machine, so
+    its gamma and frequency grid win over whatever config is open in the GUI --
+    in both the single-element and the Component bench paths."""
+    from wimba.gui.model import (GElement, component_config, default_models,
+                                 element_to_config)
+
+    machine = {"gamma": 7000.0,
+               "grid": {"frequency": {"min": 1e5, "max": 1e10, "n": 100, "log": True}}}
+    own = {"gamma": 1e5,
+           "grid": {"frequency": {"min": 1e2, "max": 1e10, "n": 8001, "log": True}}}
+    el = GElement(name="ferrite_kicker", geometry={"radius": 0.01},
+                  layers=[{"type": "CW", "thickness": 0.002, "sigma": 1e6}],
+                  models=default_models("pytlwall"), own_base=own)
+
+    for cfg in (element_to_config(el, base_cfg=machine),
+                component_config(el, "pytlwall", base_cfg=machine)):
+        assert cfg["gamma"] == 1e5
+        assert cfg["grid"]["frequency"]["min"] == 1e2
+        assert cfg["grid"]["frequency"]["n"] == 8001
+
+
+def test_element_without_own_config_inherits_the_machine():
+    """An element that came from a machine still inherits the machine's grid and
+    gamma: the override applies only to elements carrying their own config."""
+    from wimba.gui.model import (GElement, component_config, default_models,
+                                 element_to_config)
+    machine = {"gamma": 7000.0,
+               "grid": {"frequency": {"min": 1e5, "max": 1e10, "n": 100, "log": True}}}
+    el = GElement(name="pipe", geometry={"radius": 0.02},
+                  layers=[{"type": "CW", "thickness": 0.002, "sigma": 1e6}],
+                  models=default_models("pytlwall"))
+
+    for cfg in (element_to_config(el, base_cfg=machine),
+                component_config(el, "pytlwall", base_cfg=machine)):
+        assert cfg["gamma"] == 7000.0
+        assert cfg["grid"]["frequency"]["n"] == 100
+
+
+def test_pytlwall_cfg_grid_reaches_the_element(tmp_path):
+    """End to end: the [frequency_info] of a pytlwall config survives into the
+    config actually handed to the compute engine."""
+    from wimba.gui.model import GElement, default_models, element_to_config
+    from wimba.io.pytlwall_cfg import read_chamber_cfg
+
+    cfg_file = tmp_path / "kicker.cfg"
+    cfg_file.write_text(
+        "[base_info]\ncomponent_name = k\nchamber_shape = CIRCULAR\n"
+        "pipe_radius_m = 0.01\npipe_len_m = 1.0\nbetax = 1.0\nbetay = 1.0\n\n"
+        "[layers_info]\nnbr_layers = 1\n\n"
+        "[layer0]\ntype = CW\nthick_m = 0.002\nsigmaDC = 1e6\n\n"
+        "[boundary]\ntype = PEC\n\n"
+        "[beam_info]\ngammarel = 7000.0\n\n"
+        "[frequency_info]\nfmin = 2\nfmax = 10\nfstep = 3\n")
+
+    data = read_chamber_cfg(str(cfg_file))
+    geo = dict(data["geometry"]); layers = geo.pop("layers", []); geo.pop("name", None)
+    own = {k: v for k, v in (("gamma", data["gamma"]), ("grid", data["grid"])) if v}
+    el = GElement(name="k", geometry=geo, layers=layers,
+                  optics={"bx": data["betax"], "by": data["betay"], "l": data["length"]},
+                  models=default_models("pytlwall"), own_base=own)
+
+    out = element_to_config(el, base_cfg={"gamma": 1.0,
+                                          "grid": {"frequency": {"min": 1e5, "max": 1e10,
+                                                                 "n": 100, "log": True}}})
+    assert out["gamma"] == 7000.0
+    assert out["grid"]["frequency"]["min"] == 100.0
+    assert out["grid"]["frequency"]["max"] == 1e10
