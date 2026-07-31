@@ -225,7 +225,9 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     if cfg is None:
         cfg = yaml.safe_load(cfg_path.read_text()) or {}
 
-    twiss = madx.read_twiss(base / cfg["optics"]) if cfg.get("optics") else {}
+    from .config import resolve_data_path
+    twiss = (madx.read_twiss(resolve_data_path(cfg["optics"], base, what="optics table"))
+             if cfg.get("optics") else {})
 
     # user-defined materials (name -> sigma [S/m]) extend the built-in table
     from .sources.pytlwall_bridge import MATERIALS

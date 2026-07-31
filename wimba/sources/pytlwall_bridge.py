@@ -79,8 +79,8 @@ def compute_chamber(freqs, radius_m, layers=None, length_m=1.0,
         raise ImportError(
             "pytlwall is required for 'pytlwall' calculations but is not installed "
             "in this environment. Install it into your venv, e.g.\n"
-            "    pip install -e /path/to/TLWallNew\n"
-            "    pip install git+https://github.com/tatianarijoff/TLWallNew.git"
+            "    pip install -e <path to pytlwall>\n"
+            "    pip install git+https://github.com/tatianarijoff/pytlwall.git"
         ) from exc
 
     chamber = pytlwall.Chamber(pipe_len_m=float(length_m), pipe_rad_m=float(radius_m),
@@ -143,7 +143,7 @@ def chamber_wake(times, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.
     except ImportError as exc:
         raise ImportError(
             "pytlwall is required for 'pytlwall' wake calculations but is not "
-            "installed. Install it, e.g.  pip install -e /path/to/TLWallNew"
+            "installed. Install it, e.g.  pip install -e <path to pytlwall>"
         ) from exc
 
     chamber = pytlwall.Chamber(pipe_len_m=float(length_m), pipe_rad_m=float(radius_m),

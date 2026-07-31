@@ -15,7 +15,7 @@ WIMBA ships four examples, each self-contained in its own folder under
 Each example folder has its own README with the full detail (files
 provided, shell and GUI usage, default and optional outputs); this page is the
 overview. Most compute paths need **pytlwall** in the environment
-(`pip install -e /path/to/TLWallNew`); the resonator and tabulated-import paths do
+(`pip install -e <path to pytlwall>`); the resonator and tabulated-import paths do
 not.
 
 | Example | Flow | Needs pytlwall | What it is for |

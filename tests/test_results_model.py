@@ -1,9 +1,14 @@
 """ResultsModel: lists what a run computed (total, wake, per-device) and serves
 series for the plot/table workspace."""
 import numpy as np
+import pytest
 
-from wimba.output import write_single_element, write_totals, write_wake_totals
-from wimba.gui.results import ResultsModel, decode, encode
+# wimba.gui.results imports PyQt6 at module level: skip the whole module when
+# the gui extra is not installed, as the other GUI tests do.
+pytest.importorskip("PyQt6")
+
+from wimba.output import write_single_element, write_totals, write_wake_totals   # noqa: E402
+from wimba.gui.results import ResultsModel, decode, encode                       # noqa: E402
 
 
 def _fake_output(tmp_path):

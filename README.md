@@ -116,7 +116,7 @@ Most compute paths use **pytlwall**; install it into the same environment (it is
 not on PyPI):
 
 ```bash
-pip install -e /path/to/TLWallNew
+pip install -e <path to pytlwall>
 ```
 
 Try the single-chamber verification first (quick, and confirms the numbers):
@@ -135,6 +135,10 @@ wimba status
 The four bundled examples are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md)**,
 and each example folder has its own README (files provided, shell and GUI usage,
 outputs). For tool configuration see [docs/SETUP.md](docs/SETUP.md).
+
+The `examples/LHC` study needs a MAD-X optics table that is too large to track
+in the repository and is distributed separately; see
+**[docs/DATA.md](docs/DATA.md)**. Every other example is self-contained.
 
 ### Tests
 

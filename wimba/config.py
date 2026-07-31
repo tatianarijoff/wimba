@@ -9,6 +9,10 @@ Resolution precedence for each tool, highest first:
   3. the config file written by ``wimba setup``
   4. otherwise a clear error
 
+The same precedence applies to ``$WIMBA_DATA_DIR``, an optional directory
+searched for large data files (MAD-X optics tables) that are not tracked in the
+repository. See ``docs/DATA.md``.
+
 Config file location: ``$WIMBA_CONFIG`` if set, else
 ``$XDG_CONFIG_HOME/wimba/config.yaml``, else ``~/.config/wimba/config.yaml``.
 """
@@ -25,6 +29,10 @@ import yaml
 
 class ToolNotConfigured(RuntimeError):
     """Raised when a required external tool cannot be located."""
+
+
+class DataFileNotFound(FileNotFoundError):
+    """Raised when a data file referenced by a study config cannot be located."""
 
 
 def config_path() -> Path:
@@ -95,12 +103,79 @@ def pytlwall_available() -> bool:
     return importlib.util.find_spec("pytlwall") is not None
 
 
+def data_dir(explicit: Optional[str] = None) -> Optional[Path]:
+    """Optional directory searched for large data files (explicit > env > config).
+
+    Lets a site point WIMBA at optics tables it already has -- a shared group
+    folder, an ``acc-models`` checkout -- instead of copying them next to each
+    study config.
+    """
+    candidate = (explicit
+                 or os.environ.get("WIMBA_DATA_DIR")
+                 or _config_get("data", "dir"))
+    return Path(candidate).expanduser() if candidate else None
+
+
+def resolve_data_path(reference, base=None, *, what: str = "data file",
+                      explicit_dir: Optional[str] = None) -> Path:
+    """Locate a data file referenced from a study config.
+
+    Search order:
+      1. ``reference`` itself, when absolute
+      2. inside ``$WIMBA_DATA_DIR`` -- first as written, then by file name only
+      3. relative to ``base`` (normally the directory holding the config file)
+
+    Args:
+        reference: path as written in the config, e.g. ``data/twiss.tfs``.
+        base: directory the reference is relative to.
+        what: noun used in the error message, e.g. ``"optics table"``.
+        explicit_dir: overrides ``$WIMBA_DATA_DIR`` for this call.
+
+    Returns:
+        The first existing candidate, as a Path.
+
+    Raises:
+        DataFileNotFound: listing every location that was searched.
+    """
+    ref = Path(str(reference)).expanduser()
+    tried: list[Path] = []
+
+    if ref.is_absolute():
+        tried.append(ref)
+        if ref.is_file():
+            return ref
+    else:
+        root = data_dir(explicit_dir)
+        if root is not None:
+            for cand in (root / ref, root / ref.name):
+                if cand not in tried:
+                    tried.append(cand)
+                    if cand.is_file():
+                        return cand
+        if base is not None:
+            cand = Path(base) / ref
+            tried.append(cand)
+            if cand.is_file():
+                return cand
+        else:
+            tried.append(ref)
+            if ref.is_file():
+                return ref
+
+    where = "\n".join(f"    {t}" for t in tried)
+    hint = ("" if os.environ.get("WIMBA_DATA_DIR")
+            else "\nSet $WIMBA_DATA_DIR if the file is already available elsewhere.")
+    raise DataFileNotFound(
+        f"{what} '{reference}' was not found. Looked in:\n{where}\n"
+        f"Large data files are distributed separately; see docs/DATA.md.{hint}")
+
+
 def require_pytlwall():
     """Import and return pytlwall, or raise a clear error."""
     if not pytlwall_available():
         raise ToolNotConfigured(
             "pytlwall is not importable. Install it (e.g. "
-            "`pip install git+https://github.com/tatianarijoff/TLWallNew`) "
+            "`pip install git+https://github.com/tatianarijoff/pytlwall`) "
             "or point WIMBA_PYTLWALL_PATH / `wimba setup` at a checkout.")
     import pytlwall
     return pytlwall

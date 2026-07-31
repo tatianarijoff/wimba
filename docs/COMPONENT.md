@@ -8,7 +8,7 @@ no machine, no optics files, just your component and the engines.
 
 ```bash
 pip install -e ".[gui]"                 # WIMBA + PyQt6
-pip install -e /path/to/TLWallNew      # pytlwall (the wall engine)
+pip install -e <path to pytlwall>      # pytlwall (the wall engine)
 python -m wimba.gui                    # launch
 ```
 

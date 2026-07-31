@@ -29,9 +29,9 @@ Locates the tools and records where they are. It does **not** bundle or compile
 them. Run it once; edit the config by hand later if a path changes.
 
 - **IW2D** — an external binary. `setup` looks on your `PATH`, or asks for the
-  path. Non-interactive: `wimba setup --iw2d /path/to/IW2D`.
+  path. Non-interactive: `wimba setup --iw2d <path to IW2D>`.
 - **pytlwall** — a Python package. If it imports, nothing to do. For a local
-  checkout instead of a pip install: `wimba setup --pytlwall-path /path/to/TLWallNew`.
+  checkout instead of a pip install: `wimba setup --pytlwall-path <path to pytlwall>`.
 
 CI / scripts: add `--non-interactive` to never prompt.
 
@@ -43,9 +43,9 @@ Location: `$WIMBA_CONFIG`, else `$XDG_CONFIG_HOME/wimba/config.yaml`, else
 ```yaml
 tools:
   iw2d:
-    binary: /opt/iw2d/bin/IW2D
+    binary: <path to IW2D>
   pytlwall:
-    path: /home/me/CERN/TLWallNew   # only if not pip-installed
+    path: <path to pytlwall>        # only if not pip-installed
 ```
 
 ## How a tool is resolved
@@ -59,7 +59,7 @@ Highest priority first:
 
 ## Installing the engines
 
-- **pytlwall** — `pip install git+https://github.com/tatianarijoff/TLWallNew`,
+- **pytlwall** — `pip install git+https://github.com/tatianarijoff/pytlwall`,
   or use a checkout with `--pytlwall-path`.
 - **IW2D** — compiled separately (C++); point `wimba setup` at the resulting
   binary. See the IW2D project for build instructions.

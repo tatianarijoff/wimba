@@ -1,5 +1,11 @@
 # LHC Beam 1 — full-machine example
 
+> **Requires a separate download.** The optics table
+> `data/twiss_lhcb1_beta130cm.tfs` (5.4 MB) is not tracked in the
+> repository. See [docs/DATA.md](../../docs/DATA.md) for how to obtain it.
+> To try the pipeline without it, use `examples/SubLHC`, which is
+> self-contained.
+
 A realistic model of LHC Beam 1 assembled from the pywit LHC model data:
 optics-driven, with the default resistive wall (the arc beam screen) on every
 lattice segment that is not a named device.

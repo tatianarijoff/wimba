@@ -24,7 +24,7 @@ authors = [
 [project.optional-dependencies]
 dev = ["pytest", "xwakes"]
 examples = ["matplotlib"]
-gui = ["PyQt6", "pyqtgraph"]
+gui = ["PyQt6", "pyqtgraph", "matplotlib"]
 
 [project.scripts]
 wimba = "wimba.cli:main"

@@ -218,9 +218,50 @@ def test_file_logging(tmp_path, monkeypatch):
 def test_element_uids_are_session_unique():
     """Elements carry a session uid: names are descriptors, identity is the
     uid (homonyms and renames cannot confuse the GUI)."""
+    from pathlib import Path
     from wimba.gui.model import GElement, from_config
     a, b = GElement(name="X"), GElement(name="X")
     assert a.uid != b.uid
-    gm = from_config("examples/LHC/LHC_config.yaml")
+    # SubLHC is self-contained: its optics table is tracked in the repository,
+    # unlike the LHC example, whose twiss file is distributed separately
+    # (see docs/DATA.md). Resolved from this file so the test does not depend
+    # on the working directory.
+    cfg = Path(__file__).resolve().parents[1] / "examples/SubLHC/SubLHC_input.yaml"
+    gm = from_config(str(cfg))
     uids = [el.uid for g in gm.groups for el in g.elements]
     assert len(uids) == len(set(uids))
+
+
+def test_resolve_data_path_prefers_wimba_data_dir(tmp_path, monkeypatch):
+    """$WIMBA_DATA_DIR lets a site point WIMBA at optics it already has, by
+    full reference or by file name alone."""
+    from wimba.config import resolve_data_path, DataFileNotFound
+    store = tmp_path / "optics"
+    store.mkdir()
+    (store / "twiss.tfs").write_text("@ NAME %05s \"TWISS\"\n")
+
+    monkeypatch.setenv("WIMBA_DATA_DIR", str(store))
+    # the config says data/twiss.tfs; only the file name matches in the store
+    got = resolve_data_path("data/twiss.tfs", tmp_path / "nowhere")
+    assert got == store / "twiss.tfs"
+
+    # without the variable, the reference resolves against the config directory
+    monkeypatch.delenv("WIMBA_DATA_DIR")
+    cfgdir = tmp_path / "study"
+    (cfgdir / "data").mkdir(parents=True)
+    (cfgdir / "data" / "twiss.tfs").write_text("x")
+    assert resolve_data_path("data/twiss.tfs", cfgdir) == cfgdir / "data" / "twiss.tfs"
+
+
+def test_resolve_data_path_error_lists_what_was_tried(tmp_path, monkeypatch):
+    """A missing data file names every location searched and points at the
+    documentation, instead of a bare FileNotFoundError."""
+    from wimba.config import resolve_data_path, DataFileNotFound
+    monkeypatch.delenv("WIMBA_DATA_DIR", raising=False)
+    with pytest.raises(DataFileNotFound) as exc:
+        resolve_data_path("data/missing.tfs", tmp_path, what="optics table")
+    msg = str(exc.value)
+    assert "optics table" in msg
+    assert "docs/DATA.md" in msg
+    assert "WIMBA_DATA_DIR" in msg
+    assert str(tmp_path / "data" / "missing.tfs") in msg
