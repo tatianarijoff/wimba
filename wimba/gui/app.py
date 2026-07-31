@@ -260,7 +260,9 @@ class MainWindow(QMainWindow):
         self._act(m, "Save Project", self._todo, QKeySequence.StandardKey.Save)
         self._act(m, "Save Project As\u2026", self._todo, QKeySequence.StandardKey.SaveAs)
         m.addSeparator()
-        self._act(m, "Export Results\u2026", self._todo)
+        sub = m.addMenu("Export Results")
+        self._act(sub, "As CSV\u2026", lambda: self._export_results("csv"))
+        self._act(sub, "As TXT (tab-separated)\u2026", lambda: self._export_results("txt"))
         m.addSeparator()
         self._act(m, "Quit", self.close, QKeySequence.StandardKey.Quit)
 
@@ -337,9 +339,11 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("&Results")
         for label in ("Add Selection to Comparison", "Send Basket to Plot",
-                      "Send Basket to Table", "Export Results as CSV\u2026",
-                      "Clear Comparison Basket"):
+                      "Send Basket to Table", "Clear Comparison Basket"):
             self._act(m, label, self._todo)
+        sub = m.addMenu("Export Results")
+        self._act(sub, "As CSV\u2026", lambda: self._export_results("csv"))
+        self._act(sub, "As TXT (tab-separated)\u2026", lambda: self._export_results("txt"))
 
         m = mb.addMenu("&Help")
         self._act(m, "About WIMBA", self._about)
@@ -936,6 +940,46 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Calculation failed \u2014 see Console", 5000)
 
     # ---- placeholder for actions wired in later phases ----
+    def _export_results(self, fmt: str = "csv"):
+        """Write every computed series to a directory chosen by the user.
+
+        Args:
+            fmt: ``"csv"`` (comma) or ``"txt"`` (tab-separated, the layout
+                pytlwall writes, so the two codes compare column by column).
+
+        The dialog opens on the last directory used for an export, so a series
+        of exports lands together without retyping the path.
+        """
+        from .results import export_model, last_export_dir, remember_export_dir
+
+        model = getattr(self, "results_model", None)
+        if model is None or not getattr(model, "sources", None):
+            QMessageBox.information(self, "Export Results",
+                                    "Nothing has been computed yet.")
+            return
+
+        start = last_export_dir() or str(Path.home())
+        out = QFileDialog.getExistingDirectory(
+            self, f"Export results as {fmt.upper()} to folder", start)
+        if not out:
+            return
+
+        try:
+            written = export_model(model, out, fmt=fmt)
+        except OSError as exc:
+            self.log.error("Export Results failed: %s", exc)
+            QMessageBox.warning(self, "Export Results",
+                                f"Could not write to {out}:\n{exc}")
+            return
+
+        remember_export_dir(out)
+        self.log.info("Exported %d file(s) to %s", len(written), out)
+        self.statusBar().showMessage(
+            f"Exported {len(written)} file(s) to {out}", 4000)
+        if not written:
+            QMessageBox.information(self, "Export Results",
+                                    "Nothing to export: no series carried data.")
+
     def _todo(self):
         self.statusBar().showMessage("Not wired yet \u2014 coming in the next phase", 2500)
 

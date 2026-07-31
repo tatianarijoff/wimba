@@ -8,7 +8,11 @@
 
 name: LHCB1
 
-optics: data/twiss_lhcb1_beta130cm.tfs        # MAD-X twiss; beta by position, then name
+# Where to look for large data files not tracked in the repository.
+# One path or a list; absolute, or relative to this file. See docs/DATA.md.
+data_dir: ~/CERN/impedance/externalData/LHC_data/
+          
+optics: twiss_lhcb1_beta130cm.tfs        # MAD-X twiss; beta by position, then name
 
 grid:
   frequency: {min: 1.0e5, max: 1.0e10, n: 100, log: true}

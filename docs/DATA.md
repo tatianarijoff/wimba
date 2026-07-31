@@ -38,44 +38,64 @@ curl -LO https://github.com/tatianarijoff/wimba/releases/download/<TAG>/twiss_lh
 Replace `<TAG>` with the release that carries the data assets. The file is also
 downloadable from the Releases page in a browser.
 
-### Using optics you already have
+### Pointing a study at optics you already have
 
 If the optics tables are already on your machine — in a shared group folder, an
-`acc-models` checkout, or anywhere else — you do not need a second copy. Point
-WIMBA at that location instead:
+`acc-models` checkout, a scratch disk — you do not need a second copy. Add a
+`data_dir:` key to the study config:
 
-```bash
-export WIMBA_DATA_DIR=/path/to/your/optics
+```yaml
+name: LHC
+data_dir: ~/CERN/optics          # absolute, or relative to this file
+optics: data/twiss_lhcb1_beta130cm.tfs
 ```
 
-Inside that directory the file is looked up twice: first under the path exactly
-as the study YAML writes it (`data/twiss_lhcb1_beta130cm.tfs`), then by file
+The key accepts a list as well, searched in order:
+
+```yaml
+data_dir:
+  - ../shared_optics
+  - /afs/cern.ch/group/optics
+```
+
+This is the normal way to do it: the location of a study's data stays with the
+study, so two studies can sit on different disks and neither needs anything set
+up in the shell.
+
+Inside each directory the file is looked up twice: first under the path exactly
+as the study config writes it (`data/twiss_lhcb1_beta130cm.tfs`), then by file
 name alone (`twiss_lhcb1_beta130cm.tfs`). The second form is what usually
-matches a shared optics folder, whose layout will not mirror the examples.
+matches a shared folder, whose layout will not mirror the examples.
 
 Full resolution order:
 
 1. the reference itself, when it is an absolute path
-2. `$WIMBA_DATA_DIR`, by full reference then by file name
-3. the `optics:` entry relative to the directory holding the study YAML
+2. `$WIMBA_DATA_DIR` — a per-invocation override, for a one-off run or CI
+3. the study's `data_dir:` key
+4. `data.dir` in the WIMBA config file — a machine-wide default
+5. the reference relative to the directory holding the study config
 
-The variable can also be set once in the WIMBA config file:
+Steps 2 to 4 follow the usual precedence, explicit then environment then
+config, as with `WIMBA_IW2D_BINARY` and `WIMBA_PYTLWALL_PATH`. The environment
+variable exists for overriding a run without editing files; for everyday use
+prefer the `data_dir:` key.
+
+A machine-wide default, if you want one:
 
 ```yaml
 data:
   dir: /path/to/your/optics
 ```
 
-Precedence is the usual one — explicit argument, then environment variable,
-then config file — the same as `WIMBA_IW2D_BINARY` and `WIMBA_PYTLWALL_PATH`.
-
-When nothing matches, the error names every location that was searched:
+When nothing matches, the error names every location searched and how to fix it:
 
 ```
 optics table 'data/twiss_lhcb1_beta130cm.tfs' was not found. Looked in:
     /home/me/CERN/impedance/wimba/examples/LHC/data/twiss_lhcb1_beta130cm.tfs
+Point the study at the data by adding a 'data_dir:' key to its config file
+(one path or a list, absolute or relative to the config), or set
+$WIMBA_DATA_DIR for a one-off override.
 Large data files are distributed separately; see docs/DATA.md.
-Set $WIMBA_DATA_DIR if the file is already available elsewhere.
 ```
 
 ## What the LHC file is

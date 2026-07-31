@@ -226,7 +226,9 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
         cfg = yaml.safe_load(cfg_path.read_text()) or {}
 
     from .config import resolve_data_path
-    twiss = (madx.read_twiss(resolve_data_path(cfg["optics"], base, what="optics table"))
+    twiss = (madx.read_twiss(resolve_data_path(cfg["optics"], base,
+                                               what="optics table",
+                                               study_dirs=cfg.get("data_dir")))
              if cfg.get("optics") else {})
 
     # user-defined materials (name -> sigma [S/m]) extend the built-in table

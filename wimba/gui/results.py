@@ -101,6 +101,91 @@ class ResultsModel:
         return x, y, f"{source} {quantity} {component}"
 
 
+def last_export_dir() -> str:
+    """Directory the last export went to, so the next dialog opens there."""
+    from PyQt6.QtCore import QSettings
+    return QSettings("WIMBA", "wimba").value("export/last_dir", "", type=str)
+
+
+def remember_export_dir(path) -> None:
+    """Record where an export was written (accepts a file or a directory)."""
+    from PyQt6.QtCore import QSettings
+    p = Path(path)
+    d = p if p.is_dir() else p.parent
+    QSettings("WIMBA", "wimba").setValue("export/last_dir", str(d))
+
+
+def _suggest(name: str) -> str:
+    """Full suggested path for a save dialog, inside the last export dir."""
+    d = last_export_dir()
+    return str(Path(d) / name) if d else name
+
+
+EXPORT_FORMATS = {
+    # label shown in the menu -> (extension, delimiter)
+    "csv": (".csv", ","),
+    "txt": (".txt", "\t"),     # tab-separated, the layout pytlwall writes
+}
+
+
+def export_model(model, out_dir, fmt: str = "csv") -> list:
+    """Write every computed series of a ResultsModel under ``out_dir``.
+
+    One file per source and kind: impedances get ``f [Hz]`` followed by
+    ``Re(q)``/``Im(q)`` for each quantity, wakes get ``t [s]`` followed by one
+    column per quantity.
+
+    Args:
+        model: the ResultsModel to export.
+        out_dir: destination directory; created if missing.
+        fmt: ``"csv"`` (comma) or ``"txt"`` (tab, as written by pytlwall, so
+            the two codes can be compared column by column).
+
+    Returns:
+        The paths written.
+    """
+    import csv as _csv
+
+    try:
+        ext, delim = EXPORT_FORMATS[fmt]
+    except KeyError:
+        raise ValueError(f"unknown export format {fmt!r}; "
+                         f"expected one of {sorted(EXPORT_FORMATS)}")
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+
+    for source, kinds in sorted(model.sources.items()):
+        for kind, (x, comps) in sorted(kinds.items()):
+            if x is None or not comps:
+                continue
+            stem = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in source)
+            path = out / f"{stem}__{kind}{ext}"
+            quantities = sorted(comps)
+            with open(path, "w", newline="") as fh:
+                w = _csv.writer(fh, delimiter=delim)
+                if kind == "wake":
+                    w.writerow(["t [s]"] + quantities)
+                else:
+                    header = ["f [Hz]"]
+                    for q in quantities:
+                        header += [f"Re({q})", f"Im({q})"]
+                    w.writerow(header)
+                for i in range(len(x)):
+                    row = [f"{x[i]:.8e}"]
+                    for q in quantities:
+                        v = np.asarray(comps[q])[i]
+                        if kind == "wake":
+                            row.append(f"{np.real(v):.8e}")
+                        else:
+                            row += [f"{np.real(v):.8e}", f"{np.imag(v):.8e}"]
+                    w.writerow(row)
+            written.append(path)
+
+    return written
+
+
 def encode(source, kind, quantity, component):
     return f"{source}|{kind}|{quantity}|{component}"
 
@@ -360,18 +445,22 @@ class PlotWorkspace(QWidget):
         self.canvas.draw_idle()
 
     def _export_png(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Export plot", "plot.png", "PNG (*.png)")
+        path, _ = QFileDialog.getSaveFileName(self, "Export plot", _suggest("plot.png"),
+                                              "PNG (*.png)")
         if path:
             self.fig.savefig(path, dpi=150)
+            remember_export_dir(path)
 
     def _export_csv(self):
         vis = [e for e in self.entries if e.visible]
         if not vis:
             QMessageBox.information(self, "Export", "Nothing to export.")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export curves", "curves.csv", "CSV (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, "Export curves", _suggest("curves.csv"),
+                                              "CSV (*.csv)")
         if not path:
             return
+        remember_export_dir(path)
         import csv as _csv
         with open(path, "w", newline="") as fh:
             w = _csv.writer(fh)
@@ -500,9 +589,11 @@ class ResultsTablePanel(QWidget):
         if self.x is None:
             QMessageBox.information(self, "Export", "Nothing to export.")
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export table", "results.csv", "CSV (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, "Export table", _suggest("results.csv"),
+                                              "CSV (*.csv)")
         if not path:
             return
+        remember_export_dir(path)
         import csv as _csv
         with open(path, "w", newline="") as fh:
             w = _csv.writer(fh)

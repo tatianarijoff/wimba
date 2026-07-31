@@ -68,3 +68,82 @@ def test_adopt_total_wake(tmp_path):
     assert "wake" in m.sources["bench/COMP[pytlwall]"]
     _x, w = m.sources["bench/COMP[pytlwall]"]["wake"]
     assert "WLong" in w
+
+
+def test_export_model_writes_one_file_per_source_and_kind(tmp_path):
+    """Export Results writes every computed series to a chosen directory:
+    impedances as Re/Im column pairs, wakes as one column per quantity."""
+    import csv
+    from wimba.gui.results import ResultsModel, export_model
+
+    out = tmp_path / "run"
+    _fake_output(out)
+    model = ResultsModel().load(out)
+    assert model.sources, "fixture produced no sources"
+
+    dest = tmp_path / "chosen elsewhere"
+    written = export_model(model, dest)
+    assert written, "nothing written"
+    assert all(p.parent == dest for p in written)
+
+    for path in written:
+        with open(path, newline="") as fh:
+            rows = list(csv.reader(fh))
+        header, body = rows[0], rows[1:]
+        assert body, f"{path.name} has no data rows"
+        assert all(len(r) == len(header) for r in body)
+        if "__impedance" in path.name:
+            assert header[0] == "f [Hz]"
+            assert sum(h.startswith("Re(") for h in header) == \
+                   sum(h.startswith("Im(") for h in header)
+        elif "__wake" in path.name:
+            assert header[0] == "t [s]"
+        float(body[0][0])
+
+
+def test_export_model_txt_is_tab_separated(tmp_path):
+    """The TXT variant uses tabs, matching the layout pytlwall writes, so the
+    two codes can be compared column by column."""
+    import csv
+    from wimba.gui.results import ResultsModel, export_model
+
+    out = tmp_path / "run"
+    _fake_output(out)
+    model = ResultsModel().load(out)
+
+    csv_files = export_model(model, tmp_path / "as_csv", fmt="csv")
+    txt_files = export_model(model, tmp_path / "as_txt", fmt="txt")
+
+    assert {p.suffix for p in csv_files} == {".csv"}
+    assert {p.suffix for p in txt_files} == {".txt"}
+    assert [p.stem for p in csv_files] == [p.stem for p in txt_files]
+
+    raw = txt_files[0].read_text()
+    assert "\t" in raw.splitlines()[0]
+    assert "," not in raw.splitlines()[0]
+
+    # same content, different delimiter
+    with open(csv_files[0], newline="") as fh:
+        as_csv = list(csv.reader(fh))
+    with open(txt_files[0], newline="") as fh:
+        as_txt = list(csv.reader(fh, delimiter="\t"))
+    assert as_csv == as_txt
+
+
+def test_export_model_rejects_unknown_format(tmp_path):
+    from wimba.gui.results import ResultsModel, export_model
+    out = tmp_path / "run"
+    _fake_output(out)
+    with pytest.raises(ValueError, match="unknown export format"):
+        export_model(ResultsModel().load(out), tmp_path / "x", fmt="xlsx")
+
+
+def test_export_model_creates_missing_directory(tmp_path):
+    """A directory typed into the dialog that does not exist yet is created."""
+    from wimba.gui.results import ResultsModel, export_model
+    out = tmp_path / "run"
+    _fake_output(out)
+    dest = tmp_path / "new" / "nested"
+    assert not dest.exists()
+    assert export_model(ResultsModel().load(out), dest)
+    assert dest.is_dir()

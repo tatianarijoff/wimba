@@ -232,36 +232,54 @@ def test_element_uids_are_session_unique():
     assert len(uids) == len(set(uids))
 
 
-def test_resolve_data_path_prefers_wimba_data_dir(tmp_path, monkeypatch):
-    """$WIMBA_DATA_DIR lets a site point WIMBA at optics it already has, by
-    full reference or by file name alone."""
-    from wimba.config import resolve_data_path, DataFileNotFound
-    store = tmp_path / "optics"
-    store.mkdir()
-    (store / "twiss.tfs").write_text("@ NAME %05s \"TWISS\"\n")
+def test_resolve_data_path_uses_study_data_dir(tmp_path, monkeypatch):
+    """A study points at its own data with a 'data_dir:' key: no environment
+    variable, and two studies can sit on different disks."""
+    from wimba.config import resolve_data_path
+    monkeypatch.delenv("WIMBA_DATA_DIR", raising=False)
+    shared = tmp_path / "shared_optics"; shared.mkdir()
+    (shared / "twiss.tfs").write_text("@ NAME %05s \"TWISS\"\n")
+    study = tmp_path / "study"; study.mkdir()
 
-    monkeypatch.setenv("WIMBA_DATA_DIR", str(store))
-    # the config says data/twiss.tfs; only the file name matches in the store
-    got = resolve_data_path("data/twiss.tfs", tmp_path / "nowhere")
-    assert got == store / "twiss.tfs"
+    # absolute, relative to the config, and a list of candidates all work
+    assert resolve_data_path("data/twiss.tfs", study,
+                             study_dirs=str(shared)) == shared / "twiss.tfs"
+    assert resolve_data_path("data/twiss.tfs", study,
+                             study_dirs="../shared_optics") == shared / "twiss.tfs"
+    assert resolve_data_path("data/twiss.tfs", study,
+                             study_dirs=["/nowhere", str(shared)]) == shared / "twiss.tfs"
 
-    # without the variable, the reference resolves against the config directory
-    monkeypatch.delenv("WIMBA_DATA_DIR")
-    cfgdir = tmp_path / "study"
-    (cfgdir / "data").mkdir(parents=True)
+
+def test_resolve_data_path_env_overrides_study(tmp_path, monkeypatch):
+    """$WIMBA_DATA_DIR stays available as a per-invocation override, ahead of
+    the study key."""
+    from wimba.config import resolve_data_path
+    a = tmp_path / "a"; a.mkdir(); (a / "twiss.tfs").write_text("a")
+    b = tmp_path / "b"; b.mkdir(); (b / "twiss.tfs").write_text("b")
+    monkeypatch.setenv("WIMBA_DATA_DIR", str(a))
+    got = resolve_data_path("data/twiss.tfs", tmp_path, study_dirs=str(b))
+    assert got == a / "twiss.tfs"
+
+
+def test_resolve_data_path_falls_back_to_config_dir(tmp_path, monkeypatch):
+    """With nothing configured, the reference resolves against the directory
+    holding the study config, as before."""
+    from wimba.config import resolve_data_path
+    monkeypatch.delenv("WIMBA_DATA_DIR", raising=False)
+    cfgdir = tmp_path / "study"; (cfgdir / "data").mkdir(parents=True)
     (cfgdir / "data" / "twiss.tfs").write_text("x")
     assert resolve_data_path("data/twiss.tfs", cfgdir) == cfgdir / "data" / "twiss.tfs"
 
 
 def test_resolve_data_path_error_lists_what_was_tried(tmp_path, monkeypatch):
-    """A missing data file names every location searched and points at the
-    documentation, instead of a bare FileNotFoundError."""
+    """A missing data file names every location searched and says how to fix
+    it, instead of a bare FileNotFoundError."""
     from wimba.config import resolve_data_path, DataFileNotFound
     monkeypatch.delenv("WIMBA_DATA_DIR", raising=False)
     with pytest.raises(DataFileNotFound) as exc:
         resolve_data_path("data/missing.tfs", tmp_path, what="optics table")
     msg = str(exc.value)
     assert "optics table" in msg
+    assert "data_dir:" in msg
     assert "docs/DATA.md" in msg
-    assert "WIMBA_DATA_DIR" in msg
     assert str(tmp_path / "data" / "missing.tfs") in msg
