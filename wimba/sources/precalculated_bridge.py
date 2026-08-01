@@ -8,16 +8,41 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..io.tables import read_impedance, read_wake
+from ..io.tables import read_impedance, read_impedance_table, read_wake
 
 
 def precalculated_impedance(freqs, files):
+    """Interpolate precomputed impedances onto ``freqs``.
+
+    ``files`` maps a component name to a path. The same path may appear for
+    several components -- a spreadsheet or a WIMBA export holds them all -- in
+    which case it is read once and the right column pair is taken for each.
+    """
     freqs = np.asarray(freqs, dtype=float)
-    out = {}
+    out, tables = {}, {}
     for comp, path in files.items():
-        xf, z = read_impedance(path)
+        key = str(path)
+        if key not in tables:
+            try:
+                tables[key] = read_impedance_table(path)
+            except (ValueError, OSError):
+                tables[key] = None          # plain three-column file
+        table = tables[key]
+        if table is not None and comp in table:
+            xf, z = table[comp]
+        else:
+            xf, z = read_impedance(path, component=comp)
         out[comp] = np.interp(freqs, xf, z.real) + 1j * np.interp(freqs, xf, z.imag)
     return out
+
+
+def precalculated_components(path):
+    """Component names available in one precalculated file, or () if it is a
+    plain three-column table with nothing to choose from."""
+    try:
+        return tuple(sorted(read_impedance_table(path)))
+    except (ValueError, OSError, ImportError):
+        return ()
 
 
 def precalculated_wake(times, files):

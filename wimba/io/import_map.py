@@ -54,9 +54,32 @@ def _parse_complex(token: str) -> complex:
 
 
 def _read_rows(path: Path, spec: dict):
+    """Rows of a data file, as lists of string tokens.
+
+    Spreadsheets are read through pandas and their cells turned into tokens, so
+    the column-index machinery below works the same either way. Reading an
+    .xlsx as text would feed the binary container to float().
+    """
+    from .tables import SPREADSHEET_SUFFIXES
+
     comment = spec.get("comment", "#")
     skip = int(spec.get("skip_rows", 0))
     sep = _sep_of(spec)
+
+    if path.suffix.lower() in SPREADSHEET_SUFFIXES:
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                f"reading {path.name} needs pandas and openpyxl:\n"
+                "    pip install pandas openpyxl") from exc
+        df = pd.read_excel(path, skiprows=skip or None)
+        rows = [[("" if v != v else str(v)) for v in row]      # v != v: NaN
+                for row in df.itertuples(index=False, name=None)]
+        if not rows:
+            raise ValueError(f"{path}: the spreadsheet has no data rows.")
+        return rows
+
     rows = []
     for i, raw in enumerate(path.read_text(errors="replace").splitlines()):
         if i < skip:

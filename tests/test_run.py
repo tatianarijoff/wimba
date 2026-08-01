@@ -36,11 +36,37 @@ def test_cache_and_totals(tmp_path):
     assert comps["ZLong"].shape == F.shape and np.all(np.isfinite(comps["ZLong"]))
 
 
-def test_non_pytlwall_skipped(tmp_path):
+def test_unknown_method_is_skipped_and_said_so(tmp_path):
+    """A method the run cannot compute is skipped -- but named, with the reason:
+    a device that vanishes from the results without a word is the hardest kind
+    of bug to notice."""
+    r = _row("x", 0.02)
+    r.method = "not_a_method"
+    _totals, _wake, stats = compute_assignments([r], F, tmp_path / "out")
+    assert stats["skipped"] == 1 and stats["computed"] == 0
+    notes = " ".join(stats.get("notes", []))
+    assert "x" in notes and "not_a_method" in notes
+
+
+def test_iw2d_method_is_computed(tmp_path):
+    """iw2d is a computed method, not a placeholder: the compare flow of a
+    single-element study depends on it running."""
+    pytest.importorskip("IW2D")
     r = _row("x", 0.02)
     r.method = "iw2d"
-    totals, _wake, stats = compute_assignments([r], F, tmp_path / "out")
-    assert stats["skipped"] == 1 and stats["computed"] == 0
+    _totals, _wake, stats = compute_assignments([r], F, tmp_path / "out")
+    assert stats["computed"] == 1 and stats["skipped"] == 0
+
+
+def test_cache_does_not_mix_methods(tmp_path):
+    """Two devices with the same geometry but different methods are two
+    calculations -- that is exactly the shape of a compare run."""
+    pytest.importorskip("IW2D")
+    a, b = _row("pt", 0.02), _row("iw", 0.02)
+    b.method = "iw2d"
+    _totals, _wake, stats = compute_assignments([a, b], F, tmp_path / "out")
+    assert stats["computed"] == 2
+    assert stats["geometries"] == 2      # same geometry, but computed by each code
 
 
 def test_wake_totals_native(tmp_path):

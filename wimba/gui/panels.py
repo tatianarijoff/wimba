@@ -332,10 +332,20 @@ class ElementPanel(QWidget):
         from PyQt6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(
             self, "Precalculated data", "",
-            "Data or import map (*.dat *.txt *.csv *.yaml *.yml);;All files (*)")
+            "Data or import map (*.dat *.txt *.csv *.xlsx *.xlsm *.yaml *.yml);;"
+            "Spreadsheet (*.xlsx *.xlsm);;All files (*)")
         if not path:
             return
         if not path.lower().endswith((".yaml", ".yml")):
+            # a spreadsheet or an export with named columns describes itself:
+            # no import map is needed to find the component
+            from ..sources.precalculated_bridge import precalculated_components
+            comps = precalculated_components(path)
+            if entry.q in comps:
+                entry.file = path
+                fed.setText(path)
+                self.on_change()
+                return
             from .import_dialog import ImportMapDialog
             dlg = ImportMapDialog(path, self)
             if not (dlg.exec() and dlg.map_path):

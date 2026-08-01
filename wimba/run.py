@@ -19,10 +19,11 @@ from .io.pytlwall_cfg import write_chamber_cfg
 from .output import write_single_element, write_totals, write_wake_totals
 from .sources.pytlwall_bridge import (COMPONENTS, WAKE_COMPONENTS, chamber_wake,
                                       compute_chamber)
+from .sources.iw2d_bridge import compute_iw2d
 from .sources.resonator import resonator_impedance, resonator_wake
 from .sources.precalculated_bridge import precalculated_impedance, precalculated_wake
 
-COMPUTED_METHODS = ("pytlwall", "resonator", "precalculated")   # iw2d: coming next
+COMPUTED_METHODS = ("pytlwall", "iw2d", "resonator", "precalculated")
 
 
 def _grid(cfg):
@@ -45,8 +46,11 @@ def _geo_key(geo):
             geo.get("hor"), geo.get("ver"), layers)
 
 
-def _cached(cache, geo, factory):
-    key = _geo_key(geo)
+def _cached(cache, geo, factory, method="pytlwall"):
+    # the method is part of the key: a compare run asks two different codes for
+    # the same geometry, and without it the second would be served the first's
+    # cached result
+    key = (method,) + _geo_key(geo)
     fresh = key not in cache
     if fresh:
         cache[key] = factory()
@@ -85,8 +89,8 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
                 raise ValueError(
                     f"device '{row.name}' uses pytlwall but has no geometry/radius; "
                     "check its config (radius_m / radius_mm or halfgap).")
-            zbase, fresh = _cached(zcache, geo,
-                                   lambda g=geo: compute_chamber(freqs, g.get("radius", 0.02),
+            zbase, fresh = _cached(zcache, geo, method="pytlwall",
+                                   factory=lambda g=geo: compute_chamber(freqs, g.get("radius", 0.02),
                                                                  g.get("layers"), length_m=1.0,
                                                                  shape=g.get("shape", "CIRCULAR"),
                                                                  hor_m=g.get("hor"), ver_m=g.get("ver"),
@@ -107,14 +111,67 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
                 zterms["ZQuadXISC"] = zbase["ZQuadISC"] * L * row.beta_x
                 zterms["ZQuadYISC"] = zbase["ZQuadISC"] * L * row.beta_y
             if times is not None:
-                wbase, _ = _cached(wcache, geo,
-                                   lambda g=geo: chamber_wake(times, g.get("radius", 0.02),
+                wbase, _ = _cached(wcache, geo, method="pytlwall",
+                                   factory=lambda g=geo: chamber_wake(times, g.get("radius", 0.02),
                                                              g.get("layers"), length_m=1.0,
                                                              shape=g.get("shape", "CIRCULAR"),
                                                              hor_m=g.get("hor"), ver_m=g.get("ver"),
                                                              betax=1.0, betay=1.0, gamma=gamma))
                 wterms = _scale(wbase, row, WAKE_COMPONENTS, "WLong")
                 stats["wake_native"].add("pytlwall")
+
+        elif row.method == "iw2d":
+            geo = row.geometry
+            if not geo or geo.get("radius") is None:
+                raise ValueError(
+                    f"device '{row.name}' uses iw2d but has no geometry/radius; "
+                    "check its config (radius_m / radius_mm or halfgap).")
+            if str(geo.get("shape", "CIRCULAR")).upper() != "CIRCULAR":
+                raise ValueError(
+                    f"device '{row.name}': the IW2D bridge computes circular "
+                    f"chambers, got shape={geo.get('shape')!r}. IW2D does support "
+                    "flat geometries, through a different input object, but that "
+                    "path is not wired yet.")
+            zbase, fresh = _cached(
+                zcache, geo, method="iw2d",
+                factory=lambda g=geo: compute_iw2d(freqs, g.get("radius", 0.02),
+                                                   g.get("layers"), length_m=1.0,
+                                                   shape=g.get("shape", "CIRCULAR"),
+                                                   betax=1.0, betay=1.0, gamma=gamma))
+            if fresh:
+                stats["geometries"] += 1
+                _out, notes = compute_iw2d(freqs[:1], geo.get("radius", 0.02),
+                                           geo.get("layers"), length_m=1.0,
+                                           gamma=gamma, return_notes=True)
+                for note in notes:
+                    stats.setdefault("notes", []).append(f"{row.name}: {note}")
+            zterms = _scale(zbase, row, COMPONENTS, "ZLong")
+            # IW2D returns the wall impedance, which already contains the
+            # indirect space charge: there is no separate ISC component to add,
+            # and asking for one would double-count it.
+            if row.space_charge:
+                stats.setdefault("notes", []).append(
+                    f"{row.name}: space_charge is ignored for iw2d -- its "
+                    "impedance already includes the indirect space charge, so "
+                    "it compares against pytlwall's ZLong + ZLongISC.")
+            if times is not None:
+                # the bridge does not drive IW2D's own wake solver yet
+                from .analysis import FourierTransform
+                ft = FourierTransform()
+                wterms = {c: np.zeros(len(times)) for c in WAKE_COMPONENTS}
+                for zc, (wc, plane) in (("ZLong", ("WLong", "z")),
+                                        ("ZDipX", ("WDipX", "x")),
+                                        ("ZDipY", ("WDipY", "y")),
+                                        ("ZQuadX", ("WQuadX", "x")),
+                                        ("ZQuadY", ("WQuadY", "y"))):
+                    if zc in zterms:
+                        try:
+                            w = ft.wake_from_impedance(freqs, zterms[zc], times,
+                                                       plane=plane)
+                            wterms[wc] = np.asarray(w).real
+                        except Exception:
+                            pass
+                stats["wake_fft"].add("iw2d")
 
         elif row.method == "resonator":
             modes = (row.params or {}).get("modes", [])
@@ -177,7 +234,12 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times
                     stats["wake_fft"].add("precalculated")
 
         else:
+            # say WHICH device was dropped and why: a device that vanishes from
+            # the results without a word is the hardest kind of bug to notice
             stats["skipped"] += 1
+            stats.setdefault("notes", []).append(
+                f"{row.name}: skipped -- method '{row.method}' is not one of "
+                f"{', '.join(COMPUTED_METHODS)}.")
             continue
 
         for c, v in zterms.items():

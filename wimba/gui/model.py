@@ -250,8 +250,13 @@ def optics_completeness(gm: GMachine):
 
 
 # ---------- element -> runnable config (single-element calculation) ----------
-def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
+def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
+                      compare_only: bool = False) -> dict:
     """Emit an assemble config that computes just this element.
+
+    With ``compare_only`` the base element is left out and only the entries of
+    ``el.compare`` are emitted, so an added comparison can be computed without
+    repeating a calculation that is already in the Results tree.
 
     Grid, gamma and user materials are inherited from the config the machine was
     opened from (base_cfg), unless the element carries its own (``own_base``),
@@ -293,8 +298,8 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
     # settings win over the config that happens to be open in the GUI.
     base_cfg = dict(base_cfg or {})
     base_cfg.update({k: v for k, v in (getattr(el, "own_base", None) or {}).items() if v})
-    devices = {"single": spec}
-    output = [name]
+    devices = {} if compare_only else {"single": spec}
+    output = [] if compare_only else [name]
     for i, cmp_ in enumerate(getattr(el, "compare", []) or []):
         cbase = method_base(cmp_.method).lower()
         cname = f"{name}[{method_base(cmp_.method)} {cmp_.q}]"
@@ -314,8 +319,12 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None) -> dict:
             raise ValueError(f"compare entry: method '{cmp_.method}' not supported.")
         devices[f"compare_{i}"] = cspec
         output.append(cname)
+    if compare_only and not devices:
+        raise ValueError(
+            "no comparison to calculate: add one under 'Additional calculations' "
+            "first.")
     cfg = {
-        "name": f"{name}_single",
+        "name": f"{name}_compare" if compare_only else f"{name}_single",
         "grid": base_cfg.get("grid") or {
             "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},
         "output": output,
@@ -341,10 +350,31 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
 
     base = method_base(method).lower()
     name = el.name.split("  (")[0]
+    # An element that carries its own gamma/grid belongs to no machine: its
+    # settings win over the config that happens to be open in the GUI.
+    base_cfg = dict(base_cfg or {})
+    base_cfg.update({k: v for k, v in (getattr(el, "own_base", None) or {}).items() if v})
     if base == "precalculated":
         if not data_file:
             raise ValueError("Load Precalculated needs a data file "
                              "(a plain .dat or an import-map .yaml).")
+        # a dict maps several components to (usually) one file: a spreadsheet or
+        # an export holding them all
+        if isinstance(data_file, dict):
+            first = next(iter(data_file.values()))
+            label = f"precalculated: {_P(first).name}"
+            spec = {"source": "precalculated", "name": f"{el.name}[{label}]",
+                    "files": {c: str(f) for c, f in data_file.items()},
+                    "weighted": True}
+            cfg = {"name": f"{el.name}_component", "grid": base_cfg.get("grid") or {
+                       "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},
+                   "output": [spec["name"]], "devices": {"component": spec}}
+            if base_cfg.get("gamma") is not None:
+                cfg["gamma"] = base_cfg["gamma"]
+            if base_cfg.get("materials"):
+                cfg["materials"] = base_cfg["materials"]
+            return cfg
+
         label = f"precalculated: {_P(data_file).name}"
         if str(data_file).lower().endswith((".yaml", ".yml")):
             spec = {"source": "precalculated", "name": f"{name}[{label}]",
@@ -372,8 +402,6 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
     else:
         raise ValueError(f"component bench: method '{method}' not supported.")
 
-    base_cfg = dict(base_cfg or {})
-    base_cfg.update({k: v for k, v in (getattr(el, "own_base", None) or {}).items() if v})
     cfg = {"name": f"{name}_component",
            "grid": base_cfg.get("grid") or {
                "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},

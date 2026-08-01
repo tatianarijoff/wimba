@@ -23,6 +23,27 @@ T_UNITS = ["s", "ms", "us", "ns", "ps"]
 
 
 class ImportMapDialog(QDialog):
+    def _preview_text(self):
+        """First rows of the data file, as text.
+
+        A spreadsheet is rendered column by column: reading it as text would
+        show the bytes of the container instead of the numbers.
+        """
+        from ..io.tables import SPREADSHEET_SUFFIXES
+        try:
+            if self.data_path.suffix.lower() in SPREADSHEET_SUFFIXES:
+                import pandas as pd
+                df = pd.read_excel(self.data_path, nrows=10)
+                lines = ["  ".join(str(c) for c in df.columns)]
+                lines += ["  ".join(f"{v:.6g}" if isinstance(v, float) else str(v)
+                                    for v in row)
+                          for row in df.itertuples(index=False, name=None)]
+                return "\n".join(lines)
+            return "\n".join(self.data_path.read_text(errors="replace")
+                             .splitlines()[:12])
+        except Exception as exc:
+            return f"(cannot preview file: {exc})"
+
     def __init__(self, data_path, parent=None):
         super().__init__(parent)
         self.data_path = Path(data_path)
@@ -32,11 +53,7 @@ class ImportMapDialog(QDialog):
         lay = QVBoxLayout(self)
         preview = QPlainTextEdit()
         preview.setReadOnly(True)
-        try:
-            head = "\n".join(self.data_path.read_text(errors="replace")
-                             .splitlines()[:12])
-        except OSError as exc:
-            head = f"(cannot read file: {exc})"
+        head = self._preview_text()
         preview.setPlainText(head)
         preview.setMaximumHeight(150)
         lay.addWidget(QLabel(f"First lines of <b>{self.data_path.name}</b> "

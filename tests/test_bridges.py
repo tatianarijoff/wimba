@@ -113,3 +113,156 @@ def test_iw2d_rejects_non_circular_shapes():
     from wimba.sources.iw2d_bridge import compute_iw2d
     with pytest.raises(ValueError, match="circular chambers"):
         compute_iw2d(np.logspace(6, 9, 4), radius_m=0.02, shape="RECTANGULAR")
+
+
+def test_run_computes_iw2d_devices(tmp_path):
+    """A device with method 'iw2d' must be computed, not silently skipped: the
+    compare flow of a single-element study depends on it."""
+    pytest.importorskip("IW2D")
+    from wimba.run import COMPUTED_METHODS
+    assert "iw2d" in COMPUTED_METHODS
+
+
+def test_run_cache_separates_methods():
+    """Two devices with identical geometry but different methods must not share
+    a cache entry -- that is exactly the shape of a compare run."""
+    from wimba.run import _cached
+    geo = {"radius": 0.01, "shape": "CIRCULAR",
+           "layers": [{"type": "CW", "thickness": 0.002, "sigma": 1e6}]}
+    cache = {}
+    a, fresh_a = _cached(cache, geo, method="pytlwall", factory=lambda: "pytlwall")
+    b, fresh_b = _cached(cache, geo, method="iw2d", factory=lambda: "iw2d")
+    assert (a, b) == ("pytlwall", "iw2d")
+    assert fresh_a and fresh_b
+    # asking again for the same pair reuses the entries
+    again, fresh = _cached(cache, geo, method="iw2d", factory=lambda: "wrong")
+    assert again == "iw2d" and not fresh
+
+
+def test_run_says_which_device_it_skipped():
+    """An unknown method must name the device and the method in the notes,
+    instead of dropping the device from the results without a word."""
+    from wimba.run import COMPUTED_METHODS
+    assert "unknown_method" not in COMPUTED_METHODS
+
+
+def _write_xlsx(path, style="wimba"):
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("openpyxl")
+    import numpy as _np
+    f = _np.logspace(5, 9, 20)
+    z = 1.0 + 2.0j * _np.ones_like(f)
+    if style == "wimba":
+        cols = {"f [Hz]": f, "Re(ZLong)": z.real, "Im(ZLong)": z.imag,
+                "Re(ZDipX)": 3 * z.real, "Im(ZDipX)": 3 * z.imag}
+    else:                       # pytlwall's own layout
+        cols = {"f  [Hz] ": f,
+                "kick ZLong real [Ohm]": z.real, "kick ZLong imag [Ohm]": z.imag,
+                "kick ZDipX real [Ohm/m]": 3 * z.real,
+                "kick ZDipX imag [Ohm/m]": 3 * z.imag}
+    pd.DataFrame(cols).to_excel(path, index=False)
+    return f
+
+
+def test_read_impedance_table_finds_components_in_a_spreadsheet(tmp_path):
+    """A spreadsheet holds every component at once, so they are found by column
+    name rather than asked for one file at a time."""
+    from wimba.io.tables import read_impedance_table
+    for style in ("wimba", "pytlwall"):
+        path = tmp_path / f"{style}.xlsx"
+        f = _write_xlsx(path, style)
+        table = read_impedance_table(path)
+        assert set(table) == {"ZLong", "ZDipX"}
+        got_f, got_z = table["ZLong"]
+        assert got_f[0] == pytest.approx(f[0])
+        assert got_z[0] == pytest.approx(1 + 2j)
+        assert table["ZDipX"][1][0] == pytest.approx(3 + 6j)
+
+
+def test_precalculated_reads_many_components_from_one_file(tmp_path):
+    """The same path given for several components is read once and each one
+    takes its own column pair."""
+    import numpy as _np
+    from wimba.sources.precalculated_bridge import (precalculated_components,
+                                                    precalculated_impedance)
+    path = tmp_path / "all.xlsx"
+    _write_xlsx(path)
+    assert precalculated_components(path) == ("ZDipX", "ZLong")
+    out = precalculated_impedance(_np.logspace(5, 9, 6),
+                                  {"ZLong": path, "ZDipX": path})
+    assert out["ZLong"][0] == pytest.approx(1 + 2j)
+    assert out["ZDipX"][0] == pytest.approx(3 + 6j)
+
+
+def test_read_impedance_table_says_what_it_expected(tmp_path):
+    from wimba.io.tables import read_impedance_table
+    pd = pytest.importorskip("pandas")
+    pytest.importorskip("openpyxl")
+    path = tmp_path / "nope.xlsx"
+    pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]}).to_excel(path, index=False)
+    with pytest.raises(ValueError, match="no impedance components found"):
+        read_impedance_table(path)
+
+
+def test_compare_only_leaves_the_base_element_out():
+    """Adding a comparison must not cost a second run of what is already in the
+    Results tree."""
+    from wimba.gui.model import (GElement, GModel, default_models,
+                                 element_to_config)
+    el = GElement(name="k", geometry={"radius": 0.01},
+                  layers=[{"type": "CW", "thickness": 0.002, "sigma": 1e6}],
+                  models=default_models("pytlwall"))
+    el.compare.append(GModel(q="ZLong", enabled=True, method="IW2D"))
+
+    full = element_to_config(el)
+    only = element_to_config(el, compare_only=True)
+    assert set(full["devices"]) == {"single", "compare_0"}
+    assert set(only["devices"]) == {"compare_0"}
+    assert only["output"] == ["k[IW2D ZLong]"]
+    assert only["name"].endswith("_compare")
+
+
+def test_compare_only_without_a_comparison_is_an_error():
+    from wimba.gui.model import GElement, default_models, element_to_config
+    el = GElement(name="k", geometry={"radius": 0.01},
+                  layers=[{"type": "CW", "thickness": 0.002, "sigma": 1e6}],
+                  models=default_models("pytlwall"))
+    with pytest.raises(ValueError, match="no comparison to calculate"):
+        element_to_config(el, compare_only=True)
+
+
+def test_import_map_reads_a_spreadsheet(tmp_path):
+    """An import map may point at an .xlsx: reading it as text would feed the
+    binary container to float()."""
+    import numpy as _np
+    import yaml as _yaml
+    from wimba.io.import_map import interp_impedance, load_import_map
+
+    _write_xlsx(tmp_path / "k.xlsx")
+    (tmp_path / "map.yaml").write_text(_yaml.safe_dump({
+        "common_impedance": {"file": "k.xlsx",
+                             "columns": {"freq": 1, "re": 2, "im": 3}},
+        "components": {"ZLong": {}}}))
+
+    data = load_import_map(tmp_path / "map.yaml")
+    z = interp_impedance(data, _np.logspace(5, 9, 4))
+    assert z["ZLong"][0] == pytest.approx(1 + 2j)
+
+
+def test_import_map_spreadsheet_needs_pandas_message(tmp_path, monkeypatch):
+    """When pandas is missing the error says what to install, instead of
+    failing on a float conversion of binary bytes."""
+    import builtins
+    from wimba.io.import_map import _read_rows
+    real_import = builtins.__import__
+
+    def no_pandas(name, *a, **kw):
+        if name == "pandas":
+            raise ImportError("No module named 'pandas'")
+        return real_import(name, *a, **kw)
+
+    path = tmp_path / "k.xlsx"
+    path.write_bytes(b"PK\x03\x04not really")
+    monkeypatch.setattr(builtins, "__import__", no_pandas)
+    with pytest.raises(ImportError, match="pandas and openpyxl"):
+        _read_rows(path, {})

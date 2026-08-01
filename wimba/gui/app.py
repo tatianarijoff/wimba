@@ -332,6 +332,8 @@ class MainWindow(QMainWindow):
         self._act(m, "Calculate Selected Element", self._calc_selected_element, "F5")
         self._act(m, "Calculate Selected Element Wake",
                   lambda: self._calc_selected_element(wake=True), "Shift+F5")
+        self._act(m, "Calculate Comparisons Only\u2026", self._calc_element_compares,
+                  "Ctrl+F5")
         self._act(m, "Calculate Selected Group", self._todo)
         m.addSeparator()
         self._act(m, "Calculate Whole Machine", self._calc_machine)
@@ -746,12 +748,25 @@ class MainWindow(QMainWindow):
             return
         path, _ = QFileDialog.getOpenFileName(
             self, "Load precalculated data", "",
-            "Data or import map (*.dat *.txt *.csv *.yaml *.yml);;All files (*)")
+            "Data or import map (*.dat *.txt *.csv *.xlsx *.xlsm *.yaml *.yml);;"
+            "Spreadsheet (*.xlsx *.xlsm);;All files (*)")
         if not path:
             return
         if path.lower().endswith((".yaml", ".yml")):
             self._comp_calc("precalculated", data_file=path)
             return
+
+        # A spreadsheet or an export carries every component in one file, with
+        # named columns: take them all rather than asking which single one.
+        from ..sources.precalculated_bridge import precalculated_components
+        comps = precalculated_components(path)
+        if len(comps) > 1:
+            self.log.info("Precalculated %s: %d component(s) found -- %s",
+                          Path(path).name, len(comps), ", ".join(comps))
+            self._comp_calc("precalculated",
+                            data_file={c: path for c in comps})
+            return
+
         from .import_dialog import ImportMapDialog
         dlg = ImportMapDialog(path, self)
         if dlg.exec() and dlg.map_path:
@@ -764,6 +779,27 @@ class MainWindow(QMainWindow):
             self.results_model.sources.pop(k, None)
         self.results_tree.set_model(self.results_model)
         self.log.info("Component bench cleared (%d source(s) removed).", len(removed))
+
+    def _calc_element_compares(self):
+        """Compute only the entries under 'Additional calculations'.
+
+        The base element is left out and the results are merged into the tree,
+        so a comparison added after the fact does not cost a second run of what
+        is already there.
+        """
+        ref = self.selected
+        if not ref or ref.get("kind") != "element":
+            self.statusBar().showMessage(
+                "Select an element in the Machine tree first.", 4000)
+            return
+        el = ref["obj"]
+        if not (getattr(el, "compare", None) or []):
+            QMessageBox.information(
+                self, "Calculate comparisons",
+                "This element has no comparison yet. Add one under "
+                "'Additional calculations' in the Models tab.")
+            return
+        self._calc_element(el, compare_only=True)
 
     def _calc_selected_element(self, wake=False):
         ref = self.selected
@@ -781,7 +817,7 @@ class MainWindow(QMainWindow):
         except Exception:
             return {}
 
-    def _calc_element(self, el, wake=False):
+    def _calc_element(self, el, wake=False, compare_only=False):
         import tempfile
 
         import yaml as _yaml
@@ -790,7 +826,8 @@ class MainWindow(QMainWindow):
         from .model import element_to_config
         try:
             self._log_run_settings(el)
-            cfg = element_to_config(el, base_cfg=self._base_cfg())
+            cfg = element_to_config(el, base_cfg=self._base_cfg(),
+                                    compare_only=compare_only)
         except ValueError as exc:
             self.log.error("Cannot calculate '%s': %s", el.name, exc)
             QMessageBox.warning(self, "Calculate element", str(exc))
@@ -811,7 +848,8 @@ class MainWindow(QMainWindow):
             self.log.info("Wake requested: the native pytlwall wake is computed from the "
                           "geometry (impedance is recomputed alongside; cached geometries "
                           "keep it cheap).")
-        self._run_kind = "element"
+        # a compare-only run adds to what is already there instead of replacing it
+        self._run_kind = "element_compare" if compare_only else "element"
         self.worker = RunWorker(str(cfg_path), wake=wake, fill_pipe=False)
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_calc_done)
@@ -937,13 +975,13 @@ class MainWindow(QMainWindow):
                                    f"({st['computed']} computed)")
             self.log.info("Run finished: %s computed, %s skipped \u2192 %s",
                           st["computed"], st.get("skipped", 0), info["out"])
-        if getattr(self, "_run_kind", "machine") == "component":
+        kind = getattr(self, "_run_kind", "machine")
+        if kind in ("component", "element_compare"):
             self.results_model.merge(info["out"])
             self.results_model.adopt_total_wake(getattr(self, "_job_label", ""))
         else:
             self.results_model.load(info["out"])
-        if getattr(self, "_run_kind", "machine") == "element" and \
-                len(self.results_model.sources) > 1:
+        if kind == "element" and len(self.results_model.sources) > 1:
             # single-element study: the element (with its wake) and its compares
             self.results_model.adopt_total_wake(getattr(self, "_job_label", ""))
         self.results_tree.set_model(self.results_model)
@@ -951,6 +989,11 @@ class MainWindow(QMainWindow):
         prob = self._dock_text("problems"); prob.clear()
         prob.appendPlainText(f"{len(result.rows)} assignments \u2014 "
                              f"computed {st['computed']}, skipped {st['skipped']}.")
+        for note in st.get("notes", []):
+            prob.appendPlainText(f"  {note}")
+            self.log.warning(note)
+        if st.get("notes"):
+            self.docks["problems"].raise_()
         if result.collisions:
             for c in result.collisions:
                 tag = "intentional" if c.intentional else "ERROR"
