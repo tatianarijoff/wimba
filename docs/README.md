@@ -24,3 +24,19 @@ Planned, as the corresponding code lands:
 - Tabulated-data import (CST / ASCII)
 - Optics builder from MAD-X
 - Graphical interface
+
+## Reading these pages as HTML
+
+The Markdown sources are the originals. To read them in a browser, with tables
+and a stylesheet:
+
+```bash
+wimba docs
+```
+
+writes `docs/html/`, one page per document plus an index, and copies any images
+they refer to. The folder is regenerated from the sources and is not tracked.
+
+The same conversion drives **Help → Documentation** (F1) inside the
+application: Qt renders Markdown but discards tables, and these pages are
+largely tables.

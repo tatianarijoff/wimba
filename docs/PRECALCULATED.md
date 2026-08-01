@@ -1,3 +1,4 @@
+<p align="center"><img src="../img/wimba_logo_small.png" alt="WIMBA" width="190"></p>
 # Precalculated elements — importing tabulated impedance / wake data
 
 A **precalculated** element takes its impedance (and optionally its wake) from

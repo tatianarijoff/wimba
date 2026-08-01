@@ -1,3 +1,4 @@
+<p align="center"><img src="../img/wimba_logo_small.png" alt="WIMBA" width="190"></p>
 # IW2D in WIMBA
 
 **ImpedanceWake2D** computes the impedance of a multilayer structure — round or

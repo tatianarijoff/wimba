@@ -161,8 +161,31 @@ def cmd_status(args):
     print("WIMBA external tools")
     print(f"  config file        : {s['config_file']} "
           f"({'found' if s['config_exists'] else 'not created yet'})")
-    print(f"  IW2D binary        : {s['iw2d_binary'] or 'not configured'}")
-    print(f"  pytlwall importable: {'yes' if s['pytlwall_available'] else 'no'}")
+    print(f"  IW2D binary        : {s['iw2d_binary'] or 'not configured'} "
+          "(legacy file-based path only)")
+    for label, key in (("pytlwall", "pytlwall"), ("IW2D", "iw2d")):
+        info = s.get(key) or {}
+        if not info.get("available"):
+            print(f"  {label:<19}: not importable")
+            continue
+        ver = f" {info['version']}" if info.get("version") else ""
+        print(f"  {label:<19}: {info['path']}{ver}")
+        if info.get("source"):
+            print(f"  {'':19}  (found via {info['source']})")
+    return 0
+
+
+def cmd_docs(args):
+    """Write the documentation as a browsable HTML folder."""
+    from .docsgen import build_html_docs
+    try:
+        written = build_html_docs(source=args.source, out_dir=args.out)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}")
+        return 2
+    index = written[0]
+    print(f"Wrote {len(written)} file(s) to {index.parent}")
+    print(f"Open {index}")
     return 0
 
 
@@ -170,6 +193,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="wimba",
                                      description="WIMBA command-line interface")
     sub = parser.add_subparsers(dest="command")
+
+    sp = sub.add_parser("docs", help="render the documentation as HTML")
+    sp.add_argument("--source", metavar="DIR",
+                    help="the docs/ directory (found automatically if omitted)")
+    sp.add_argument("--out", metavar="DIR",
+                    help="destination directory (default: <source>/html)")
+    sp.set_defaults(func=cmd_docs)
 
     sp = sub.add_parser("setup", help="locate IW2D / pytlwall and write the config")
     sp.add_argument("--iw2d", metavar="PATH", help="path to the IW2D binary")

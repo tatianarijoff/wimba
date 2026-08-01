@@ -348,8 +348,51 @@ class MainWindow(QMainWindow):
         self._act(sub, "As TXT (tab-separated)\u2026", lambda: self._export_results("txt"))
 
         m = mb.addMenu("&Help")
+        self._act(m, "Documentation\u2026", self._help_browser, "F1")
+        self._act(m, "Search Help for\u2026", self._help_search, "Shift+F1")
+        m.addSeparator()
+        self._act(m, "Keyboard Shortcuts", self._keyboard_shortcuts)
         self._act(m, "About WIMBA", self._about)
-        self._act(m, "Keyboard Shortcuts", self._todo)
+
+    def _help_browser(self, query=""):
+        """Open the documentation browser, searching if a query is given."""
+        from .help_browser import HelpBrowser
+        dlg = HelpBrowser(self, query=query)
+        dlg.show()          # modeless: help stays open while you work
+        self._help_dialog = dlg    # keep a reference so it is not collected
+
+    def _help_search(self):
+        """Ask what to look for, then open the browser on the answer."""
+        from PyQt6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(
+            self, "Search Help",
+            "Question or keyword (the search also follows the words the\n"
+            "documents use, so 'excel' finds the spreadsheet pages):")
+        if ok and text.strip():
+            self._help_browser(text.strip())
+
+    def _keyboard_shortcuts(self):
+        """List the shortcuts actually bound, read from the menus themselves so
+        the list cannot drift out of date."""
+        from PyQt6.QtWidgets import QMessageBox
+        lines = []
+        for top in self.menuBar().actions():
+            menu = top.menu()
+            if menu is None:
+                continue
+            rows = []
+            for act in menu.actions():
+                for a in (act.menu().actions() if act.menu() else [act]):
+                    key = a.shortcut().toString()
+                    if key:
+                        rows.append(f"    {key:<12} {a.text().replace('&', '')}")
+            if rows:
+                lines.append(top.text().replace("&", "") + "\n" + "\n".join(rows))
+        box = QMessageBox(self)
+        box.setWindowTitle("Keyboard shortcuts")
+        box.setText("\n\n".join(lines) if lines
+                    else "No keyboard shortcuts are bound.")
+        box.exec()
 
     def _act(self, menu, text, slot, shortcut=None):
         act = QAction(text, self)
@@ -598,6 +641,7 @@ class MainWindow(QMainWindow):
     def _open_element(self, el):
         self.log.debug("Opening element panel for '%s' (category %s, %d layer(s)).",
                        el.name, el.category, len(el.layers))
+        self._open_el = el          # what 'Calculate Comparisons Only' acts on
         key = getattr(el, "uid", None) or id(el)
         if key in self._elem_tabs:
             self.center.setCurrentWidget(self._elem_tabs[key])
@@ -631,6 +675,32 @@ class MainWindow(QMainWindow):
         self.log.info("Component bench: new component '%s' (edit geometry/layers, "
                       "then Calculate).", name)
 
+    def _log_engines(self, el=None):
+        """Say which build of each engine will answer.
+
+        Two checkouts of pytlwall can be installed side by side, and
+        WIMBA_PYTLWALL_PATH or the config file can point at either. A number is
+        only interpretable once you know which one produced it.
+        """
+        from .. import config as _cfg
+        methods = {"pytlwall"}
+        for m in (getattr(el, "models", None) or []):
+            if getattr(m, "enabled", False):
+                methods.add(str(getattr(m, "method", "")).split()[0].lower())
+        for c in (getattr(el, "compare", None) or []):
+            methods.add(str(getattr(c, "method", "")).split()[0].lower())
+        for name, module in (("pytlwall", "pytlwall"), ("iw2d", "IW2D")):
+            if name not in methods:
+                continue
+            info = _cfg.engine_location(module)
+            if not info["available"]:
+                continue
+            ver = f" {info['version']}" if info["version"] else ""
+            line = f"engine {module}{ver}: {info['path']}"
+            if info.get("source"):
+                line += f"  (found via {info['source']})"
+            self.log.info(line)
+
     def _log_run_settings(self, el, source=""):
         """Say which gamma and frequency grid a calculation will use, and where
         they come from. Silent inheritance from whatever config is open is the
@@ -652,6 +722,7 @@ class MainWindow(QMainWindow):
         if source:
             msg += f" [{source}]"
         self.log.info(msg)
+        self._log_engines(el)
         self.statusBar().showMessage(msg, 8000)
         return msg
 
@@ -787,12 +858,17 @@ class MainWindow(QMainWindow):
         so a comparison added after the fact does not cost a second run of what
         is already there.
         """
+        # the element open in the editor: from the Machine tree, or the one
+        # loaded into the Component bench
         ref = self.selected
-        if not ref or ref.get("kind") != "element":
+        el = (ref.get("obj") if ref and ref.get("kind") == "element" else None) \
+            or getattr(self, "component", None) \
+            or getattr(self, "_open_el", None)
+        if el is None:
             self.statusBar().showMessage(
-                "Select an element in the Machine tree first.", 4000)
+                "Open an element first (Machine tree, or Component \u2192 "
+                "Load pytlwall Config).", 5000)
             return
-        el = ref["obj"]
         if not (getattr(el, "compare", None) or []):
             QMessageBox.information(
                 self, "Calculate comparisons",

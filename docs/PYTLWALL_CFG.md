@@ -1,3 +1,4 @@
+<p align="center"><img src="../img/wimba_logo_small.png" alt="WIMBA" width="190"></p>
 # Loading a pytlwall config into WIMBA
 
 **Component → Load pytlwall Config…**

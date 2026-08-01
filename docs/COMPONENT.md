@@ -1,3 +1,5 @@
+<p align="center"><img src="../img/wimba_logo_small.png" alt="WIMBA" width="190"></p>
+
 # Computing one component in the WIMBA GUI (pytlwall)
 
 You have a component with a known geometry — a chamber, a kicker, a collimator

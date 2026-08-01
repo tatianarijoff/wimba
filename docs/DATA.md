@@ -1,3 +1,4 @@
+<p align="center"><img src="../img/wimba_logo_small.png" alt="WIMBA" width="190"></p>
 # External data files
 
 Most of what WIMBA needs lives in the repository. A few files do not, because
