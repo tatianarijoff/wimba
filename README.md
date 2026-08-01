@@ -136,6 +136,16 @@ The four bundled examples are described in **[docs/EXAMPLES.md](docs/EXAMPLES.md
 and each example folder has its own README (files provided, shell and GUI usage,
 outputs). For tool configuration see [docs/SETUP.md](docs/SETUP.md).
 
+IW2D is optional, and installs into the same environment in the same way:
+
+```bash
+pip install cppyy
+pip install -e <path to IW2D>
+```
+
+after its C++ libraries (GSL, GMP, MPFR, Arb) are available from the system or
+from conda. See [docs/IW2D.md](docs/IW2D.md).
+
 If you bring in a pytlwall chamber `.cfg`, read
 **[docs/PYTLWALL_CFG.md](docs/PYTLWALL_CFG.md)** first: it says what WIMBA takes
 from the file, why the frequency grid is rebuilt rather than reused, and how to
@@ -187,9 +197,14 @@ import; the command-line interface (`assemble`, `run`, `plot`, `build`, `show`,
 `setup`, `status`); and the graphical interface with the results workspace
 (tree of computed quantities, plot/table with export).
 
-In progress: IW2D execution (the bridge is in place, the external binary is not
-wired yet), direct space charge as a separate machine-wide output, saving an
-edited machine back to a config, and per-machine default-pipe presets.
+IW2D is driven through its Python API for circular chambers; see
+**[docs/IW2D.md](docs/IW2D.md)**, which also covers the two conventions that
+differ from pytlwall (IW2D has no perfect-conductor layer, and its impedance
+already includes indirect space charge).
+
+In progress: IW2D flat geometries, direct space charge as a separate
+machine-wide output, saving an edited machine back to a config, and per-machine
+default-pipe presets.
 
 ## License
 

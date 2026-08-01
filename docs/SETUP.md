@@ -28,8 +28,14 @@ wimba status    # show what was found
 Locates the tools and records where they are. It does **not** bundle or compile
 them. Run it once; edit the config by hand later if a path changes.
 
-- **IW2D** — an external binary. `setup` looks on your `PATH`, or asks for the
-  path. Non-interactive: `wimba setup --iw2d <path to IW2D>`.
+- **IW2D** — a Python package over a C++ core, installed into the same
+  environment as WIMBA and pytlwall:
+  `pip install cppyy && pip install -e <path to IW2D>`, after the GSL, GMP,
+  MPFR and Arb system libraries. Nothing needs configuring here: WIMBA imports
+  it rather than executing a binary. See [IW2D.md](IW2D.md), which also covers
+  the `IW2D_FLINT_ARB` variable needed on Debian and Ubuntu. The `--iw2d`
+  option and the `iw2d.binary` setting below configure the *command-line
+  executables*, used only by the legacy file-based path.
 - **pytlwall** — a Python package. If it imports, nothing to do. For a local
   checkout instead of a pip install: `wimba setup --pytlwall-path <path to pytlwall>`.
 
@@ -61,8 +67,9 @@ Highest priority first:
 
 - **pytlwall** — `pip install git+https://github.com/tatianarijoff/pytlwall`,
   or use a checkout with `--pytlwall-path`.
-- **IW2D** — compiled separately (C++); point `wimba setup` at the resulting
-  binary. See the IW2D project for build instructions.
+- **IW2D** — for the Python API, `pip install <path to IW2D>` after installing
+  GSL, MPFR, Arb and cppyy; see [IW2D.md](IW2D.md). The `.x` executables are
+  compiled separately and are only needed for the legacy file-based path.
 
 ## Default compute method
 
