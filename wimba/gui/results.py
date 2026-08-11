@@ -391,6 +391,10 @@ class PlotWorkspace(QWidget):
         self._stack.setCurrentIndex(0)
         self._redraw()
 
+    def clear(self):
+        """Public entry point: the Clear button and File -> Close Machine share it."""
+        self._clear()
+
     def _menu(self, pos):
         it = self.items.itemAt(pos)
         if not it:
@@ -584,6 +588,10 @@ class ResultsTablePanel(QWidget):
         self.columns = []
         self.x = None
         self._rebuild()
+
+    def clear(self):
+        """Public entry point: the Clear button and File -> Close Machine share it."""
+        self._clear()
 
     def _export_csv(self):
         if self.x is None:

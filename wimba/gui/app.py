@@ -256,6 +256,8 @@ class MainWindow(QMainWindow):
         self._act(m, "New Machine", self._new_machine, QKeySequence.StandardKey.New)
         self._act(m, "Open Config\u2026", self._open_config)
         self._act(m, "Open Results\u2026", self._open_results)
+        self._act(m, "Close Machine", self._close_machine,
+                  QKeySequence.StandardKey.Close)
         m.addSeparator()
         self._act(m, "Save Project", self._todo, QKeySequence.StandardKey.Save)
         self._act(m, "Save Project As\u2026", self._todo, QKeySequence.StandardKey.SaveAs)
@@ -531,13 +533,65 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Loaded {self.machine.name} \u2014 root node named '{self.machine.name}'", 4000)
 
+    def _close_machine(self, confirm=True) -> bool:
+        """Put the session back to how it looks at startup.
+
+        Clears the machine, the results, the plots, the table, the open element
+        tabs and the component bench - everything that could still refer to what
+        was loaded before. Returns False if a run is in progress or the user
+        backed out, so callers can abandon whatever they were about to do.
+        """
+        if self.worker is not None and self.worker.isRunning():
+            QMessageBox.information(self, "Close Machine",
+                "A calculation is still running. Wait for it to finish, then "
+                "close the machine.")
+            return False
+
+        if confirm and (self.machine is not None or self.results_model.sources):
+            ans = QMessageBox.question(self, "Close Machine",
+                "Close the machine and clear every result?\n\n"
+                "Saving a machine is not implemented yet, so any edit you made "
+                "here cannot be recovered.",
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
+            if ans != QMessageBox.StandardButton.Ok:
+                return False
+
+        # element tabs (0 and 1 are the Plot Workspace and the Results Table)
+        for i in range(self.center.count() - 1, 1, -1):
+            self.center.removeTab(i)
+        self._elem_tabs = {}
+
+        self.results_model.clear()
+        self.results_tree.set_model(self.results_model)
+        self.plot_panel.clear()
+        self.results_panel.clear()
+
+        jobs = self._dock_list("jobs")
+        if jobs is not None:
+            jobs.clear()
+        self._job_item = None
+
+        self.machine = None
+        self.selected = None
+        self.component = None
+        self.config_path = None
+        self.inspector.set_ref(None)
+
+        self._refresh_all()
+        self.log.info("Session closed: machine, results, plots and bench cleared.")
+        self.statusBar().showMessage(
+            "Machine closed \u2014 File \u2192 Load Machine to begin", 4000)
+        return True
+
     def _new_machine(self):
         name, ok = QInputDialog.getText(self, "New Machine", "Machine name:", text="Untitled")
         if not ok:
             return
+        # asked first, so backing out of the confirmation costs nothing
+        if not self._close_machine():
+            return
         self.machine = new_machine(name or "Untitled")
-        self.selected = None
-        self.inspector.set_ref(None)
         self._refresh_all()
 
     # ---- machine edits ----

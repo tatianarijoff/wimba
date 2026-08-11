@@ -42,3 +42,35 @@ def test_mainwindow_instantiates():
                          text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert "OK" in out.stdout
+
+
+def test_close_machine_resets_the_session():
+    """File -> Close Machine must leave nothing behind: no machine, no results,
+    no open element tabs, no bench state. Run in a subprocess so Qt teardown
+    cannot abort pytest."""
+    import subprocess, sys
+    pytest.importorskip("PyQt6")
+    code = (
+        "import os; os.environ['QT_QPA_PLATFORM']='offscreen'\n"
+        "from PyQt6.QtWidgets import QApplication\n"
+        "import wimba.gui.app as A\n"
+        "app = QApplication([])\n"
+        "w = A.MainWindow()\n"
+        "names = [a.text() for m in w.menuBar().actions() if m.text() == '&File'\n"
+        "         for a in m.menu().actions()]\n"
+        "assert 'Close Machine' in names, names\n"
+        "w._load_from('examples/SubLHC/SubLHC_input.yaml')\n"
+        "w._open_element(w.machine.groups[0].elements[0])\n"
+        "w.results_model.sources['Fake[pytlwall]'] = {}\n"
+        "assert w.center.count() == 3 and w._elem_tabs\n"
+        "assert w._close_machine(confirm=False) is True\n"
+        "assert w.machine is None and w.selected is None\n"
+        "assert w.component is None and w.config_path is None\n"
+        "assert w.center.count() == 2 and not w._elem_tabs\n"
+        "assert not w.results_model.sources\n"
+        "print('OK')\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert "OK" in out.stdout
