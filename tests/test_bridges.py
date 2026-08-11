@@ -59,10 +59,9 @@ def test_iw2d_clear_error_when_not_installed(monkeypatch):
         compute_iw2d(np.logspace(6, 9, 4), radius_m=0.02)
 
 
-def test_iw2d_layer_conversion_applies_the_unit_traps():
+def test_iw2d_layer_conversion_applies_the_unit_traps(iw2d):
     """The pytlwall -> IW2D conversion is where the comparison can silently go
     wrong: muinf is a relative permeability, IW2D wants a susceptibility."""
-    pytest.importorskip("IW2D")
     from IW2D.interface import (IW2DLayer, Eps1FromResistivity,
                                 Mu1FromSusceptibility)
     from wimba.sources.iw2d_bridge import _one_layer
@@ -94,10 +93,9 @@ def test_iw2d_layer_conversion_applies_the_unit_traps():
     assert cu.eps1.resistivity_relaxation_time == pytest.approx(2.7e-14)
 
 
-def test_iw2d_pec_is_reported_as_an_approximation():
+def test_iw2d_pec_is_reported_as_an_approximation(iw2d):
     """IW2D has no PEC layer. The substitution must be visible to the caller,
     not silent: a PEC result from IW2D is an approximation."""
-    pytest.importorskip("IW2D")
     from wimba.sources.iw2d_bridge import compute_iw2d, PEC_RESISTIVITY
 
     layers = [{"type": "CW", "thickness": 0.002, "sigma": 1e6},
@@ -108,17 +106,15 @@ def test_iw2d_pec_is_reported_as_an_approximation():
     assert f"{PEC_RESISTIVITY:g}" in notes[0]
 
 
-def test_iw2d_rejects_non_circular_shapes():
-    pytest.importorskip("IW2D")
+def test_iw2d_rejects_non_circular_shapes(iw2d):
     from wimba.sources.iw2d_bridge import compute_iw2d
     with pytest.raises(ValueError, match="circular chambers"):
         compute_iw2d(np.logspace(6, 9, 4), radius_m=0.02, shape="RECTANGULAR")
 
 
-def test_run_computes_iw2d_devices(tmp_path):
+def test_run_computes_iw2d_devices(tmp_path, iw2d):
     """A device with method 'iw2d' must be computed, not silently skipped: the
     compare flow of a single-element study depends on it."""
-    pytest.importorskip("IW2D")
     from wimba.run import COMPUTED_METHODS
     assert "iw2d" in COMPUTED_METHODS
 

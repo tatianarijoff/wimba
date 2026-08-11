@@ -48,20 +48,18 @@ def test_unknown_method_is_skipped_and_said_so(tmp_path):
     assert "x" in notes and "not_a_method" in notes
 
 
-def test_iw2d_method_is_computed(tmp_path):
+def test_iw2d_method_is_computed(tmp_path, iw2d):
     """iw2d is a computed method, not a placeholder: the compare flow of a
     single-element study depends on it running."""
-    pytest.importorskip("IW2D")
     r = _row("x", 0.02)
     r.method = "iw2d"
     _totals, _wake, stats = compute_assignments([r], F, tmp_path / "out")
     assert stats["computed"] == 1 and stats["skipped"] == 0
 
 
-def test_cache_does_not_mix_methods(tmp_path):
+def test_cache_does_not_mix_methods(tmp_path, iw2d):
     """Two devices with the same geometry but different methods are two
     calculations -- that is exactly the shape of a compare run."""
-    pytest.importorskip("IW2D")
     a, b = _row("pt", 0.02), _row("iw", 0.02)
     b.method = "iw2d"
     _totals, _wake, stats = compute_assignments([a, b], F, tmp_path / "out")

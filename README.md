@@ -122,7 +122,7 @@ pip install -e <path to pytlwall>
 Try the single-chamber verification first (quick, and confirms the numbers):
 
 ```bash
-wimba run examples/RoundChamber/RoundChamber_config.yaml --wake
+wimba run examples/RoundChamber/RoundChamber_input.yaml --wake
 ```
 
 First-time tool setup / self-check:
@@ -144,7 +144,8 @@ pip install -e <path to IW2D>
 ```
 
 after its C++ libraries (GSL, GMP, MPFR, Arb) are available from the system or
-from conda. See [docs/IW2D.md](docs/IW2D.md).
+from conda. On Debian and Ubuntu also set `IW2D_FLINT_ARB=1`, since Arb is
+packaged there as `flint-arb`. See [docs/IW2D.md](docs/IW2D.md).
 
 If you bring in a pytlwall chamber `.cfg`, read
 **[docs/PYTLWALL_CFG.md](docs/PYTLWALL_CFG.md)** first: it says what WIMBA takes
@@ -162,8 +163,24 @@ pip install -e ".[dev]"       # pytest (+ xwakes for the resonator cross-checks)
 python -m pytest              # -q for the short summary
 ```
 
-Tests that need pytlwall or PyQt6 are skipped automatically when those are not
-installed.
+Tests that need pytlwall, PyQt6, xwakes or IW2D are skipped automatically when
+those are not available, so a fresh clone runs the suite green with nothing but
+the `[dev]` extra.
+
+One case is worth knowing about, because it looks like a failure and is not one.
+On Debian and Ubuntu the Arb library is packaged as `flint-arb`, while IW2D asks
+for `arb`, so importing IW2D fails inside its C++ loader unless it is told
+otherwise. The IW2D tests are then skipped with a message pointing here. To run
+them instead:
+
+```bash
+export IW2D_FLINT_ARB=1       # put it in your shell profile
+python -m pytest
+```
+
+Add it to the environment WIMBA runs in as well, not just the test shell — the
+same import happens when a device uses `method: iw2d`. Full detail, including
+the system libraries IW2D needs, is in [docs/IW2D.md](docs/IW2D.md).
 
 ## Graphical interface
 
