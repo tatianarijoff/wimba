@@ -3,7 +3,7 @@
 # beta = 1, one layer sigma = 2e5 S/m, gamma = 479.605. Running this produces the
 # WIMBA plots for the same chamber, to check the values against the reference.
 #
-#   wimba run examples/RoundChamber/RoundChamber_input.yaml --wake
+#   wimba run examples/RoundChamber/RoundChamber_config.yaml --wake
 
 name: RoundChamber
 gamma: 479.605

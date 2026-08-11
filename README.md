@@ -122,7 +122,7 @@ pip install -e <path to pytlwall>
 Try the single-chamber verification first (quick, and confirms the numbers):
 
 ```bash
-wimba run examples/RoundChamber/RoundChamber_input.yaml --wake
+wimba run examples/RoundChamber/RoundChamber_config.yaml --wake
 ```
 
 First-time tool setup / self-check:

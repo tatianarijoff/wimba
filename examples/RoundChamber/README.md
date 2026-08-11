@@ -7,17 +7,17 @@ against pytlwall directly before trusting a full machine.
 
 | file | what it is |
 |------|------------|
-| `RoundChamber_input.yaml` | the config: one inline `chamber` device (CIRCULAR, radius 2 mm, length 1 m, beta = 1, one conducting layer sigma = 2e5 S/m, infinite thickness), gamma = 479.605, frequency grid. No optics and no default pipe: the model is exactly this one chamber |
+| `RoundChamber_config.yaml` | the config: one inline `chamber` device (CIRCULAR, radius 2 mm, length 1 m, beta = 1, one conducting layer sigma = 2e5 S/m, infinite thickness), gamma = 479.605, frequency grid. No optics and no default pipe: the model is exactly this one chamber |
 
 ## Run from the shell
 
 ```bash
-wimba run examples/RoundChamber/RoundChamber_input.yaml --wake
+wimba run examples/RoundChamber/RoundChamber_config.yaml --wake
 ```
 
 ## Run from the GUI
 
-`File → Open Config` → `RoundChamber_input.yaml` → `Calculate → Calculate Whole
+`File → Open Config` → `RoundChamber_config.yaml` → `Calculate → Calculate Whole
 Machine`; pick quantities from the **Results** tree.
 
 ## Outputs

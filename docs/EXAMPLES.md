@@ -35,7 +35,7 @@ sigma = 2e5 S/m, gamma = 479.605) defined inline in the config with a `chamber`
 source, so the whole model is one chamber with a known geometry.
 
 ```bash
-wimba run examples/RoundChamber/RoundChamber_input.yaml --wake
+wimba run examples/RoundChamber/RoundChamber_config.yaml --wake
 ```
 
 Produces, under `RoundChamber_output/`, `single_elements/total.csv` (and the same
