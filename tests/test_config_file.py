@@ -161,3 +161,91 @@ def test_the_template_documents_the_iw2d_path_key():
     assert "path: ~/CERN/impedance/IW2D" in text
     assert "WIMBA_IW2D_PATH" in text
     assert "cpp/IW2D" not in text
+
+
+# ------------------------------------------------- declared vs actual imports
+def _dist(spec: str) -> str:
+    """Distribution name out of a requirement string."""
+    import re as _re
+    return _re.split(r"[\[<>=!;\s]", spec.strip(), 1)[0].lower()
+
+
+def _dists_for(module: str) -> set:
+    """Which distributions provide this import name, per the installed metadata."""
+    from importlib.metadata import packages_distributions
+    return set(packages_distributions().get(module, []))
+
+
+def _import_names(dist: str) -> set:
+    """The import names a distribution provides. Falls back to its own name when
+    the distribution is not installed here."""
+    from importlib.metadata import packages_distributions
+    names = {m.lower() for m, ds in packages_distributions().items()
+             if dist in {d.lower() for d in ds}}
+    return names or {dist}
+
+
+
+def test_every_third_party_import_is_declared(tmp_path):
+    """A dependency that is imported but never declared works on the machine that
+    wrote it and fails on every other one. This walks the package instead of
+    trusting the pyproject to have kept up."""
+    import ast
+    import sys
+    import tomllib
+    from pathlib import Path
+
+    root = Path(cfg.__file__).resolve().parent.parent
+    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+    declared = {"wimba"}
+    for spec in (project["dependencies"]
+                 + [d for v in project["optional-dependencies"].values() for d in v]):
+        declared.add(_dist(spec))
+    # engines WIMBA locates itself rather than depending on
+    declared |= {"pytlwall", "iw2d"}
+
+    seen = set()
+    for path in (root / "wimba").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Import):
+                seen |= {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                seen.add(node.module.split(".")[0])
+    external = {m for m in seen
+                if m not in sys.stdlib_module_names and m != "__future__"}
+    # the import name is not the distribution name: `import yaml` comes from
+    # pyyaml, `import PIL` from pillow. Ask the installed metadata rather than
+    # keeping a hand-written table that goes stale.
+    undeclared = {m for m in external
+                  if not ({d.lower() for d in _dists_for(m)} | {m.lower()}) & declared}
+    assert not undeclared, f"imported but not declared in pyproject.toml: {undeclared}"
+
+
+def test_nothing_is_declared_that_is_never_imported():
+    """The mirror image: pyqtgraph sat in the gui extra for months without a
+    single import. A dependency nobody uses is still a dependency everybody
+    installs."""
+    import ast
+    import tomllib
+    from pathlib import Path
+
+    root = Path(cfg.__file__).resolve().parent.parent
+    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+    seen = set()
+    for path in (root / "wimba").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Import):
+                seen |= {a.name.split(".")[0].lower() for a in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                seen.add(node.module.split(".")[0].lower())
+    # test-only and build-only tools are not imported by the package itself
+    exempt = {"pytest", "xwakes", "openpyxl", "setuptools"}
+    declared = {}
+    for extra, specs in project["optional-dependencies"].items():
+        for spec in specs:
+            declared[_dist(spec)] = extra
+    for spec in project["dependencies"]:
+        declared[_dist(spec)] = "core"
+    unused = {d: e for d, e in declared.items()
+              if d not in exempt and not _import_names(d) & seen}
+    assert not unused, f"declared but never imported: {unused}"

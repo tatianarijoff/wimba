@@ -32,7 +32,11 @@ class ImportMapDialog(QDialog):
         from ..io.tables import SPREADSHEET_SUFFIXES
         try:
             if self.data_path.suffix.lower() in SPREADSHEET_SUFFIXES:
-                import pandas as pd
+                try:
+                    import pandas as pd
+                except ImportError:
+                    return ('Reading a spreadsheet needs pandas and openpyxl:\n'
+                            '    pip install -e ".[spreadsheets]"')
                 df = pd.read_excel(self.data_path, nrows=10)
                 lines = ["  ".join(str(c) for c in df.columns)]
                 lines += ["  ".join(f"{v:.6g}" if isinstance(v, float) else str(v)

@@ -239,6 +239,12 @@ pip install -e ".[gui]"
 python -m wimba.gui        # or: wimba-gui
 ```
 
+The extras: `[dev]` adds the test tools, `[gui]` the desktop interface, and
+`[spreadsheets]` the ability to import impedance tables from `.xlsx`/`.xls`
+(plain text needs nothing extra). numpy, PyYAML and matplotlib come with the
+package itself — `wimba run` and `wimba plot` write figures, so matplotlib is
+not optional.
+
 **A single machine.** `File → Load Machine` or `Open Config` opens one; the
 panels show its elements (geometry, layers with the full pytlwall parameter set,
 models, optics) and its **Beam** — particle and energy, with the derived

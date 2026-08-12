@@ -16,6 +16,21 @@ That is everything you need for the core, the analytic resonator and the Fourier
 tools. External engines are only required for resistive-wall sources — if you
 don't use them, you are already done.
 
+## What comes with the package, and what does not
+
+| | |
+|---|---|
+| always installed | `numpy`, `PyYAML`, `matplotlib` |
+| `[dev]` | `pytest`, `xwakes` — the test suite and the resonator cross-checks |
+| `[gui]` | `PyQt6` — the desktop interface |
+| `[spreadsheets]` | `pandas`, `openpyxl` — importing tables from `.xlsx`/`.xls` |
+| not a dependency | **pytlwall** and **IW2D**: WIMBA locates them, see below |
+
+matplotlib is not an extra because `wimba run` and `wimba plot` write figures,
+and those are core commands. The two engines are deliberately not dependencies:
+neither is on PyPI in the form WIMBA uses, and a study that only combines
+resonators and imported tables needs neither.
+
 For the engines, run once:
 
 ```bash

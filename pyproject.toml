@@ -15,7 +15,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Physics",
 ]
-dependencies = ["numpy", "pyyaml"]
+# matplotlib is a runtime dependency, not an extra: `wimba run` and `wimba plot`
+# write figures, and those are core commands - the README sends a new user
+# straight at `wimba run`.
+dependencies = ["numpy", "pyyaml", "matplotlib"]
 authors = [
     { name = "Tatiana Rijoff" },
     { name = "Carlo Zannini" },
@@ -23,8 +26,9 @@ authors = [
 
 [project.optional-dependencies]
 dev = ["pytest", "xwakes"]
-examples = ["matplotlib"]
-gui = ["PyQt6", "pyqtgraph", "matplotlib"]
+# reading impedance tables out of .xlsx / .xls; plain text needs nothing extra
+spreadsheets = ["pandas", "openpyxl"]
+gui = ["PyQt6"]
 
 [project.scripts]
 wimba = "wimba.cli:main"

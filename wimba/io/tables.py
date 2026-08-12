@@ -61,7 +61,16 @@ def _load_table(path):
         d = np.loadtxt(path)
         return None, np.atleast_2d(d)
     except ValueError:
-        import pandas as pd
+        # numpy could not read it: a header row, an odd separator, mixed columns.
+        # pandas sorts all of that out, but it is an optional dependency - say so
+        # rather than letting a bare ImportError surface from three frames down.
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError(
+                f"{path.name} is not a plain numeric table, and reading it needs "
+                "pandas:\n    pip install pandas\n"
+                'or install the extra:  pip install -e ".[spreadsheets]"') from exc
         df = pd.read_csv(path, sep=None, engine="python", comment="#")
         return [str(c) for c in df.columns], df.to_numpy(dtype=float)
 
