@@ -33,35 +33,49 @@ them. Run it once; edit the config by hand later if a path changes.
   `pip install cppyy && pip install -e <path to IW2D>`, after the GSL, GMP,
   MPFR and Arb system libraries. Nothing needs configuring here: WIMBA imports
   it rather than executing a binary. See [IW2D.md](IW2D.md), which also covers
-  the `IW2D_FLINT_ARB` variable needed on Debian and Ubuntu. The `--iw2d`
-  option and the `iw2d.binary` setting below configure the *command-line
-  executables*, used only by the legacy file-based path.
+  the `IW2D_FLINT_ARB` variable needed on Debian and Ubuntu.
 - **pytlwall** — a Python package. If it imports, nothing to do. For a local
   checkout instead of a pip install: `wimba setup --pytlwall-path <path to pytlwall>`.
 
+Neither engine needs `wimba setup` when it is pip-installed. The command is for
+recording the path of a checkout that is not.
+
 CI / scripts: add `--non-interactive` to never prompt.
 
-## The config file
+## The settings file
 
-Location: `$WIMBA_CONFIG`, else `$XDG_CONFIG_HOME/wimba/config.yaml`, else
-`~/.config/wimba/config.yaml`.
+Full reference: **[SETTINGS.md](SETTINGS.md)**. In short, WIMBA reads the nearest
+`wimba.yaml` walking up from the working directory, so one at the top of your
+working copy covers everything you run inside it:
+
+```bash
+wimba config --init     # write a commented starter here
+wimba config            # which file is in use, and what it resolves to
+```
 
 ```yaml
 tools:
-  iw2d:
-    binary: <path to IW2D>
   pytlwall:
-    path: <path to pytlwall>        # only if not pip-installed
+    path: <folder containing the pytlwall package>   # only if not pip-installed
+  iw2d:
+    path: <folder containing the IW2D package>       # only if not pip-installed
 ```
+
+Both keys give the folder that *contains* the package, not a binary: WIMBA
+imports both engines. A `binary:` key under `iw2d` is still read, from the older
+file-based path, but nothing in the current bridge uses it.
+
+A fresh install with no settings file anywhere gets one written at
+`~/.config/wimba/config.yaml` on first use.
 
 ## How a tool is resolved
 
 Highest priority first:
 
 1. an explicit argument in code,
-2. an environment variable (`WIMBA_IW2D_BINARY`, `WIMBA_PYTLWALL_PATH`),
-3. the config file above,
-4. otherwise a clear error telling you to run `wimba setup`.
+2. an environment variable (`WIMBA_PYTLWALL_PATH`, `WIMBA_IW2D_PATH`),
+3. the settings file above,
+4. otherwise a clear error telling you how to install it.
 
 ## Installing the engines
 
@@ -74,8 +88,7 @@ Highest priority first:
 ## Default compute method
 
 New GUI elements and config devices without an explicit `method:` use the
-configured default (pytlwall if unset). To change it, add to the WIMBA config
-file (`~/.config/wimba/config.yaml`, or `$WIMBA_CONFIG`):
+configured default (pytlwall if unset). To change it, add to the settings file:
 
 ```yaml
 default_method: IW2D        # pytlwall | IW2D (case-insensitive)

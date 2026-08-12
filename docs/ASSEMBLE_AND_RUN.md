@@ -19,6 +19,11 @@ optics: data/twiss_lhcb1_beta130cm.tfs     # MAD-X twiss (.tfs)
 grid:
   frequency: {min: 1.0e5, max: 1.0e10, n: 100, log: true}
 
+beam:                                      # no default: a wall source with no
+  particle: proton                         # beam stops with an error
+  mode: gamma
+  gamma: 7461.0
+
 default_pipe:                              # applied to every uncovered lattice row
   method: pytlwall
   space_charge: false
@@ -42,6 +47,7 @@ output: [TCP.C6L7.B1]                      # per-device CSV only for these (opt-
 | key | meaning |
 |-----|---------|
 | `optics` | MAD-X twiss; used to resolve beta and position |
+| `beam` | particle + one of gamma/beta/energy/kinetic/momentum (see CONFIG.md) |
 | `grid.frequency` | `{min, max, n, log}` frequency grid |
 | `default_pipe` | resistive wall for lattice rows without a named device |
 | `devices` | named sources (collimator/resonator JSON, ...) with a method |
@@ -60,8 +66,10 @@ beta = 1 (editable). The resolution used is recorded per row (`interp` / `name` 
 Methods are `pytlwall`, `iw2d`, `precalculated`, `resonator`, each **plain** or
 **weighted**. Plain = WIMBA applies the beta from the twiss; weighted = the result
 already carries beta and is summed as-is. Space charge is a flag on the pytlwall
-methods. Currently the compute engine implements `pytlwall`; the others are
-recorded in the array and skipped in the computation for now.
+methods.
+
+`pytlwall`, `resonator` and `precalculated` are computed. `iw2d` rows are
+recorded in the array and reported as skipped in the run summary.
 
 ## The default pipe, computed once
 
@@ -103,3 +111,11 @@ wimba plot <name>_output/single_elements/total.csv --components ZLong,ZDipX
 ```
 
 From a file you say which components you want; in the GUI you choose at runtime.
+
+## Inside a project
+
+A scenario points at a config exactly like this one. The difference is that the
+**grid comes from the project**, so every scenario shares it, and the beam is
+edited in the Beam panel rather than by hand. *Calculate → Whole Machine* uses
+the current scenario's config with no file dialog, and writes into
+`<scenario>/output/`. See [PROJECTS.md](PROJECTS.md).

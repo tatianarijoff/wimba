@@ -4,26 +4,46 @@
 
 # WIMBA documentation
 
-- [Setup & quick start](SETUP.md) — install, `wimba setup`, locating IW2D /
-  pytlwall. **Start here.**
-- [Data model](DATA_MODEL.md) — the architecture and the core objects
-  (`ImpedanceTerm`, `Element`, `ElementGroup`, `Machine`), beta weighting and how
-  to query a machine.
-- [Examples](EXAMPLES.md) — the four bundled examples and how to run them.
-- [Assemble & run](ASSEMBLE_AND_RUN.md) — optics + devices -> machine total (assemble/run/plot).
-- [Building a machine](BUILD.md) — `wimba build` and `wimba show`; output layout, resume and totals.
-- [Machine config reference](CONFIG.md) — the YAML format, field by field.
-- [Resonator source](RESONATOR.md) — the analytic resonator source: Chao
-  formulas (matching xwakes), conventions and limitations.
+**Start here**
+
+- [Setup & quick start](SETUP.md) — install, locating IW2D / pytlwall.
+- [Settings](SETTINGS.md) — `wimba.yaml`: engine paths, data directory, logging.
+  Not to be confused with a machine config.
+
+**Building and computing a model**
+
+- [Projects and scenarios](PROJECTS.md) — one machine at several energies:
+  the project, the scenarios under it, the beam, and how two results end up on
+  one plot.
+- [Machine config reference](CONFIG.md) — the YAML that describes a machine,
+  field by field, including the `beam:` block.
+- [Assemble & run](ASSEMBLE_AND_RUN.md) — optics + devices → machine total
+  (assemble/run/plot).
+- [Building a machine](BUILD.md) — `wimba build` and `wimba show`; output
+  layout, resume and totals.
+- [Examples](EXAMPLES.md) — the five bundled examples and how to run them.
+
+**Sources**
+
+- [Resonator source](RESONATOR.md) — the analytic resonator: Chao formulas
+  (matching xwakes), conventions and limitations.
+- [Precalculated data](PRECALCULATED.md) — importing tabulated impedance / wake
+  (CST, ASCII), and the import-map descriptor.
+- [IW2D](IW2D.md) — installing it, the two conventions that differ from
+  pytlwall, and the parameter mapping.
+- [pytlwall configs](PYTLWALL_CFG.md) — loading a chamber `.cfg`, and why the
+  frequency grid is rebuilt rather than reused.
+
+**Reference**
+
+- [Data model](DATA_MODEL.md) — the core objects (`ImpedanceTerm`, `Element`,
+  `ElementGroup`, `Machine`), beta weighting, and how to query a machine.
+- [Component bench](COMPONENT.md) — computing one component in the GUI, with no
+  machine and no optics.
 - [Fourier transforms](FOURIER.md) — on-demand wake ↔ impedance transforms for
   consistency checks.
-
-Planned, as the corresponding code lands:
-
-- Resistive-wall source (via pytlwall, with optional space charge)
-- Tabulated-data import (CST / ASCII)
-- Optics builder from MAD-X
-- Graphical interface
+- [External data](DATA.md) — files too large to track, where to get them and
+  where to put them.
 
 ## Reading these pages as HTML
 

@@ -2,7 +2,7 @@
 
 # Examples
 
-WIMBA ships four examples, each self-contained in its own folder under
+WIMBA ships five examples, each self-contained in its own folder under
 `examples/`. They exercise the two ways of building a model:
 
 - the **assemble / run** flow — start from the optics (a MAD-X twiss) and a set of
@@ -24,6 +24,7 @@ not.
 | [LHC](#lhc) | assemble / run | yes | a full realistic machine from real LHC data |
 | [SubLHC](#sublhc) | build | no | the group/element build flow end to end |
 | [resonator](#resonator) | script | no | the analytic resonator source, standalone |
+| [Chimera_Project](#chimera_project) | assemble / run | yes | a project with two scenarios; an invented machine |
 
 ---
 
@@ -109,3 +110,35 @@ wimba build examples/resonator/resonator_input.yaml
 
 It writes `Z_*.dat`, `W_*.dat`, `impedance.png` and `wake.png` next to the script
 (these are generated artefacts and are git-ignored).
+
+## Chimera_Project
+
+`examples/Chimera_Project/` — a **project with two scenarios**, and the only
+example that is not a machine: CHIMERA does not exist. The lattice, the chamber
+dimensions, the materials, the cavity modes and the kicker "CST export" are all
+invented, so the whole pipeline can be exercised without waiting for real machine
+data. **Do not quote a number out of it.**
+
+Open it with *File → Open Project* and pick the folder, or from the shell:
+
+```bash
+wimba run examples/Chimera_Project/injection_config.yaml  --out injection/output
+wimba run examples/Chimera_Project/extraction_config.yaml --out extraction/output
+```
+
+What it puts through its paces:
+
+| piece | exercises |
+|---|---|
+| 24-cell FODO twiss, 300 m | beta resolution by position |
+| elliptical default pipe, three layers, from JSON | 168 uncovered rows collapsing to one solve |
+| two rectangular collimators, three layers, invented materials | named chambers, the `materials:` block |
+| a kicker as five pre-weighted `.dat` files | the precalculated source |
+| an RF cavity from JSON | the resonator source |
+| injection γ = 2.279 vs extraction γ = 21.34 | two scenarios on one grid |
+
+The devices sit at 40.1, 45.6, 152.3 and 226.7 m — deliberately **not** on cell
+boundaries. Placed on a multiple of the 12.5 m cell they would share a position
+with a quadrupole, and the beta interpolation would take the quadrupole's row: no
+error, no collision, just quietly wrong numbers. Worth knowing if you build a
+lattice by hand.
