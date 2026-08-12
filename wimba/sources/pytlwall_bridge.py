@@ -69,10 +69,27 @@ def _sigma(material):
     return MATERIALS.get(str(material).lower(), DEFAULT_SIGMA)
 
 
+def require_gamma(gamma, what="this calculation"):
+    """No gamma, no result.
+
+    There used to be a default of 7000 in every signature that takes a gamma, so a
+    machine that never mentioned one was quietly computed as if it were the LHC at
+    top energy. Nothing in the output said so. An explicit error is the only honest
+    behaviour: gamma is physics, not a formatting detail.
+    """
+    if gamma is None:
+        raise ValueError(
+            f"{what} needs a relativistic gamma and none was given. Set the beam "
+            "on the scenario (beam: {particle: proton, gamma: ...}) or pass gamma "
+            "explicitly.")
+    return float(gamma)
+
+
 def compute_chamber(freqs, radius_m, layers=None, length_m=1.0,
                     shape="CIRCULAR", hor_m=None, ver_m=None,
-                    gamma=7000.0, betax=1.0, betay=1.0):
+                    gamma=None, betax=1.0, betay=1.0):
     """Return pytlwall's get_all_impedances() for one chamber on `freqs`."""
+    gamma = require_gamma(gamma, "a chamber impedance")
     try:
         import pytlwall
     except ImportError as exc:
@@ -98,7 +115,7 @@ COMPONENTS = ("ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY")
 
 
 def chamber_terms(freqs, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.0,
-                  gamma=7000.0, space_charge=False, shape="CIRCULAR",
+                  gamma=None, space_charge=False, shape="CIRCULAR",
                   hor_m=None, ver_m=None):
     """Compute a chamber and return the beta-weighted WIMBA components.
 
@@ -131,7 +148,7 @@ WAKE_COMPONENTS = ("WLong", "WDipX", "WDipY", "WQuadX", "WQuadY")
 
 
 def chamber_wake(times, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.0,
-                 gamma=7000.0, shape="CIRCULAR", hor_m=None, ver_m=None):
+                 gamma=None, shape="CIRCULAR", hor_m=None, ver_m=None):
     """Compute a chamber's wake with pytlwall (TLWallWake), beta-weighted.
 
     Evaluated at beta = 1; WIMBA applies the beta weighting (transverse scale with
@@ -184,12 +201,12 @@ class ChamberProvider:
     """pytlwall-backed provider: gives a Machine element its wall (and optional
     space-charge) impedance/wake, computed lazily on whatever grid is supplied."""
 
-    def __init__(self, radius_m, layers=None, length_m=1.0, gamma=7000.0,
+    def __init__(self, radius_m, layers=None, length_m=1.0, gamma=None,
                  space_charge=False, shape="CIRCULAR", hor_m=None, ver_m=None):
         self.radius = float(radius_m)
         self.layers = layers
         self.length = float(length_m)
-        self.gamma = float(gamma)
+        self.gamma = require_gamma(gamma, f'chamber of radius {radius_m} m')
         self.space_charge = bool(space_charge)
         self.shape = shape
         self.hor = hor_m

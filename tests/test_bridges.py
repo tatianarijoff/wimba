@@ -56,7 +56,7 @@ def test_iw2d_clear_error_when_not_installed(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", no_iw2d)
     with pytest.raises(ImportError, match="IW2D is required"):
-        compute_iw2d(np.logspace(6, 9, 4), radius_m=0.02)
+        compute_iw2d(np.logspace(6, 9, 4), radius_m=0.02, gamma=7000.0)
 
 
 def test_iw2d_layer_conversion_applies_the_unit_traps(iw2d):
@@ -100,7 +100,7 @@ def test_iw2d_pec_is_reported_as_an_approximation(iw2d):
 
     layers = [{"type": "CW", "thickness": 0.002, "sigma": 1e6},
               {"type": "PEC", "thickness": 0.01}]
-    _out, notes = compute_iw2d(np.logspace(6, 8, 3), radius_m=0.02,
+    _out, notes = compute_iw2d(np.logspace(6, 8, 3), radius_m=0.02, gamma=7000.0,
                                layers=layers, return_notes=True)
     assert notes and "no perfect-conductor layer" in notes[0]
     assert f"{PEC_RESISTIVITY:g}" in notes[0]
@@ -109,7 +109,8 @@ def test_iw2d_pec_is_reported_as_an_approximation(iw2d):
 def test_iw2d_rejects_non_circular_shapes(iw2d):
     from wimba.sources.iw2d_bridge import compute_iw2d
     with pytest.raises(ValueError, match="circular chambers"):
-        compute_iw2d(np.logspace(6, 9, 4), radius_m=0.02, shape="RECTANGULAR")
+        compute_iw2d(np.logspace(6, 9, 4), radius_m=0.02, shape="RECTANGULAR",
+                     gamma=7000.0)
 
 
 def test_run_computes_iw2d_devices(tmp_path, iw2d):

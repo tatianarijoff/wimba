@@ -8,6 +8,7 @@ from wimba.run import compute_assignments
 from wimba.output import read_totals
 
 F = np.logspace(6, 9, 8)
+GAMMA = 7000.0        # the bridges no longer assume one: every call states it
 
 
 def _row(name, radius, beta_x=1.0, length=1.0, group="g"):
@@ -20,7 +21,7 @@ def _row(name, radius, beta_x=1.0, length=1.0, group="g"):
 
 def test_cache_and_totals(tmp_path):
     rows = [_row("a", 0.02), _row("b", 0.02, beta_x=2.0), _row("c", 0.03)]
-    totals, _wake, stats = compute_assignments(rows, F, tmp_path / "out", per_device=["a"])
+    totals, _wake, stats = compute_assignments(rows, F, tmp_path / "out", per_device=["a"], gamma=GAMMA)
 
     # two rows share geometry 0.02 -> only two distinct geometries computed
     assert stats["computed"] == 3 and stats["geometries"] == 2
@@ -42,7 +43,7 @@ def test_unknown_method_is_skipped_and_said_so(tmp_path):
     of bug to notice."""
     r = _row("x", 0.02)
     r.method = "not_a_method"
-    _totals, _wake, stats = compute_assignments([r], F, tmp_path / "out")
+    _totals, _wake, stats = compute_assignments([r], F, tmp_path / "out", gamma=GAMMA)
     assert stats["skipped"] == 1 and stats["computed"] == 0
     notes = " ".join(stats.get("notes", []))
     assert "x" in notes and "not_a_method" in notes
@@ -53,7 +54,7 @@ def test_iw2d_method_is_computed(tmp_path, iw2d):
     single-element study depends on it running."""
     r = _row("x", 0.02)
     r.method = "iw2d"
-    _totals, _wake, stats = compute_assignments([r], F, tmp_path / "out")
+    _totals, _wake, stats = compute_assignments([r], F, tmp_path / "out", gamma=GAMMA)
     assert stats["computed"] == 1 and stats["skipped"] == 0
 
 
@@ -62,7 +63,7 @@ def test_cache_does_not_mix_methods(tmp_path, iw2d):
     calculations -- that is exactly the shape of a compare run."""
     a, b = _row("pt", 0.02), _row("iw", 0.02)
     b.method = "iw2d"
-    _totals, _wake, stats = compute_assignments([a, b], F, tmp_path / "out")
+    _totals, _wake, stats = compute_assignments([a, b], F, tmp_path / "out", gamma=GAMMA)
     assert stats["computed"] == 2
     assert stats["geometries"] == 2      # same geometry, but computed by each code
 
@@ -71,7 +72,7 @@ def test_wake_totals_native(tmp_path):
     F2 = np.logspace(6, 9, 6)
     T = np.linspace(1e-12, 5e-9, 40)
     rows = [_row("a", 0.02, length=1.0), _row("b", 0.02, beta_x=2.0, length=2.0)]
-    ztot, wtot, stats = compute_assignments(rows, F2, tmp_path / "out", times=T)
+    ztot, wtot, stats = compute_assignments(rows, F2, tmp_path / "out", times=T, gamma=GAMMA)
     # wake totals written and native (pytlwall)
     assert (tmp_path / "out" / "single_elements" / "total_wake.csv").is_file()
     assert stats["wake_native"] == {"pytlwall"} and not stats["wake_fft"]
@@ -85,7 +86,7 @@ def test_resonator_lumped_in_total(tmp_path):
                      weighted=False, space_charge=False, beta_x=2.0, beta_y=1.0,
                      beta_source="explicit", allow_overlap=False, length=5.0,
                      geometry=None, group="rf", params={"modes": modes})
-    ztot, _w, stats = compute_assignments([row], F2, tmp_path / "out")
+    ztot, _w, stats = compute_assignments([row], F2, tmp_path / "out", gamma=GAMMA)
     assert stats["computed"] == 1 and stats["skipped"] == 0
     assert np.isclose(ztot["ZLong"][0], 1000.0)          # longitudinal peaks at Rs
     assert np.isclose(ztot["ZDipX"][0], 2.0 * 5e5)       # beta applied, length (=5) is NOT
@@ -102,7 +103,7 @@ def test_precalculated_in_total(tmp_path):
                      params={"files": {"ZLong": str(tmp_path / "ZLong.dat")}, "wake_files": {}})
     fq = np.logspace(6, 9, 20)
     T = np.linspace(1e-12, 5e-9, 40)
-    ztot, wtot, stats = compute_assignments([row], fq, tmp_path / "out", times=T)
+    ztot, wtot, stats = compute_assignments([row], fq, tmp_path / "out", times=T, gamma=GAMMA)
     assert stats["computed"] == 1 and stats["skipped"] == 0
     assert np.allclose(ztot["ZLong"].real, 1.0 / fq, rtol=1e-3)     # loaded from file
     assert "precalculated" in stats["wake_fft"]                      # no wake file -> FFT, noted
@@ -145,7 +146,7 @@ def test_cache_distinguishes_shape(tmp_path):
     geo = {"radius": 0.02, "layers": [{"sigma": 1e6, "thickness": 0.002}]}
     r1 = _row("a", 0.02); r1.geometry = dict(geo)
     r2 = _row("b", 0.02); r2.geometry = dict(geo, shape="ELLIPTICAL", hor=0.02, ver=0.01)
-    ztot, _w, stats = compute_assignments([r1, r2], F, tmp_path / "out")
+    ztot, _w, stats = compute_assignments([r1, r2], F, tmp_path / "out", gamma=GAMMA)
     assert stats["geometries"] == 2                      # two distinct entries
 
 
@@ -155,11 +156,11 @@ def test_isc_separate_and_geometry_error(tmp_path):
     geometry raises a clear error instead of silently using a default radius."""
     r = _row("a", 0.02, beta_x=2.0)
     r.space_charge = True
-    ztot, _w, stats = compute_assignments([r], F, tmp_path / "out")
+    ztot, _w, stats = compute_assignments([r], F, tmp_path / "out", gamma=GAMMA)
     assert "ZLongISC" in ztot and "ZDipXISC" in ztot           # separate columns
 
     from wimba.sources.pytlwall_bridge import compute_chamber
-    base = compute_chamber(F, radius_m=0.02,
+    base = compute_chamber(F, radius_m=0.02, gamma=7000.0,
                            layers=[{"material": "copper", "thickness": 0.002}],
                            length_m=1.0)
     assert np.allclose(ztot["ZLong"], base["ZLong"])            # wall only, no ISC folded
@@ -169,7 +170,7 @@ def test_isc_separate_and_geometry_error(tmp_path):
     bad = _row("nogeo", 0.02)
     bad.geometry = None
     with pytest.raises(ValueError, match="nogeo"):
-        compute_assignments([bad], F, tmp_path / "out2")
+        compute_assignments([bad], F, tmp_path / "out2", gamma=GAMMA)
 
 
 def test_default_pipe_aggregate_output(tmp_path):
@@ -180,13 +181,13 @@ def test_default_pipe_aggregate_output(tmp_path):
         r = _row(name, 0.02, length=1.0 + i)
         r.kind = "default_pipe"
         rows.append(r)
-    compute_assignments(rows, F, tmp_path / "out", per_device=["default_pipe"])
+    compute_assignments(rows, F, tmp_path / "out", per_device=["default_pipe"], gamma=GAMMA)
     agg = tmp_path / "out" / "single_elements" / "default_pipe" / "default_pipe.csv"
     assert agg.is_file()
     _f, comps = read_totals(agg)
     # aggregate = sum of both pipe rows = (L=1 + L=2) x unit chamber
     from wimba.sources.pytlwall_bridge import compute_chamber
-    base = compute_chamber(F, radius_m=0.02,
+    base = compute_chamber(F, radius_m=0.02, gamma=7000.0,
                            layers=[{"material": "copper", "thickness": 0.002}],
                            length_m=1.0)["ZLong"]
     assert np.allclose(comps["ZLong"], 3.0 * base, rtol=1e-6)

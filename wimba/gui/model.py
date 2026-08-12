@@ -1,14 +1,15 @@
-"""GUI view-model: a loose, editable mirror of a WIMBA project.
+"""GUI view-model: a loose, editable mirror of a WIMBA machine.
 
 The core `wimba` objects are built for computation (a provider per element). The
 GUI needs something editable and uniform across sources, so it keeps its own
-light model and converts a loaded `Project` into it. Phase 3 will translate this
+light model and converts a loaded `Scenario` into it. Phase 3 will translate this
 back into providers when calculating.
 """
 from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 # quantity id -> (label, units)
@@ -73,6 +74,11 @@ class GElement:
                                                    # calculations, q = component
                                                    # (ZLong, ...), for comparison
     uid: int = field(default_factory=lambda: next(_UID))
+    edited: set = field(default_factory=set)
+    # which fields the *user* changed in the panels ("bx", "by", "l", "geometry",
+    # "layers"). Only these are written back to the config: a beta that came from
+    # the twiss must not be frozen into the file just because it was displayed,
+    # or changing the optics file would stop moving it.
     # session-unique identity: the NAME is the human descriptor (files, optics,
     # results stay name-based by design); the uid is what the GUI uses to tell
     # elements apart, so renames and duplicate names cannot confuse identity
@@ -96,6 +102,11 @@ class GMachine:
     output: str = ""
     groups: list = field(default_factory=list)
     additional: list = field(default_factory=list)
+    beam: object = None                            # a core.beam.Beam, or None
+    optics_path: str = ""                          # twiss loaded from the GUI
+    # The machine's beam. None means "not stated yet": every calculation then
+    # refuses rather than assuming an energy, which is what the old default of
+    # gamma = 7000 did silently.
 
     def all_elements(self):
         for g in self.groups:
@@ -114,7 +125,7 @@ def default_models(method=None):
             for q, _, _ in QUANTITIES if q != "wake"]
 
 
-# ---------- conversion from a loaded wimba Project ----------
+# ---------- conversion from a loaded wimba Scenario ----------
 def _models_from_provider(el):
     from ..sources.resonator import ResonatorProvider
     from ..sources.table import TableProvider
@@ -159,7 +170,13 @@ def _element_from(e):
         layers=[], models=_models_from_provider(e))
 
 
-def from_project(path) -> GMachine:
+def from_machine_file(path) -> GMachine:
+    """Build the view-model from a machine YAML (the `groups:` dialect).
+
+    Named for what it reads. `from_project` used to be the name, back when the
+    loader called a machine file a project; a project is now the container that
+    holds several scenarios, so the old name pointed at the wrong level.
+    """
     import yaml
     from pathlib import Path
     data = yaml.safe_load(Path(path).read_text()) or {}
@@ -168,13 +185,13 @@ def from_project(path) -> GMachine:
             "This looks like an assemble/run config (optics + devices, no groups).\n"
             "Use  File \u2192 Open Config  to compute it, not Load Machine.")
 
-    from ..builders import load_project
-    proj = load_project(path)
-    out = proj.output if isinstance(proj.output, str) else None
-    gm = GMachine(name=proj.name, output=(out or f"output/{proj.name}/"))
-    for g in proj.machine.groups:
+    from ..builders import load_scenario
+    sc = load_scenario(path)
+    out = sc.output if isinstance(sc.output, str) else None
+    gm = GMachine(name=sc.name, output=(out or f"output/{sc.name}/"), beam=sc.beam)
+    for g in sc.machine.groups:
         gm.groups.append(GGroup(g.name, [_element_from(e) for e in g.elements]))
-    gm.additional = [_element_from(e) for e in proj.machine.additional]
+    gm.additional = [_element_from(e) for e in sc.machine.additional]
     return gm
 
 
@@ -188,9 +205,13 @@ def from_config(path) -> GMachine:
     from pathlib import Path
     from ..assembly import load_assembly
 
+    import yaml as _yaml
+    from ..builders import read_beam
+
     result = load_assembly(str(path))
     gm = GMachine(name=result.name,
-                  output=f"{Path(path).with_suffix('')}_output/")
+                  output=f"{Path(path).with_suffix('')}_output/",
+                  beam=read_beam(_yaml.safe_load(Path(path).read_text()) or {}))
 
     groups = {}
     order = []
@@ -412,3 +433,319 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
     if base_cfg.get("materials"):
         cfg["materials"] = base_cfg["materials"]
     return cfg
+
+
+# ====================================================================== project
+# A project is the container the GUI works in: one grid, one output root, and the
+# scenarios being compared. A scenario is a machine plus the beam it is computed
+# with; every scenario after the first is a duplicate of an earlier one, which is
+# what keeps the comparison honest - they cannot have drifted apart in ways
+# nobody chose.
+@dataclass
+class GScenario:
+    label: str                      # what the user types and what plots are keyed by
+    config: str                     # file name inside the project dir
+    beam: object = None             # a core.beam.Beam, or None
+    derived_from: Optional[str] = None
+    computed_at: Optional[str] = None
+    slug: str = ""                  # folder name; derived from the label
+
+    def __post_init__(self):
+        self.slug = self.slug or slugify(self.label)
+
+    def to_dict(self) -> dict:
+        d = {"label": self.label, "slug": self.slug, "config": self.config}
+        if self.beam is not None:
+            d["beam"] = self.beam.to_dict()
+        if self.derived_from:
+            d["derived_from"] = self.derived_from
+        if self.computed_at:
+            d["computed_at"] = self.computed_at
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "GScenario":
+        from ..core.beam import Beam
+        beam = d.get("beam")
+        return cls(label=d["label"], config=d["config"],
+                   beam=Beam.from_dict(beam) if beam else None,
+                   derived_from=d.get("derived_from"),
+                   computed_at=d.get("computed_at"),
+                   slug=d.get("slug", ""))
+
+
+@dataclass
+class GProject:
+    name: str
+    dir: str
+    scenarios: list = field(default_factory=list)
+    grid: dict = field(default_factory=dict)     # shared by every scenario
+    current: int = 0
+
+    # ---- access ----
+    @property
+    def scenario(self) -> Optional[GScenario]:
+        if not self.scenarios:
+            return None
+        return self.scenarios[min(self.current, len(self.scenarios) - 1)]
+
+    def labels(self) -> list:
+        return [s.label for s in self.scenarios]
+
+    def unique_label(self, wanted: str) -> str:
+        """A label not already taken, so folders never collide."""
+        taken = {s.label for s in self.scenarios}
+        slugs = {s.slug for s in self.scenarios}
+        if wanted not in taken and slugify(wanted) not in slugs:
+            return wanted
+        n = 2
+        while f"{wanted} ({n})" in taken or slugify(f"{wanted} ({n})") in slugs:
+            n += 1
+        return f"{wanted} ({n})"
+
+    def add(self, scenario: GScenario) -> GScenario:
+        if any(s.slug == scenario.slug for s in self.scenarios):
+            raise ValueError(f"a scenario folder named '{scenario.slug}' already exists")
+        self.scenarios.append(scenario)
+        self.current = len(self.scenarios) - 1
+        return scenario
+
+    def rename(self, index: int, label: str) -> GScenario:
+        sc = self.scenarios[index]
+        if label != sc.label:
+            others = [s for i, s in enumerate(self.scenarios) if i != index]
+            if any(s.label == label or s.slug == slugify(label) for s in others):
+                raise ValueError(f"another scenario is already called '{label}'")
+            for s in self.scenarios:
+                if s.derived_from == sc.label:
+                    s.derived_from = label        # keep the lineage pointing somewhere
+            sc.label, sc.slug = label, slugify(label)
+        return sc
+
+    def remove(self, index: int) -> GScenario:
+        sc = self.scenarios[index]
+        children = [s.label for s in self.scenarios if s.derived_from == sc.label]
+        if children:
+            raise ValueError(
+                f"'{sc.label}' is what {', '.join(children)} was duplicated from; "
+                "remove those first, or rename this one instead.")
+        self.scenarios.pop(index)
+        self.current = max(0, min(self.current, len(self.scenarios) - 1))
+        return sc
+
+    # ---- serialisation ----
+    def to_dict(self) -> dict:
+        return {"name": self.name, "grid": self.grid,
+                "scenarios": [s.to_dict() for s in self.scenarios]}
+
+    @classmethod
+    def from_dict(cls, data: dict, directory) -> "GProject":
+        return cls(name=data.get("name", Path(directory).name), dir=str(directory),
+                   grid=data.get("grid") or {},
+                   scenarios=[GScenario.from_dict(s) for s in data.get("scenarios") or []])
+
+
+def slugify(label: str) -> str:
+    """Folder name for a free-text label: 'flat top' -> 'flat_top'."""
+    out = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(label).strip())
+    while "__" in out:
+        out = out.replace("__", "_")
+    return out.strip("_").lower() or "scenario"
+
+
+def as_number(x):
+    """YAML floats that are not YAML floats.
+
+    PyYAML follows YAML 1.1, where an exponent needs a sign: `1.0e+8` is a float
+    but `1.0e8` is a plain string. Configs are full of the second spelling, so
+    anything read out of a grid has to be coerced before it is compared or
+    formatted - a `:g` on a string raises.
+    """
+    if isinstance(x, (bool, int)) or x is None:
+        return x                       # a point count stays an int, not 400.0
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return x
+
+
+def grid_of(cfg: dict) -> dict:
+    """The frequency/time grid a config asks for, in comparable form."""
+    grid = (cfg or {}).get("grid") or {}
+    freq = grid.get("frequency") or grid.get("freq") or {}
+    time = grid.get("time") or {}
+    keep = lambda d: {k: as_number(d[k]) for k in ("min", "max", "n", "log") if k in d}
+    out = {}
+    if freq:
+        out["frequency"] = keep(freq)
+    if time:
+        out["time"] = keep(time)
+    return out
+
+
+# keys whose string values are file references, relative to the config's folder
+PATH_KEYS = {"optics", "file", "map", "path"}
+PATH_DICT_KEYS = {"files", "wake_files"}
+
+
+def freeze_config(src, dest) -> Path:
+    """Copy a config into the project, keeping its file references working.
+
+    A scenario owns its config: the copy is what the user then edits per
+    scenario, and it must not change under them when the original is touched.
+    But the data those configs point at - the MAD-X twiss, imported .dat files -
+    is large and shared, so it stays where it is and the copy points at it by
+    absolute path instead. Only references that actually resolve next to the
+    source are rewritten; anything else is left exactly as written, so a config
+    using absolute paths, or one whose data is missing, is copied unharmed and
+    fails later with its own error rather than a confusing one from here.
+    """
+    import yaml
+
+    src, dest = Path(src), Path(dest)
+    base = src.parent
+    data = yaml.safe_load(src.read_text()) or {}
+
+    def walk(node):
+        if isinstance(node, dict):
+            return {k: _resolve(k, v, base) for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        return node
+
+    def _resolve(key, value, base):
+        if key in PATH_KEYS and isinstance(value, str):
+            here = base / value
+            return str(here.resolve()) if here.exists() else value
+        if key in PATH_DICT_KEYS and isinstance(value, dict):
+            return {c: (str((base / f).resolve()) if isinstance(f, str)
+                        and (base / f).exists() else f) for c, f in value.items()}
+        return walk(value)
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(yaml.safe_dump(walk(data), sort_keys=False))
+    return dest
+
+
+# =================================================================== serialiser
+# Writing the panels back into the scenario's config.
+#
+# This patches the config that is already there; it never dumps a fresh one from
+# the view-model. That is not caution for its own sake - the view-model is a
+# lossy picture of the file. A pytlwall element loaded from a machine file
+# arrives here with `layers=[]`, because the layers live inside the provider and
+# were never unpacked; and an assembly config's `devices:`/`default_pipe:` rules
+# have already been resolved into an assignment array, so the rules themselves
+# cannot be recovered from what the GUI holds. Dumping would quietly delete both.
+# Patching writes only what the GUI genuinely owns and leaves every other line of
+# the file exactly as the user wrote it.
+
+# per-element keys the GUI owns, and what they are called in each dialect
+_OPTICS_KEYS = {"bx": ("beta_x", "beta_x"), "by": ("beta_y", "beta_y"),
+                "l": ("length", "length_m")}
+
+
+def _entry_names(spec) -> set:
+    """Element names a config entry stands for, when it says so explicitly."""
+    name = spec.get("name") if isinstance(spec, dict) else None
+    if isinstance(name, str):
+        return {name}
+    if isinstance(name, list):
+        return set(name)
+    return set()          # a file-driven entry expands to names we cannot see here
+
+
+def patch_config(cfg: dict, machine, optics=None) -> dict:
+    """Return `cfg` with the machine's beam, removals and edits applied.
+
+    Everything not listed here is left untouched, including entries whose element
+    names this function cannot resolve (a `file:`-driven device expands to many
+    elements at load time, so it is never dropped on the strength of a name).
+    """
+    cfg = dict(cfg or {})
+    assembly = "devices" in cfg or "default_pipe" in cfg
+
+    beam = getattr(machine, "beam", None)
+    if beam is not None:
+        cfg["beam"] = beam.to_dict()
+        cfg.pop("gamma", None)      # one authority for the energy, not two
+    if optics:
+        cfg["optics"] = str(optics)
+
+    alive, edits = {}, {}
+    for _g, e in machine.all_elements():
+        if getattr(e, "category", "") == "default_pipe":
+            continue                        # the pipe is a rule, not an element
+        alive[e.name] = e
+        if e.edited:
+            edits[e.name] = e
+
+    if assembly:
+        devices = dict(cfg.get("devices") or {})
+        for key, spec in list(devices.items()):
+            names = _entry_names(spec)
+            if names and not (names & set(alive)):
+                devices.pop(key)
+                continue
+            for name in names & set(edits):
+                devices[key] = _apply_edits(dict(spec), edits[name], assembly=True)
+        cfg["devices"] = devices
+    else:
+        groups = {}
+        for gname, entries in (cfg.get("groups") or {}).items():
+            kept = []
+            for spec in entries or []:
+                name = spec.get("name")
+                if name is not None and name not in alive:
+                    continue
+                kept.append(_apply_edits(dict(spec), edits[name], assembly=False)
+                            if name in edits else spec)
+            if kept:
+                groups[gname] = kept
+        cfg["groups"] = groups
+        extra = [spec for spec in (cfg.get("additional") or [])
+                 if spec.get("name") is None or spec.get("name") in alive]
+        if extra:
+            cfg["additional"] = extra
+        elif "additional" in cfg:
+            cfg.pop("additional")
+    return cfg
+
+
+def _apply_edits(spec: dict, el, assembly: bool) -> dict:
+    """Write the fields the user changed on this element into its config entry."""
+    for key, (machine_key, assembly_key) in _OPTICS_KEYS.items():
+        if key not in el.edited:
+            continue
+        value = el.optics.get(key)
+        target = assembly_key if assembly else machine_key
+        if value is None:
+            spec.pop(target, None)
+        else:
+            if assembly and target == "length_m" and "length" in spec:
+                target = "length"       # follow the spelling already in the file
+            spec[target] = float(value)
+    if "geometry" in el.edited:
+        geo = el.geometry or {}
+        for src, dest in (("radius", "radius_m"), ("hor", "hor_m"), ("ver", "ver_m")):
+            if geo.get(src) is not None:
+                spec[dest] = float(geo[src])
+        if geo.get("shape"):
+            spec["shape"] = geo["shape"]
+    if "layers" in el.edited and el.layers:
+        spec["layers"] = [{k: v for k, v in lay.items() if v not in (None, "")}
+                          for lay in el.layers]
+    return spec
+
+
+def write_config(path, machine, optics=None) -> Path:
+    """Patch the config at `path` in place and report whether anything changed."""
+    import yaml
+
+    path = Path(path)
+    before = path.read_text()
+    cfg = yaml.safe_load(before) or {}
+    after = yaml.safe_dump(patch_config(cfg, machine, optics=optics), sort_keys=False)
+    if after != before:
+        path.write_text(after)
+    return path

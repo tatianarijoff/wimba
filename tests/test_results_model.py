@@ -147,3 +147,58 @@ def test_export_model_creates_missing_directory(tmp_path):
     assert not dest.exists()
     assert export_model(ResultsModel().load(out), dest)
     assert dest.is_dir()
+
+
+# ------------------------------------------- results from several scenarios
+def _write_run_output(root, scale=1.0):
+    """The layout the run pipeline writes: single_elements/total.csv plus one
+    CSV per device."""
+    import numpy as np
+    se = root / "single_elements"
+    (se / "grp").mkdir(parents=True)
+    f = np.logspace(6, 9, 12)
+    for path in (se / "total.csv", se / "grp" / "dev.csv"):
+        with open(path, "w") as fh:
+            fh.write("freq,Re_ZLong,Im_ZLong\n")          # the layout run writes
+            for fi in f:
+                fh.write(f"{fi},{scale * fi:.6e},{-scale * fi:.6e}\n")
+    return root
+
+
+def test_two_scenarios_live_side_by_side(tmp_path):
+    """The reason this exists: both scenarios write "Total" and the same device
+    names, so without a label the second calculation erases the first and there
+    is nothing left to compare."""
+    from wimba.gui.results import ResultsModel
+
+    a = _write_run_output(tmp_path / "inj", scale=1.0)
+    b = _write_run_output(tmp_path / "ext", scale=3.0)
+
+    m = ResultsModel()
+    m.add_scenario(a, "injection")
+    m.add_scenario(b, "extraction")
+
+    assert m.scenarios() == ["injection", "extraction"]
+    assert len(m.sources) == 4                      # 2 sources x 2 scenarios
+    _x, y_inj, lab = m.series("injection \u00b7 Total", "impedance", "ZLong", "Re")
+    _x, y_ext, _l = m.series("extraction \u00b7 Total", "impedance", "ZLong", "Re")
+    assert "injection" in lab                       # the legend says which is which
+    assert y_ext == pytest.approx(3.0 * y_inj)
+
+
+def test_recomputing_a_scenario_replaces_it_and_leaves_the_others(tmp_path):
+    from wimba.gui.results import ResultsModel
+    import numpy as np
+
+    a = _write_run_output(tmp_path / "inj", scale=1.0)
+    b = _write_run_output(tmp_path / "ext", scale=3.0)
+    m = ResultsModel().add_scenario(a, "injection").add_scenario(b, "extraction")
+
+    again = _write_run_output(tmp_path / "inj2", scale=7.0)
+    m.add_scenario(again, "injection")
+
+    assert len(m.sources) == 4                      # replaced, not duplicated
+    _x, y, _l = m.series("injection \u00b7 Total", "impedance", "ZLong", "Re")
+    assert np.max(y) == pytest.approx(7.0e9, rel=1e-6)
+    _x, y_ext, _l = m.series("extraction \u00b7 Total", "impedance", "ZLong", "Re")
+    assert np.max(y_ext) == pytest.approx(3.0e9, rel=1e-6)   # untouched

@@ -1,0 +1,38 @@
+{
+  "name": "chimera_default_pipe",
+  "shape": "ELLIPTICAL",
+  "hor_m": 0.045,
+  "ver_m": 0.028,
+  "radius_m": 0.028,
+  "layers": [
+    {
+      "type": "CW",
+      "thickness": 1e-06,
+      "sigma": 1000000.0,
+      "muinf_Hz": 0.0,
+      "k_Hz": "inf",
+      "epsr": 1.0,
+      "tau": 0.0,
+      "RQ": 0.0
+    },
+    {
+      "type": "CW",
+      "thickness": 0.002,
+      "sigma": 1400000.0,
+      "muinf_Hz": 0.0,
+      "k_Hz": "inf",
+      "epsr": 1.0,
+      "tau": 0.0,
+      "RQ": 0.0
+    },
+    {
+      "type": "V",
+      "thickness": "inf",
+      "muinf_Hz": 0.0,
+      "k_Hz": "inf",
+      "epsr": 1.0,
+      "tau": 0.0,
+      "RQ": 0.0
+    }
+  ]
+}

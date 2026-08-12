@@ -1,0 +1,33 @@
+name: CHIMERA (invented ring)
+grid:
+  frequency:
+    min: 10000.0
+    max: 10000000000.0
+    n: 200
+    log: true
+  time:
+    min: 0.0
+    max: 5.0e-08
+    n: 200
+scenarios:
+- label: injection 1.2 GeV
+  slug: injection
+  config: injection_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+  computed_at: '2026-08-12T15:07:56'
+- label: extraction 20 GeV/c
+  slug: extraction
+  config: extraction_config.yaml
+  beam:
+    particle: proton
+    mode: momentum
+    momentum: 20000000000.0
+    gamma: 21.339222409368706
+    beta: 0.998901369998633
+  derived_from: injection 1.2 GeV
+  computed_at: '2026-08-12T15:08:09'

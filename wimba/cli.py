@@ -57,32 +57,43 @@ def cmd_setup(args):
 
 
 def cmd_build(args):
+    from . import naming
     from .builders import load_project
     from .store import materialize, ResultStore
 
     project = load_project(args.config)
     cfg_dir = Path(args.config).parent
-    if args.out:
-        out = args.out
-    elif project.output:
-        out = project.output
-        if not Path(out).is_absolute():
-            out = str(cfg_dir / out)
-    else:
-        out = str(cfg_dir / f"{project.name}_output")
-    resume = materialize(project, out)
-    store = ResultStore(out)
+    single = len(project.scenarios) == 1
 
-    print(f"Built '{project.name}' from '{args.config}' -> {out}/")
-    print(f"  resume: {resume.name}")
-    for g in store.groups():
-        els = store.elements(g)
-        print(f"  group '{g}': {len(els)} element(s) [{', '.join(els)}]")
-    n_add = len(store.resume.get("additional", []))
-    if n_add:
-        print(f"  additional: {n_add} element(s)")
-    print(f"  components: {', '.join(store.resume.get('components', []))}")
-    print(f"  totals in {out}/total/")
+    def _root(scenario):
+        """Where this scenario writes. One scenario keeps the historical layout;
+        several get one sub-directory each, under the same root."""
+        if args.out:
+            base = args.out
+        elif scenario.output:
+            base = scenario.output
+            if not Path(base).is_absolute():
+                base = str(cfg_dir / base)
+        else:
+            base = str(cfg_dir / f"{project.name}_output")
+        return base if single else str(Path(base) / naming.safe(scenario.name))
+
+    for scenario in project.scenarios:
+        out = _root(scenario)
+        resume = materialize(scenario, out)
+        store = ResultStore(out)
+
+        label = f"'{scenario.name}'" if single else f"scenario '{scenario.name}'"
+        print(f"Built {label} from '{args.config}' -> {out}/")
+        print(f"  resume: {resume.name}")
+        for g in store.groups():
+            els = store.elements(g)
+            print(f"  group '{g}': {len(els)} element(s) [{', '.join(els)}]")
+        n_add = len(store.resume.get("additional", []))
+        if n_add:
+            print(f"  additional: {n_add} element(s)")
+        print(f"  components: {', '.join(store.resume.get('components', []))}")
+        print(f"  totals in {out}/total/")
     return 0
 
 
@@ -161,8 +172,14 @@ def cmd_status(args):
     print("WIMBA external tools")
     print(f"  config file        : {s['config_file']} "
           f"({'found' if s['config_exists'] else 'not created yet'})")
-    print(f"  IW2D binary        : {s['iw2d_binary'] or 'not configured'} "
-          "(legacy file-based path only)")
+    print(f"  settings from      : {s.get('config_source')}")
+    log = s.get("logging") or {}
+    from .logutil import log_file_path
+    where = log_file_path() if log.get("to_file", True) else "off"
+    print(f"  log                : level {log.get('level')}, file {where}")
+    if s.get("iw2d_binary"):
+        print(f"  IW2D binary        : {s['iw2d_binary']} "
+              "(legacy file-based path; the bridge imports the package instead)")
     for label, key in (("pytlwall", "pytlwall"), ("IW2D", "iw2d")):
         info = s.get(key) or {}
         if not info.get("available"):
@@ -173,6 +190,23 @@ def cmd_status(args):
         if info.get("source"):
             print(f"  {'':19}  (found via {info['source']})")
     return 0
+
+
+def cmd_config(args):
+    """Show the settings in use, or write a starter file."""
+    created = cfg.ensure_user_config()
+    if created and args.init is None:
+        print(f"No config existed, so one was written for you: {created}\n")
+    if args.init is not None:
+        try:
+            path = cfg.write_template(args.init or None)
+        except FileExistsError as exc:
+            print(exc)
+            return 1
+        print(f"Wrote {path}\n\nEverything run from inside that folder now uses it. "
+              f"Open it and fill in the paths you need.")
+        return 0
+    return cmd_status(args)
 
 
 def cmd_docs(args):
@@ -208,6 +242,11 @@ def main(argv=None):
     sp.add_argument("--non-interactive", action="store_true",
                     help="do not prompt; use flags and auto-detection only")
     sp.set_defaults(func=cmd_setup)
+
+    cp = sub.add_parser("config", help="show the settings in use, or write a starter file")
+    cp.add_argument("--init", nargs="?", const="", metavar="DIR",
+                    help="write a commented wimba.yaml (default: the current folder)")
+    cp.set_defaults(func=cmd_config)
 
     st = sub.add_parser("status", help="show which external tools WIMBA can find")
     st.set_defaults(func=cmd_status)

@@ -1,3 +1,4 @@
+from .beam import Beam, Particle, PARTICLES
 from .terms import TermId, STANDARD_TERMS, PLANES, MULTIPOLES
 from .impedance_term import ImpedanceTerm
 from .provider import ImpedanceProvider

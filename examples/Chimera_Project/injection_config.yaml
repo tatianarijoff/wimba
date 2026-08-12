@@ -1,0 +1,87 @@
+name: CHIMERA_injection
+optics: chimera.tfs
+grid:
+  frequency:
+    min: 10000.0
+    max: 10000000000.0
+    n: 200
+    log: true
+  time:
+    min: 0.0
+    max: 5.0e-08
+    n: 200
+beam:
+  particle: proton
+  mode: kinetic
+  kinetic: 1200000000.0
+  gamma: 2.278946709965436
+  beta: 0.8985851431285204
+materials:
+  chimeranium: 3200000.0
+  ferrite_x9: 0.01
+output:
+- COLL.H
+- COLL.V
+- KICK.EXT
+- RFCAV
+- default_pipe
+default_pipe:
+  method: pytlwall
+  file: data/chimera_default_pipe.json
+devices:
+  coll_h:
+    source: chamber
+    name: COLL.H
+    method: pytlwall
+    position: 40.1
+    length_m: 1.2
+    shape: RECTANGULAR
+    hor_m: 0.008
+    ver_m: 0.03
+    radius_m: 0.008
+    space_charge: true
+    layers:
+    - type: CW
+      material: chimeranium
+      thickness: 0.025
+    - type: CW
+      material: cu
+      thickness: 0.003
+    - type: V
+      thickness: inf
+  coll_v:
+    source: chamber
+    name: COLL.V
+    method: pytlwall
+    position: 45.6
+    length_m: 1.2
+    shape: RECTANGULAR
+    hor_m: 0.03
+    ver_m: 0.006
+    radius_m: 0.006
+    space_charge: true
+    layers:
+    - type: CW
+      material: graphite
+      thickness: 0.03
+    - type: CW
+      material: cu
+      thickness: 0.002
+    - type: V
+      thickness: inf
+  kicker:
+    source: precalculated
+    name: KICK.EXT
+    position: 152.3
+    length_m: 2.4
+    weighted: true
+    files:
+      ZLong: data/chimera_kicker_ZLong.dat
+      ZDipX: data/chimera_kicker_ZDipX.dat
+      ZDipY: data/chimera_kicker_ZDipY.dat
+      ZQuadX: data/chimera_kicker_ZQuadX.dat
+      ZQuadY: data/chimera_kicker_ZQuadY.dat
+  rf_homs:
+    source: resonators_json
+    file: data/chimera_rf_homs.json
+    method: resonator

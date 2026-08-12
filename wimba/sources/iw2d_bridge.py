@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .pytlwall_bridge import require_gamma
+
 #: Resistivity [Ohm.m] standing in for a perfect conductor. IW2D has no PEC
 #: layer; its documentation suggests a very low resistivity instead, warning
 #: that numerical issues may occur.
@@ -48,11 +50,8 @@ def iw2d_available() -> bool:
     Arb present; a failure here usually means those libraries are missing
     rather than IW2D itself.
     """
-    try:
-        import IW2D  # noqa: F401
-    except Exception:
-        return False
-    return True
+    from ..config import iw2d_available as _available
+    return _available()
 
 
 def _import_iw2d():
@@ -62,6 +61,8 @@ def _import_iw2d():
     live in ``IW2D.interface``, so they are imported from there rather than from
     the package namespace.
     """
+    from ..config import _ensure_iw2d_on_path
+    _ensure_iw2d_on_path()          # a checkout named in the config, if any
     try:
         import IW2D  # noqa: F401   -- loads the C++ core through cppyy
     except ImportError as exc:
@@ -183,7 +184,7 @@ def _build_layers(layers, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility)
 
 
 def compute_iw2d(freqs, radius_m, layers=None, length_m=1.0, shape="CIRCULAR",
-                 betax=1.0, betay=1.0, gamma=7000.0,
+                 betax=1.0, betay=1.0, gamma=None,
                  yokoya=None, return_notes=False):
     """Compute a round chamber's impedance with IW2D.
 
@@ -232,7 +233,7 @@ def compute_iw2d(freqs, radius_m, layers=None, length_m=1.0, shape="CIRCULAR",
     yk = tuple(yokoya) if yokoya else (1.0, 1.0, 1.0, 0.0, 0.0)
     inp = RoundIW2DInput(
         length=float(length_m),
-        relativistic_gamma=float(gamma),
+        relativistic_gamma=require_gamma(gamma, 'an IW2D impedance'),
         calculate_wake=False,
         layers=_build_layers(layers, IW2DLayer, Eps1FromResistivity,
                              Mu1FromSusceptibility),
@@ -249,11 +250,11 @@ def compute_iw2d(freqs, radius_m, layers=None, length_m=1.0, shape="CIRCULAR",
 class IW2DProvider:
     """Build-flow provider for IW2D, mirroring pytlwall's ChamberProvider."""
 
-    def __init__(self, radius_m, layers=None, length_m=1.0, gamma=7000.0, **kw):
+    def __init__(self, radius_m, layers=None, length_m=1.0, gamma=None, **kw):
         self.radius = float(radius_m)
         self.layers = layers
         self.length = float(length_m)
-        self.gamma = float(gamma)
+        self.gamma = require_gamma(gamma, f'IW2D chamber of radius {radius_m} m')
 
     def terms(self, element):
         from ..core.terms import STANDARD_TERMS

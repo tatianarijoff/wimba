@@ -14,6 +14,7 @@ import numpy as np
 import yaml
 
 from .assembly import load_assembly
+from .builders.loader import read_beam
 from .naming import safe
 from .io.pytlwall_cfg import write_chamber_cfg
 from .output import write_single_element, write_totals, write_wake_totals
@@ -69,7 +70,7 @@ def _scale(base, row, comps, long_name):
     return out
 
 
-def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=7000.0, times=None):
+def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=None):
     zcache, wcache = {}, {}
     ztot = {c: np.zeros(len(freqs), dtype=complex) for c in COMPONENTS}
     wtot = ({c: np.zeros(len(times)) for c in WAKE_COMPONENTS}
@@ -283,7 +284,7 @@ def _write_wake_note(out_dir, stats):
     (Path(out_dir) / "single_elements" / "WAKE_NOTES.txt").write_text("\n".join(lines) + "\n")
 
 
-def run(config, out_dir=None, plot=None, wake=False, gamma=7000.0, fill_pipe=True):
+def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True):
     cfg = yaml.safe_load(Path(config).read_text()) or {}
     if not fill_pipe:                      # GUI toggle: compute only the listed devices
         cfg = dict(cfg)
@@ -292,7 +293,14 @@ def run(config, out_dir=None, plot=None, wake=False, gamma=7000.0, fill_pipe=Tru
     freqs = _grid(cfg)
     out = Path(out_dir) if out_dir else Path(config).parent / f"{result.name}_output"
     per_device = cfg.get("output") or []
-    gamma = float(cfg.get("gamma", gamma))
+    beam = read_beam(cfg)
+    if beam is not None:
+        gamma = beam.gamma
+    elif gamma is None:
+        raise ValueError(
+            f"'{Path(config).name}' does not say at which energy to compute. Add a "
+            "beam, e.g.\n  beam: {particle: proton, gamma: 7461}\n"
+            "(a bare 'gamma:' still works too).")
     times = np.linspace(1.0e-12, 5.0e-9, 500) if wake else None
 
     ztot, wtot, stats = compute_assignments(result.rows, freqs, out,

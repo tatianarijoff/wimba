@@ -88,7 +88,7 @@ def test_space_charge_default_on_for_pytlwall(tmp_path):
         '@ NAME %05s "T"\n* NAME S L BETX BETY\n$ %s %le %le %le %le\n'
         ' "M1" 0.0 1.0 10.0 20.0\n "M2" 10.0 1.0 30.0 40.0\n')
     (tmp_path / "c.yaml").write_text(
-        "name: SCDef\noptics: m.tfs\n"
+        "name: SCDef\ngamma: 7000.0\noptics: m.tfs\n"
         "default_pipe: {method: pytlwall, radius_mm: 22}\n"          # no flag -> on
         "devices:\n"
         "  a: {source: chamber, name: A, method: pytlwall, radius_m: 0.01,\n"

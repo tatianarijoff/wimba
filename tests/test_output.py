@@ -37,8 +37,10 @@ def test_chamber_terms_beta_weighting(tmp_path):
     from wimba.sources.pytlwall_bridge import chamber_terms
     from wimba.output import write_single_element, write_totals
     f = np.logspace(6, 9, 8)
-    t1 = chamber_terms(f, radius_m=0.02, length_m=1.0, betax=1.0, betay=1.0)
-    t2 = chamber_terms(f, radius_m=0.02, length_m=1.0, betax=2.0, betay=1.0)
+    t1 = chamber_terms(f, radius_m=0.02, length_m=1.0, betax=1.0, betay=1.0,
+                       gamma=7000.0)
+    t2 = chamber_terms(f, radius_m=0.02, length_m=1.0, betax=2.0, betay=1.0,
+                       gamma=7000.0)
     assert np.allclose(t2["ZDipX"], 2 * t1["ZDipX"], rtol=1e-6)   # dip scales with beta
     assert np.allclose(t2["ZLong"], t1["ZLong"], rtol=1e-9)       # long does not
     # end-to-end: two single elements -> structure + totals

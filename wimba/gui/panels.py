@@ -8,10 +8,12 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
                              QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                             QProgressBar, QPushButton, QTableWidget,
-                             QTableWidgetItem, QTabWidget, QTreeWidget,
-                             QTreeWidgetItem, QVBoxLayout, QWidget)
+                             QListWidget, QListWidgetItem, QProgressBar,
+                             QPushButton, QTableWidget, QTableWidgetItem,
+                             QTabWidget, QTreeWidget, QTreeWidgetItem,
+                             QVBoxLayout, QWidget)
 
+from ..core.beam import MODES, PARTICLES, Beam
 from .model import (METHODS, QLABEL, QUANTITIES, QUNITS, GElement, GGroup,
                     GMachine, GModel, method_needs_file, new_element,
                     optics_completeness)
@@ -139,10 +141,15 @@ class ElementPanel(QWidget):
             form.addRow(k.replace("_", " ") + ":", ed)
         return w
 
+    def _mark(self, what):
+        self.el.edited.add(what)
+
     def _set_geom(self, key, value):
         self.el.geometry[key] = _num(value)
+        self._mark("geometry")
         if key == "length":
             self.el.optics["l"] = _num(value)
+            self._mark("l")
 
     LAYER_COLS = [
         ("type", "Type"), ("thickness", "Thickness [m]"), ("sigma", "\u03c3 [S/m]"),
@@ -190,16 +197,19 @@ class ElementPanel(QWidget):
     def _add_layer(self):
         L = self._default_layer()
         self.el.layers.append(L); self._layer_row(L)
+        self._mark("layers")
 
     def _rm_layer(self):
         r = self.ltab.currentRow()
         if r >= 0:
             self.ltab.removeRow(r); del self.el.layers[r]
+            self._mark("layers")
 
     def _layer_edit(self, r, c):
         if r < len(self.el.layers) and c < len(self.LAYER_COLS):
             key = self.LAYER_COLS[c][0]
             self.el.layers[r][key] = _num(self.ltab.item(r, c).text())
+            self._mark("layers")
 
     def _set_boundary(self, layer, checked):
         layer["boundary"] = checked
@@ -408,8 +418,237 @@ class OpticsPanel(QWidget):
         if c == 0 or r >= len(self._rows):
             return
         key = ("s", "l", "bx", "by")[c - 1]
-        self._rows[r].optics[key] = _num(self.table.item(r, c).text())
+        el = self._rows[r]
+        el.optics[key] = _num(self.table.item(r, c).text())
+        el.edited.add(key)          # user-set, so it may be written to the config
         self.on_change()
+
+
+# ================================================================== scenarios
+class ScenarioPanel(QWidget):
+    """The scenarios in the open project, and the buttons that manage them.
+
+    New scenarios exist only as duplicates of an existing one. That is a
+    deliberate restriction, not a missing feature: two scenarios are only worth
+    plotting together when they started from the same machine and differ in
+    something the user chose, and duplication is what guarantees it.
+    """
+
+    def __init__(self, project, on_pick, on_duplicate, on_rename, on_remove):
+        super().__init__()
+        v = QVBoxLayout(self)
+        head = QLabel(f"Project: {project.name}")
+        head.setObjectName("EmptyTitle")
+        v.addWidget(head)
+        where = QLabel(project.dir); where.setObjectName("EmptyText")
+        where.setWordWrap(True); v.addWidget(where)
+
+        self.list = QListWidget()
+        for sc in project.scenarios:
+            bits = []
+            if sc.beam is not None:
+                bits.append(sc.beam.label())
+            if sc.derived_from:
+                bits.append(f"from {sc.derived_from}")
+            if sc.computed_at:
+                bits.append("computed")
+            text = sc.label + (f"   \u2014 {', '.join(bits)}" if bits else "")
+            self.list.addItem(QListWidgetItem(text))
+        if project.scenarios:
+            self.list.setCurrentRow(project.current)
+        self.list.currentRowChanged.connect(on_pick)
+        v.addWidget(self.list)
+
+        row = QHBoxLayout()
+        for label, slot, enabled in (("Duplicate", on_duplicate, bool(project.scenarios)),
+                                     ("Rename", on_rename, bool(project.scenarios)),
+                                     ("Remove", on_remove, len(project.scenarios) > 1)):
+            b = QPushButton(label); b.clicked.connect(slot); b.setEnabled(enabled)
+            row.addWidget(b)
+        v.addLayout(row)
+
+        if not project.scenarios:
+            hint = QLabel("Load a machine or open a config: it becomes Scenario 1.")
+            hint.setObjectName("EmptyText"); hint.setWordWrap(True)
+            v.addWidget(hint)
+        else:
+            grid = project.grid.get("frequency") or {}
+            if grid:
+                span = " .. ".join(f"{v:g}" if isinstance(v, float) else str(v)
+                                   for v in (grid.get("min"), grid.get("max")))
+                lab = QLabel(f"Shared grid: {span} Hz, {grid.get('n')} points "
+                             f"\u2014 the same for every scenario, which is what "
+                             f"makes them comparable.")
+                lab.setObjectName("EmptyText"); lab.setWordWrap(True)
+                v.addWidget(lab)
+        return
+
+
+# ====================================================================== beam
+# what each mode is called on screen, and the unit shown next to the field
+_MODE_LABELS = [("gamma", "\u03b3 (relativistic)", ""),
+                ("beta", "\u03b2 (v/c)", ""),
+                ("energy", "total energy", "GeV"),
+                ("kinetic", "kinetic energy", "GeV"),
+                ("momentum", "momentum", "GeV/c")]
+_GeV = {"energy", "kinetic", "momentum"}     # entered in GeV, stored in eV
+
+
+class BeamPanel(QWidget):
+    """Particle and one number: the beam a calculation is run with.
+
+    Only one of gamma / beta / energy / kinetic / momentum is editable at a time -
+    they are the same degree of freedom - and the rest are shown derived. The
+    field turns red with the reason when the value cannot pin down what would be
+    derived from it (beta at LHC energies, gamma at ELENA energies); nothing is
+    stored until it is valid, so a machine never silently carries a beam that the
+    core would refuse.
+    """
+
+    def __init__(self, machine: GMachine, on_change, override: Beam = None):
+        super().__init__()
+        self.gm = machine
+        self.on_change = on_change
+        self.override = override          # a component's own beam, if it has one
+        self._loading = True
+
+        v = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.particle = QComboBox()
+        self.particle.addItems(sorted(PARTICLES))
+        self.particle.setCurrentText("proton")     # the list is alphabetical, and
+        form.addRow("Particle", self.particle)     # "antiproton" is a poor default
+
+        self.mode = QComboBox()
+        for key, label, unit in _MODE_LABELS:
+            self.mode.addItem(f"{label} [{unit}]" if unit else label, key)
+        form.addRow("Given as", self.mode)
+
+        self.value = QLineEdit()
+        self.value.setPlaceholderText("e.g. 7461")
+        form.addRow("Value", self.value)
+        v.addLayout(form)
+
+        self.error = QLabel(); self.error.setObjectName("BeamError")
+        self.error.setWordWrap(True); self.error.setVisible(False)
+        v.addWidget(self.error)
+
+        self.derived = QLabel(); self.derived.setObjectName("EmptyText")
+        self.derived.setWordWrap(True)
+        v.addWidget(self.derived)
+
+        if override is not None:
+            for w in (self.particle, self.mode, self.value):
+                w.setEnabled(False)          # read-only: not this machine's beam
+            note = QLabel("This component carries its own beam, from the config it "
+                          "was loaded with. That beam wins over the machine's for "
+                          "every calculation of this component.")
+            note.setObjectName("EmptyText"); note.setWordWrap(True)
+            v.addWidget(note)
+        v.addStretch(1)
+
+        self._load(override or getattr(machine, "beam", None))
+        self._loading = False
+        self.particle.currentTextChanged.connect(self._edited)
+        self.mode.currentIndexChanged.connect(self._mode_changed)
+        self.value.editingFinished.connect(self._edited)
+        self.value.textEdited.connect(self._preview)
+
+    # ---- state ----
+    def _load(self, beam):
+        if beam is None:
+            self._show_derived(None)
+            return
+        self.particle.setCurrentText(beam.particle)
+        idx = self.mode.findData(beam.mode)
+        self.mode.setCurrentIndex(idx if idx >= 0 else 0)
+        self.value.setText(_beam_text(beam))
+        self._show_derived(beam)
+
+    def _mode_changed(self):
+        """Switching mode re-expresses the beam it already has, rather than
+        clearing it: asking for beta after entering gamma is a question, not an
+        edit.
+
+        Some of those questions have no good answer - beta cannot express an LHC
+        beam - and then the honest reply is to say so and keep the beam that is
+        already set, rather than storing a number that means something else.
+        """
+        if self._loading:
+            return
+        current = getattr(self.gm, "beam", None)
+        mode = self.mode.currentData()
+        if current is None:
+            self._edited()
+            return
+        value = {"gamma": current.gamma, "beta": current.beta,
+                 "energy": current.energy_eV, "kinetic": current.kinetic_eV,
+                 "momentum": current.momentum_eV}[mode]
+        shown = value / 1.0e9 if mode in _GeV else value
+        self.value.setText(f"{shown:.12g}")
+        beam, err = self._parse()
+        if beam is None:
+            label = dict((k, l) for k, l, _ in _MODE_LABELS)[mode]
+            self._show_derived(current, f"This beam cannot be written as {label}: "
+                                        f"{err} Still using {current.label()}.")
+            return
+        self._edited()
+
+    def _preview(self, _text=""):
+        """Live feedback while typing, without storing anything."""
+        beam, err = self._parse()
+        self._show_derived(beam, err, transient=True)
+
+    def _edited(self):
+        beam, err = self._parse()
+        self._show_derived(beam, err)
+        if beam is None:
+            return
+        self.gm.beam = beam
+        if not self._loading:
+            self.on_change()
+
+    def _parse(self):
+        text = self.value.text().strip()
+        if not text:
+            return None, ""
+        mode = self.mode.currentData()
+        try:
+            value = float(text)
+        except ValueError:
+            return None, f"'{text}' is not a number."
+        shown = text
+        if mode in _GeV:
+            value *= 1.0e9                      # GeV on screen, eV inside
+            shown = None                        # digit count refers to the GeV form
+        try:
+            return Beam(self.particle.currentText(), mode, value, text=shown), ""
+        except ValueError as exc:
+            return None, str(exc)
+
+    def _show_derived(self, beam, err="", transient=False):
+        self.error.setVisible(bool(err))
+        self.error.setText(err)
+        if beam is None:
+            self.derived.setText(
+                "No beam set: calculations will refuse to run until one is."
+                if not err else "")
+            return
+        one_minus = beam.one_minus_beta
+        beta = (f"\u03b2 = {beam.beta:.12g}" if one_minus > 1e-6
+                else f"1 \u2212 \u03b2 = {one_minus:.4g}")
+        self.derived.setText(
+            f"\u03b3 = {beam.gamma:.10g}   {beta}\n"
+            f"E = {beam.energy_eV / 1e9:.6g} GeV   "
+            f"T = {beam.kinetic_eV / 1e9:.6g} GeV   "
+            f"p = {beam.momentum_eV / 1e9:.6g} GeV/c"
+            + ("   (not stored yet)" if transient else ""))
+
+
+def _beam_text(beam) -> str:
+    value = beam.value / 1.0e9 if beam.mode in _GeV else beam.value
+    return beam.text or f"{value:.12g}"
 
 
 # ================================================================== inspector

@@ -77,7 +77,7 @@ def test_map_in_run(tmp_path):
             "components": {"ZLong": {}}}
     _map(tmp_path, body)
     (tmp_path / "c.yaml").write_text(
-        "name: MapRun\n"
+        "name: MapRun\ngamma: 7000.0\n"
         "grid: {frequency: {min: 2.0e7, max: 1.0e9, n: 8, log: true}}\n"
         "devices:\n  kicker:\n    source: precalculated\n    name: KICKER\n"
         "    map: map.yaml\n    weighted: true\n")

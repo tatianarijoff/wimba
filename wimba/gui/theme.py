@@ -13,6 +13,7 @@ DARK = dict(
     line="#28323f", line2="#333f4e",
     ink="#d9e0e8", ink2="#9aa6b3", ink3="#6b7683",
     accent="#4cc2d6", primary="#3f6ea0", sel="#202a36", selbg="#1c3038",
+    warn="#e08a5c",
 )
 
 # Light is "technical paper", not glaring white: soft grey-blue ground, graphite ink.
@@ -21,6 +22,7 @@ LIGHT = dict(
     line="#d2d9e1", line2="#c0c9d3",
     ink="#22303f", ink2="#54606f", ink3="#8b95a2",
     accent="#1f7f8f", primary="#1f3a5f", sel="#dce3ea", selbg="#d3e6ec",
+    warn="#a5522a",
 )
 
 THEMES = {"dark": DARK, "light": LIGHT}
@@ -62,4 +64,5 @@ QLabel#Brand {{ color:{t['ink']}; font-weight:600; letter-spacing:.5px; padding-
 QLabel#EmptyIcon {{ color:{t['ink3']}; font-size:30px; }}
 QLabel#EmptyTitle {{ color:{t['ink2']}; font-size:14px; font-weight:600; }}
 QLabel#EmptyText  {{ color:{t['ink3']}; font-size:12px; }}
+QLabel#BeamError  {{ color:{t['warn']}; font-size:12px; }}
 """
