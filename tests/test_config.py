@@ -59,5 +59,16 @@ def test_cli_setup_writes_and_reports(tmp_path, tmp_cfg, capsys):
 
 
 def test_cli_status_without_config(tmp_cfg, capsys):
+    """Status runs and reports its source when no config file exists.
+
+    Deliberately says nothing about whether pytlwall or IW2D are importable:
+    that depends on the machine the tests run on, and an assertion on it passes
+    or fails for reasons that have nothing to do with the code. What is invariant
+    is that status succeeds, names where its settings came from, and does not
+    print the legacy IW2D binary line when no binary is configured.
+    """
     assert cli.main(["status"]) == 0
-    assert "not configured" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "settings from" in out
+    assert "IW2D binary" not in out
+    assert str(tmp_cfg) in out

@@ -1,0 +1,52 @@
+# WIMBA settings - starter copy, tracked in the repository.
+#
+# Copy it to wimba.yaml (which git ignores) and edit that one, so machine-specific
+# paths never travel with the repository:
+#
+#     cp wimba.example.yaml wimba.yaml
+#
+# `wimba config --init` writes the same thing, and a fresh install with no config
+# anywhere gets one at ~/.config/wimba/config.yaml on first run.
+#
+# This file is used by everything run from inside the folder it sits in (WIMBA
+# walks up from the working directory looking for it), so the natural place is
+# the top of your working copy. $WIMBA_CONFIG overrides it; a file under
+# ~/.config/wimba/config.yaml is the fallback when neither exists.
+#
+# Every setting can also come from the environment, which wins over this file:
+#   WIMBA_PYTLWALL_PATH  WIMBA_IW2D_PATH  WIMBA_DATA_DIR
+#   WIMBA_LOG_LEVEL      WIMBA_LOG_DIR    WIMBA_LOG_TO_FILE
+
+tools:
+  pytlwall:
+    # Folder holding a pytlwall checkout. Only needed when it is NOT pip-installed
+    # in the same environment; leave commented out if `pip show pytlwall` finds it.
+    # path: ~/CERN/impedance/pytlwall
+
+  iw2d:
+    # Folder holding an IW2D checkout - the Python package, exactly as for
+    # pytlwall above. WIMBA imports IW2D (a cppyy binding over the C++ core) and
+    # never runs an executable, so this is the folder that CONTAINS the IW2D
+    # package directory, not the compiled binary. Leave commented out if
+    # `pip show IW2D` already finds it.
+    # path: ~/CERN/impedance/IW2D
+
+    # (A `binary:` key is still read here, from when WIMBA called the compiled
+    # C++ executable. Nothing in the current bridge uses it; no example is given
+    # on purpose, so it does not get copied by mistake.)
+
+# Where to look for large data files (MAD-X twiss tables, imported .dat) that a
+# study config refers to by name. One path or a list of them.
+# data_dir: ~/CERN/impedance/externalData
+
+logging:
+  # console verbosity: critical | error | warning | info | debug
+  level: info
+  # keep a rotating file log (2 MB x 3). It is always written at debug level,
+  # whatever the console shows: the console is for the session, the file is for
+  # working out afterwards what happened.
+  to_file: true
+  # where that file goes. Default: $XDG_STATE_HOME/wimba (usually
+  # ~/.local/state/wimba). A relative path is taken from this file's folder.
+  # dir: ./logs
+  file: wimba.log

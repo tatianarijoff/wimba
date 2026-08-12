@@ -39,7 +39,7 @@ def test_pipe_json_rejects_beam_keys(tmp_path):
 def _machine(tmp_path, materials="", layer='{material: unobtainium, thickness: 0.002}'):
     (tmp_path / "m.tfs").write_text(TFS)
     (tmp_path / "c.yaml").write_text(
-        f"name: Mat\noptics: m.tfs\n{materials}"
+        f"name: Mat\ngamma: 7000.0\noptics: m.tfs\n{materials}"
         "devices:\n"
         "  a:\n    source: chamber\n    name: A\n    method: pytlwall\n"
         f"    radius_m: 0.01\n    position: 5.0\n    layers: [{layer}]\n")
@@ -65,7 +65,7 @@ def test_default_pipe_from_json_and_cfg_dump(tmp_path):
     (tmp_path / "p.json").write_text(json.dumps(PIPE))
     (tmp_path / "m.tfs").write_text(TFS)
     (tmp_path / "c.yaml").write_text(
-        "name: Ext\noptics: m.tfs\n"
+        "name: Ext\ngamma: 7000.0\noptics: m.tfs\n"
         "grid: {frequency: {min: 1.0e6, max: 1.0e9, n: 6, log: true}}\n"
         "default_pipe: {method: pytlwall, file: p.json}\n"
         "devices: {}\n")
@@ -120,7 +120,7 @@ def test_configurable_default_method(tmp_path, monkeypatch):
 
     (tmp_path / "m.tfs").write_text(TFS)
     (tmp_path / "c.yaml").write_text(
-        "name: D\noptics: m.tfs\ndevices:\n"
+        "name: D\ngamma: 7000.0\noptics: m.tfs\ndevices:\n"
         "  a: {source: chamber, name: A, radius_m: 0.01, position: 5.0,\n"
         "      layers: [{sigma: 1.0e6, thickness: 0.002}]}\n")   # no method:
     res = load_assembly(tmp_path / "c.yaml")

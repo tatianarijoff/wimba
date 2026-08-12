@@ -52,3 +52,46 @@ class RunWorker(QThread):
             self.done.emit({"result": result, "info": info})
         except Exception:
             self.failed.emit(traceback.format_exc())
+
+
+class BuildWorker(QThread):
+    """Runs the `build` pipeline (load_scenario + materialize) off the UI thread.
+
+    The sibling of RunWorker: `run` executes a config's rules against a lattice,
+    `build` computes exactly the elements a machine file lists. They write
+    different layouts, which is why the Results panel reads both.
+    """
+    log = pyqtSignal(str)
+    done = pyqtSignal(object)      # {"info": {...}}
+    failed = pyqtSignal(str)
+
+    def __init__(self, config, out_dir=None):
+        super().__init__()
+        self.config = str(config)
+        self.out_dir = out_dir
+
+    def run(self):
+        try:
+            from ..builders import load_scenario
+            from ..store import materialize
+
+            name = Path(self.config).name
+            self.log.emit(f"Building '{name}'...")
+            scenario = load_scenario(self.config)
+            n_groups = len(scenario.machine.groups)
+            n_el = sum(len(g.elements) for g in scenario.machine.groups)
+            n_add = len(scenario.machine.additional)
+            beam = f", {scenario.beam.label()}" if scenario.beam else ""
+            self.log.emit(f"  {n_el} element(s) in {n_groups} group(s), "
+                          f"{n_add} additional{beam}.")
+
+            out = self.out_dir or str(Path(self.config).with_suffix("")) + "_output"
+            resume = materialize(scenario, out)
+            self.log.emit(f"Done -> {out}")
+            self.done.emit({"info": {
+                "out": str(out), "resume": str(resume),
+                "stats": {"computed": n_el + n_add, "skipped": 0,
+                          "elements": n_el, "additional": n_add,
+                          "groups": n_groups, "notes": []}}})
+        except Exception:
+            self.failed.emit(traceback.format_exc())

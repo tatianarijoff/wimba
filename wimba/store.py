@@ -1,6 +1,6 @@
 """Per-element result store with a resume file, totals, and lazy aggregation.
 
-`materialize(project, out_dir)` computes each element once on the project grid and
+`materialize(scenario, out_dir)` computes each element once on the project grid and
 writes:
   * per-element files  <Element>_<origin>_<Component>.dat  (impedance and wake),
   * a total/ folder with TOT_<Component>.dat (the beta-weighted machine totals),
@@ -35,14 +35,25 @@ def _grid_spec(arr):
     return _Flow({"min": float(arr[0]), "max": float(arr[-1]), "n": int(len(arr))})
 
 
-def materialize(project, out_dir):
+def materialize(scenario, out_dir):
+    """Write one scenario's results. A single-scenario project is also accepted;
+    a project holding several raises, since only a scenario names one result set."""
     out = Path(out_dir)
+    machine, freqs, times = scenario.machine, scenario.freqs, scenario.times
+    if freqs is None and times is None:
+        raise ValueError(
+            f"scenario '{scenario.name}' has no frequency and no time grid: the "
+            "grids live on the project, so attach it to one before computing.")
     out.mkdir(parents=True, exist_ok=True)
-    machine, freqs, times = project.machine, project.freqs, project.times
 
-    resume = {"name": project.name,
+    resume = {"name": scenario.name,
               "grid": _Flow({"frequency": _grid_spec(freqs), "time": _grid_spec(times)}),
               "components": [], "total": {}, "groups": {}, "additional": []}
+    beam = getattr(scenario, "beam", None)
+    if beam is not None:
+        resume["beam"] = _Flow(beam if isinstance(beam, dict) else beam.to_dict())
+    if getattr(scenario, "derived_from", None):
+        resume["derived_from"] = scenario.derived_from
     seen_terms = set()
 
     def dump(element, base_dir):
@@ -94,7 +105,7 @@ def materialize(project, out_dir):
     resume["total"] = total
     resume["components"] = sorted(naming.component(t, "Z") for t in seen_terms)
 
-    resume_path = out / f"{project.name}_resume.yaml"
+    resume_path = out / f"{naming.safe(scenario.name)}_resume.yaml"
     with open(resume_path, "w") as fh:
         yaml.safe_dump(resume, fh, sort_keys=False)
     return resume_path

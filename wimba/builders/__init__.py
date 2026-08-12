@@ -1,2 +1,3 @@
-from .loader import load_project, Project, SOURCE_BUILDERS
+from .loader import (load_project, load_scenario, read_beam, Project,
+                     Scenario, SOURCE_BUILDERS)
 from . import madx

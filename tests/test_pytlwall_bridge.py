@@ -11,26 +11,27 @@ pytest.importorskip("pytlwall")
 from wimba.sources.pytlwall_bridge import compute_chamber
 
 FREQS = np.logspace(5, 9, 8)
+GAMMA = 7000.0        # the value the bridges used to assume; now always explicit
 
 
 def test_zlong_linear_in_length():
-    z1 = compute_chamber(FREQS, radius_m=0.02, length_m=1.0)["ZLong"]
-    z2 = compute_chamber(FREQS, radius_m=0.02, length_m=2.0)["ZLong"]
+    z1 = compute_chamber(FREQS, radius_m=0.02, length_m=1.0, gamma=GAMMA)["ZLong"]
+    z2 = compute_chamber(FREQS, radius_m=0.02, length_m=2.0, gamma=GAMMA)["ZLong"]
     assert np.allclose(z2, 2.0 * z1, rtol=1e-6)
 
 
 def test_dipole_linear_in_beta():
-    z1 = compute_chamber(FREQS, radius_m=0.02, betax=1.0)["ZDipX"]
-    z2 = compute_chamber(FREQS, radius_m=0.02, betax=2.0)["ZDipX"]
+    z1 = compute_chamber(FREQS, radius_m=0.02, betax=1.0, gamma=GAMMA)["ZDipX"]
+    z2 = compute_chamber(FREQS, radius_m=0.02, betax=2.0, gamma=GAMMA)["ZDipX"]
     assert np.allclose(z2, 2.0 * z1, rtol=1e-6)
     # longitudinal must NOT depend on beta
-    zl1 = compute_chamber(FREQS, radius_m=0.02, betax=1.0)["ZLong"]
-    zl2 = compute_chamber(FREQS, radius_m=0.02, betax=2.0)["ZLong"]
+    zl1 = compute_chamber(FREQS, radius_m=0.02, betax=1.0, gamma=GAMMA)["ZLong"]
+    zl2 = compute_chamber(FREQS, radius_m=0.02, betax=2.0, gamma=GAMMA)["ZLong"]
     assert np.allclose(zl1, zl2, rtol=1e-9)
 
 
 def test_wall_and_space_charge_present():
-    imp = compute_chamber(FREQS, radius_m=0.02)
+    imp = compute_chamber(FREQS, radius_m=0.02, gamma=GAMMA)
     for key in ("ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY",
                 "ZLongISC", "ZDipISC", "ZLongDSC"):
         assert key in imp
@@ -40,7 +41,8 @@ def test_wall_and_space_charge_present():
 
 def test_multilayer_collimator_like():
     layers = [{"material": "cfc", "thickness": 0.025}]
-    imp = compute_chamber(FREQS, radius_m=0.003, layers=layers, length_m=1.0)
+    imp = compute_chamber(FREQS, radius_m=0.003, layers=layers, length_m=1.0,
+                          gamma=GAMMA)
     assert np.all(np.isfinite(imp["ZLong"]))
 
 
@@ -54,7 +56,7 @@ def test_build_flow_computes_pytlwall(tmp_path):
         '@ NAME %05s "T"\n* NAME S L BETX BETY\n$ %s %le %le %le %le\n'
         ' "C1" 100.0 1.0 130.0 85.0\n')
     (tmp_path / "c.yaml").write_text(
-        "name: WallBuild\noptics: m.tfs\n"
+        "name: WallBuild\ngamma: 7000.0\noptics: m.tfs\n"
         "grid:\n  frequency: {min: 1.0e7, max: 1.0e9, n: 10, log: true}\n"
         "  time: {min: 0.0, max: 5.0e-9, n: 10}\n"
         "groups:\n  pipes:\n    - name: C1\n      source: pytlwall\n"
@@ -67,7 +69,7 @@ def test_build_flow_computes_pytlwall(tmp_path):
     z = store.impedance()
     assert "zlong" in z and np.any(np.abs(z["zlong"]) > 0)          # actually computed
     # longitudinal has beta power 0, length 1 -> equals the raw chamber
-    expected = compute_chamber(proj.freqs, radius_m=0.02,
+    expected = compute_chamber(proj.freqs, gamma=GAMMA, radius_m=0.02,
                                layers=[{"material": "copper", "thickness": 0.002}],
                                length_m=1.0)["ZLong"]
     assert np.allclose(z["zlong"], expected, rtol=1e-6)

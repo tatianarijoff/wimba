@@ -23,14 +23,14 @@ def test_configure_and_set_level():
     assert logging.getLogger("wimba").level == logging.DEBUG
 
 
-def test_from_project_rejects_assemble_config(tmp_path):
+def test_from_machine_file_rejects_assemble_config(tmp_path):
     # model.py has no Qt import, so this runs without a display
-    from wimba.gui.model import from_project
+    from wimba.gui.model import from_machine_file
     cfg = tmp_path / "assemble.yaml"
-    cfg.write_text("name: X\noptics: x.tfs\ndefault_pipe: {method: pytlwall}\n"
+    cfg.write_text("name: X\ngamma: 7000.0\noptics: x.tfs\ndefault_pipe: {method: pytlwall}\n"
                    "devices:\n  d: {source: chamber, radius_m: 0.02}\n")
     with pytest.raises(ValueError, match="assemble/run config"):
-        from_project(cfg)
+        from_machine_file(cfg)
 
 
 def test_from_config_populates_machine(tmp_path):
@@ -39,7 +39,7 @@ def test_from_config_populates_machine(tmp_path):
         '@ NAME %05s "T"\n* NAME S L BETX BETY\n$ %s %le %le %le %le\n'
         ' "C1" 100.0 0.6 130.0 85.0\n "C2" 145.0 1.0 110.0 160.0\n')
     (tmp_path / "c.yaml").write_text(
-        "name: Mini\noptics: m.tfs\ndefault_pipe: {method: pytlwall, radius_mm: 22}\n"
+        "name: Mini\ngamma: 7000.0\noptics: m.tfs\ndefault_pipe: {method: pytlwall, radius_mm: 22}\n"
         "devices:\n  collimators:\n    source: chamber\n    name: C1\n"
         "    method: pytlwall\n    radius_m: 0.01\n    beta_x: 130\n    beta_y: 85\n"
         "    position: 100.0\n")
@@ -144,7 +144,8 @@ def test_element_compare_entries_end_to_end(tmp_path):
     el.compare.append(GModel(q="ZLong", enabled=True, method="precalculated",
                              file=str(tmp_path / "zlong_cst.dat")))
 
-    cfg = element_to_config(el, base_cfg={"grid": {"frequency":
+    cfg = element_to_config(el, base_cfg={"gamma": 7000.0,
+                                          "grid": {"frequency":
                                                    {"min": 1e6, "max": 1e9, "n": 8,
                                                     "log": True}}})
     assert "compare_0" in cfg["devices"]
@@ -176,7 +177,8 @@ def test_component_bench_accumulates(tmp_path):
                   optics={}, layers=[{"type": "CW", "thickness": 0.002,
                                       "sigma": 1.4e6}],
                   models=default_models("pytlwall"))
-    grid = {"grid": {"frequency": {"min": 1e6, "max": 1e9, "n": 8, "log": True}}}
+    grid = {"gamma": 7000.0,
+            "grid": {"frequency": {"min": 1e6, "max": 1e9, "n": 8, "log": True}}}
 
     cfg1 = component_config(el, "pytlwall", base_cfg=grid)
     assert cfg1["output"] == ["COMP[pytlwall]"]

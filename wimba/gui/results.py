@@ -24,6 +24,10 @@ MIME = "application/x-wimba-result"
 
 
 # ------------------------------------------------------------------ model
+# separates a scenario label from the source name inside it
+SEP = " \u00b7 "
+
+
 class ResultsModel:
     """What was computed, organised as source -> kind -> {quantity: array}.
 
@@ -73,9 +77,47 @@ class ResultsModel:
             self.sources.setdefault(name, kinds)
         return self
 
+    def add_scenario(self, out_dir, label) -> "ResultsModel":
+        """Add one scenario's results, keeping the ones already loaded.
+
+        Two scenarios of a project produce the same source names - "Total",
+        "coll_h/COLL.H" - so without the label they would overwrite each other
+        and only the last calculation would survive. That is precisely what makes
+        the curves incomparable. The label is prefixed to every source name, so
+        both live in the tree at once and the plot legend says which is which.
+
+        Recomputing a scenario replaces its own sources and leaves the others
+        alone, so a re-run never duplicates a curve.
+        """
+        for name in [n for n in self.sources if n.startswith(f"{label}{SEP}")]:
+            self.sources.pop(name)
+        fresh = ResultsModel().load(out_dir).sources
+        for name, kinds in fresh.items():
+            self.sources[f"{label}{SEP}{name}"] = kinds
+        return self
+
+    def scenarios(self) -> list:
+        """Labels currently loaded, in the order they were added."""
+        out = []
+        for name in self.sources:
+            if SEP in name:
+                label = name.split(SEP, 1)[0]
+                if label not in out:
+                    out.append(label)
+        return out
+
     def load(self, out_dir) -> "ResultsModel":
+        """Read a results directory, whichever pipeline wrote it.
+
+        `run` writes single_elements/ with one CSV per device and a total.csv;
+        `build` writes one .dat per component per element plus a resume listing
+        them. Both are results, and which command produced them is not something
+        the Results panel should have an opinion about.
+        """
         self.clear()
         se = Path(out_dir) / "single_elements"
+        if not se.is_dir() and list(Path(out_dir).glob("*_resume.yaml")):
+            return self._load_build(out_dir)
         total = se / "total.csv"
         if total.is_file():
             self.sources.setdefault("Total", {})["impedance"] = \
@@ -89,6 +131,56 @@ class ResultsModel:
                     name = f"{group_dir.name}/{csv_file.stem}"
                     self.sources.setdefault(name, {})["impedance"] = \
                         self._with_sc_totals(read_totals(csv_file))
+        return self
+
+    def _load_build(self, out_dir) -> "ResultsModel":
+        """The layout `wimba build` / `materialize` writes, read from its resume.
+
+        Component names are the same ones the run pipeline uses (ZLong, ZDipX,
+        ...), so everything downstream - plots, tables, export - is unchanged.
+        """
+        import yaml
+
+        from ..io.tables import read_impedance, read_wake
+
+        out = Path(out_dir)
+        resume = yaml.safe_load(next(out.glob("*_resume.yaml")).read_text()) or {}
+
+        def read_set(files, reader):
+            x, comps = None, {}
+            for comp, rel in (files or {}).items():
+                try:
+                    xi, yi = reader(out / rel)
+                except Exception:
+                    continue
+                x = xi if x is None else x
+                comps[comp] = yi
+            return (x, comps) if comps else None
+
+        total_z = {c: rel for c, rel in (resume.get("total") or {}).items()
+                   if c.startswith("Z")}
+        total_w = {c: rel for c, rel in (resume.get("total") or {}).items()
+                   if c.startswith("W")}
+        loaded = read_set(total_z, read_impedance)
+        if loaded:
+            self.sources.setdefault("Total", {})["impedance"] = \
+                self._with_sc_totals(loaded)
+        loaded = read_set(total_w, read_wake)
+        if loaded:
+            self.sources.setdefault("Total", {})["wake"] = loaded
+
+        entries = [(g, e) for g, els in (resume.get("groups") or {}).items()
+                   for e in els]
+        entries += [("additional", e) for e in (resume.get("additional") or [])]
+        for group, entry in entries:
+            name = f"{group}/{entry.get('name')}"
+            loaded = read_set(entry.get("impedance"), read_impedance)
+            if loaded:
+                self.sources.setdefault(name, {})["impedance"] = \
+                    self._with_sc_totals(loaded)
+            loaded = read_set(entry.get("wake"), read_wake)
+            if loaded:
+                self.sources.setdefault(name, {})["wake"] = loaded
         return self
 
     def series(self, source, kind, quantity, component="Re"):

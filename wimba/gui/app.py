@@ -24,9 +24,12 @@ from PyQt6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QHBoxLayout
                              QTabBar, QTabWidget, QVBoxLayout, QWidget)
 
 from .theme import THEMES, build_style
-from .model import GGroup, from_config, from_project, new_element, new_machine
-from .panels import ElementPanel, InspectorPanel, MachineTree, OpticsPanel
-from .runner import RunWorker
+from .model import (GGroup, GProject, GScenario, freeze_config, from_config,
+                    from_machine_file, grid_of, new_element, new_machine,
+                    slugify, write_config)
+from .panels import (BeamPanel, ElementPanel, InspectorPanel, MachineTree,
+                     OpticsPanel, ScenarioPanel)
+from .runner import BuildWorker, RunWorker
 from .results import (PlotWorkspace, ResultsModel, ResultsTablePanel,
                       ResultsTree)
 from ..logutil import configure, get_logger, set_level
@@ -43,8 +46,10 @@ def asset(name: str) -> str:
 
 # panels that live as docks:  id -> (title, default area)
 DOCKS = {
+    "scenarios":("Scenarios",        Qt.DockWidgetArea.LeftDockWidgetArea),
     "machine":  ("Machine Explorer", Qt.DockWidgetArea.LeftDockWidgetArea),
     "optics":   ("Optics",           Qt.DockWidgetArea.LeftDockWidgetArea),
+    "beam":     ("Beam",             Qt.DockWidgetArea.LeftDockWidgetArea),
     "results":  ("Results",          Qt.DockWidgetArea.RightDockWidgetArea),
     "inspector":("Inspector",        Qt.DockWidgetArea.RightDockWidgetArea),
     "jobs":     ("Jobs",             Qt.DockWidgetArea.BottomDockWidgetArea),
@@ -135,13 +140,16 @@ class MainWindow(QMainWindow):
         self._job_item = None
         self.results_model = ResultsModel()
         self.component = None
+        self.project = None
+        self.project_path = None
+        self._machine_of = None       # slug of the scenario the panels belong to
 
-        configure(self.settings.value("loglevel", "info"))
+        configure(self.settings.value("loglevel", None))
         self.log = get_logger("gui")
         self.console_view = QPlainTextEdit()
         self.console_view.setReadOnly(True)
         logging.getLogger("wimba").addHandler(QtLogHandler(self.console_view))
-        configure(self.settings.value("loglevel", "info"))
+        configure(self.settings.value("loglevel", None))
 
         self._build_central()
         self._build_docks()
@@ -155,9 +163,19 @@ class MainWindow(QMainWindow):
         self._default_geometry = self.saveGeometry()
         self._restore_layout()
         self._install_excepthook()
+        from .. import config as _cfg
         from ..logutil import attach_file_handler
         logpath = attach_file_handler()
-        self.log.info("WIMBA GUI ready. Log file: %s (always at debug level).", logpath)
+        if logpath:
+            self.log.info("WIMBA GUI ready. Log file: %s (always at debug level).",
+                          logpath)
+        else:
+            self.log.info("WIMBA GUI ready. File logging is off (logging.to_file).")
+        created = _cfg.ensure_user_config()
+        if created:
+            self.log.info("No settings file existed; wrote a starter one at %s.",
+                          created)
+        self.log.info("Settings: %s (%s)", _cfg.config_path(), _cfg.config_source())
 
     # ---- central editor area: Plot Workspace + Results Table (+ element tabs) ----
     def _build_central(self):
@@ -184,10 +202,14 @@ class MainWindow(QMainWindow):
     # ---- dock panels ----
     def _build_docks(self):
         placeholders = {
+            "scenarios": ("\u29c9", "No project open",
+                        "File \u2192 New Project to choose where results go, then load a machine."),
             "machine": ("\u25c8", "Machine is empty",
                         "File \u2192 Load Machine, or start a new one."),
             "optics":  ("\u25cb", "No optics yet",
                         "Load a machine, then load or enter the optics."),
+            "beam":    ("\u2192", "No beam yet",
+                        "Load a machine, then set the particle and its energy."),
             "results": ("\u2211", "No results yet",
                         "Run a calculation (or File \u2192 Open Results) to list computed quantities."),
             "inspector":("\u24d8", "Nothing selected",
@@ -213,7 +235,10 @@ class MainWindow(QMainWindow):
             self.addDockWidget(area, dock)
             self.docks[pid] = dock
 
+        self.splitDockWidget(self.docks["scenarios"], self.docks["machine"], Qt.Orientation.Vertical)
         self.splitDockWidget(self.docks["machine"], self.docks["optics"], Qt.Orientation.Vertical)
+        self.tabifyDockWidget(self.docks["optics"], self.docks["beam"])
+        self.docks["optics"].raise_()
         self.tabifyDockWidget(self.docks["jobs"], self.docks["console"])
         self.tabifyDockWidget(self.docks["console"], self.docks["problems"])
         self.tabifyDockWidget(self.docks["problems"], self.docks["outputs"])
@@ -230,6 +255,8 @@ class MainWindow(QMainWindow):
         self.docks["results"].setWidget(self.results_tree)
         self._refresh_machine_panel()
         self._refresh_optics_panel()
+        self._refresh_beam_panel()
+        self._refresh_scenarios_panel()
 
     # ---- brand (logo in the menu-bar corner) ----
     def _build_brand(self):
@@ -252,6 +279,10 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
 
         m = mb.addMenu("&File")
+        self._act(m, "New Project\u2026", self._new_project)
+        self._act(m, "Open Project\u2026", self._open_project)
+        self._act(m, "Close Project", self._close_project)
+        m.addSeparator()
         self._act(m, "Load Machine\u2026", self._load_machine, QKeySequence.StandardKey.Open)
         self._act(m, "New Machine", self._new_machine, QKeySequence.StandardKey.New)
         self._act(m, "Open Config\u2026", self._open_config)
@@ -259,8 +290,13 @@ class MainWindow(QMainWindow):
         self._act(m, "Close Machine", self._close_machine,
                   QKeySequence.StandardKey.Close)
         m.addSeparator()
-        self._act(m, "Save Project", self._todo, QKeySequence.StandardKey.Save)
-        self._act(m, "Save Project As\u2026", self._todo, QKeySequence.StandardKey.SaveAs)
+        self._act(m, "Save Project", self._save_project, QKeySequence.StandardKey.Save)
+        self._act(m, "Save Project As\u2026", self._save_project_as,
+                  QKeySequence.StandardKey.SaveAs)
+        m.addSeparator()
+        self._act(m, "Duplicate Scenario\u2026", self._duplicate_scenario)
+        self._act(m, "Rename Scenario\u2026", self._rename_scenario)
+        self._act(m, "Remove Scenario", self._remove_scenario)
         m.addSeparator()
         sub = m.addMenu("Export Results")
         self._act(sub, "As CSV\u2026", lambda: self._export_results("csv"))
@@ -484,9 +520,36 @@ class MainWindow(QMainWindow):
             return
         self.docks["optics"].setWidget(OpticsPanel(self.machine, self._after_edit, self._load_optics))
 
+    def _refresh_beam_panel(self):
+        """The Beam panel edits the machine's beam, or shows a component's own
+        beam read-only when one is open in the bench."""
+        if not self.machine:
+            self.docks["beam"].setWidget(empty_state("\u2192", "No beam yet",
+                "Load a machine, then set the particle and its energy."))
+            return
+        own = (getattr(self, "component", None) or None)
+        override = None
+        if own is not None:
+            gamma = (getattr(own, "own_base", None) or {}).get("gamma")
+            if gamma is not None:
+                from ..core.beam import Beam
+                override = Beam(mode="gamma", value=float(gamma))
+        self.docks["beam"].setWidget(
+            BeamPanel(self.machine, self._on_beam_changed, override=override))
+
+    def _on_beam_changed(self):
+        beam = getattr(self.machine, "beam", None)
+        if beam is not None:
+            self.log.info("Beam set to %s (1-beta = %.4g)", beam.label(),
+                          beam.one_minus_beta)
+            self.statusBar().showMessage(f"Beam: {beam.label()}", 5000)
+        self._after_edit()
+
     def _refresh_all(self):
         self._refresh_machine_panel()
         self._refresh_optics_panel()
+        self._refresh_beam_panel()
+        self._refresh_scenarios_panel()
         self._update_status()
 
     def _update_status(self):
@@ -512,6 +575,350 @@ class MainWindow(QMainWindow):
         self.inspector.set_ref(ref)
         self._update_status()
 
+    # ---- project and scenarios ----
+    def _refresh_scenarios_panel(self):
+        if self.project is None:
+            self.docks["scenarios"].setWidget(empty_state("\u29c9", "No project open",
+                "File \u2192 New Project to choose where results go, then load a machine."))
+            return
+        self.docks["scenarios"].setWidget(
+            ScenarioPanel(self.project, self._pick_scenario, self._duplicate_scenario,
+                          self._rename_scenario, self._remove_scenario))
+
+    def _project_dir(self) -> Path:
+        return Path(self.project.dir)
+
+    def _new_project(self):
+        directory = QFileDialog.getExistingDirectory(
+            self, "New Project \u2014 choose the folder for configs and results")
+        if not directory:
+            return
+        d = Path(directory)
+        if (d / "project.yaml").exists():
+            if QMessageBox.question(
+                    self, "New Project",
+                    f"{d} already holds a project.yaml.\n\nOpen it instead?"
+                    ) == QMessageBox.StandardButton.Yes:
+                self._open_project_at(d)
+            return
+        name, ok = QInputDialog.getText(self, "New Project", "Project name:",
+                                        text=d.name)
+        if not ok:
+            return
+        self.project = GProject(name=name.strip() or d.name, dir=str(d))
+        self.project_path = str(d / "project.yaml")
+        self.log.info("New project '%s' in %s", self.project.name, d)
+        # a machine already open becomes scenario 1, so New Project works either
+        # before or after loading
+        if self.machine is not None and self._source_config():
+            self._adopt_as_scenario(self._source_config())
+        self._save_project(quiet=True)
+        self._refresh_all()
+
+    def _source_config(self):
+        """The file the open machine came from, whichever door it came through."""
+        return self.config_path or getattr(self, "machine_path", None)
+
+    def _adopt_as_scenario(self, source, label=None):
+        """Copy the config that produced the open machine into the project and
+        register it as a scenario. The copy matters: the project must keep
+        working when the original file is edited or moved."""
+        import yaml
+
+        src = Path(source)
+        cfg = yaml.safe_load(src.read_text()) or {}
+        grid = grid_of(cfg)
+        if self.project.scenarios and grid and self.project.grid and grid != self.project.grid:
+            raise ValueError(
+                "this config asks for a different frequency/time grid than the "
+                "project's. Scenarios of one project share a grid - that is what "
+                "makes their curves comparable.")
+        label = self.project.unique_label(label or cfg.get("name") or src.stem)
+        slug = slugify(label)
+        dest = self._project_dir() / f"{slug}_config.yaml"
+        self._project_dir().mkdir(parents=True, exist_ok=True)
+        if src.resolve() != dest.resolve():
+            freeze_config(src, dest)
+        for sub in ("output", "img"):
+            (self._project_dir() / slug / sub).mkdir(parents=True, exist_ok=True)
+        sc = self.project.add(GScenario(label=label, config=dest.name,
+                                        beam=getattr(self.machine, "beam", None)))
+        self._machine_of = sc.slug
+        self.project.grid = self.project.grid or grid
+        self.log.info("Scenario '%s' added: %s, results in %s/", label, dest.name, slug)
+        return sc
+
+    def _duplicate_scenario(self):
+        """The only way to make a second scenario."""
+        if self.project is None or not self.project.scenarios:
+            return
+        self._capture_scenario()
+        src = self.project.scenario
+        label, ok = QInputDialog.getText(
+            self, "Duplicate Scenario",
+            f"A copy of '{src.label}', to differ from it in the beam, the optics "
+            f"or which elements it holds.\n\nName for the copy:",
+            text=self.project.unique_label(f"{src.label} copy"))
+        if not ok:
+            return
+        label = self.project.unique_label(label.strip() or f"{src.label} copy")
+        slug = slugify(label)
+        dest = self._project_dir() / f"{slug}_config.yaml"
+        import shutil
+        shutil.copyfile(self._project_dir() / src.config, dest)   # already frozen
+        for sub in ("output", "img"):
+            (self._project_dir() / slug / sub).mkdir(parents=True, exist_ok=True)
+        self.project.add(GScenario(label=label, config=dest.name, beam=src.beam,
+                                   derived_from=src.label))
+        self.log.info("Scenario '%s' duplicated from '%s'", label, src.label)
+        self._activate_scenario()
+        self._save_project(quiet=True)
+
+    def _rename_scenario(self):
+        if self.project is None or not self.project.scenarios:
+            return
+        sc = self.project.scenario
+        label, ok = QInputDialog.getText(self, "Rename Scenario", "Name:", text=sc.label)
+        if not ok or not label.strip():
+            return
+        old_slug, old_config = sc.slug, sc.config
+        try:
+            self.project.rename(self.project.current, label.strip())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Rename Scenario", str(exc))
+            return
+        d = self._project_dir()
+        new_config = f"{sc.slug}_config.yaml"
+        if old_config != new_config and (d / old_config).exists():
+            (d / old_config).rename(d / new_config)
+            sc.config = new_config
+        if old_slug != sc.slug and (d / old_slug).exists():
+            (d / old_slug).rename(d / sc.slug)
+        if self._machine_of == old_slug:
+            self._machine_of = sc.slug
+        self._save_project(quiet=True)
+        self._refresh_scenarios_panel()
+
+    def _remove_scenario(self):
+        if self.project is None or len(self.project.scenarios) < 2:
+            return
+        sc = self.project.scenario
+        if QMessageBox.question(
+                self, "Remove Scenario",
+                f"Remove '{sc.label}' from the project?\n\nIts files in "
+                f"{sc.slug}/ are left on disk."
+                ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.project.remove(self.project.current)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Remove Scenario", str(exc))
+            return
+        self.log.info("Scenario '%s' removed from the project", sc.label)
+        self._activate_scenario()
+        self._save_project(quiet=True)
+
+    def _pick_scenario(self, row):
+        if self.project is None or row < 0 or row == self.project.current:
+            return
+        self._capture_scenario()
+        self.project.current = row
+        self._activate_scenario()
+
+    def _capture_scenario(self):
+        """Write what the panels hold back into the current scenario.
+
+        Guarded on identity: if what is loaded is not this scenario's machine,
+        writing the panels into it would put one scenario's beam on another.
+        """
+        if self.project is None or not self.project.scenarios:
+            return
+        sc = self.project.scenario
+        if self.machine is None or getattr(self, "_machine_of", None) != sc.slug:
+            return
+        sc.beam = getattr(self.machine, "beam", None)
+        path = self._project_dir() / sc.config
+        if not path.exists():
+            return
+        try:
+            write_config(path, self.machine,
+                         optics=getattr(self.machine, "optics_path", None))
+        except Exception as exc:                 # never lose the session over a save
+            self.log.error("Could not write %s: %s", path, exc)
+            QMessageBox.warning(self, "Save Project",
+                                f"Could not write {path.name}:\n{exc}")
+
+    def _activate_scenario(self):
+        """Load the current scenario's machine into the panels."""
+        sc = self.project.scenario if self.project else None
+        if sc is None:
+            self._refresh_all()
+            return
+        path = self._project_dir() / sc.config
+        try:
+            import yaml
+            cfg = yaml.safe_load(path.read_text()) or {}
+            if "devices" in cfg or "default_pipe" in cfg:
+                self.machine = from_config(str(path))
+                self.config_path = str(path)
+            else:
+                self.machine = from_machine_file(path)
+                self.machine_path = str(path)
+                self.config_path = None
+        except Exception as exc:
+            self.log.error("Scenario '%s': %s", sc.label, exc)
+            QMessageBox.critical(self, "Scenario", f"Could not open '{sc.label}':\n{exc}")
+            return
+        if sc.beam is not None:
+            self.machine.beam = sc.beam            # the scenario's beam wins
+        self._machine_of = sc.slug
+        self.selected = None
+        self.inspector.set_ref(None)
+        self._refresh_all()
+        beam = f" \u2014 {sc.beam.label()}" if sc.beam is not None else ""
+        self.statusBar().showMessage(f"Scenario: {sc.label}{beam}", 5000)
+
+    # ---- project files ----
+    def _save_project(self, quiet=False):
+        if self.project is None:
+            if not quiet:
+                QMessageBox.information(
+                    self, "Save Project",
+                    "There is no project yet. File \u2192 New Project first: a "
+                    "project is the folder its configs and results live in.")
+            return
+        import yaml
+
+        self._capture_scenario()
+        path = Path(self.project_path or (self._project_dir() / "project.yaml"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(self.project.to_dict(), sort_keys=False))
+        self.project_path = str(path)
+        self.log.info("Project saved: %s (%d scenario(s))", path,
+                      len(self.project.scenarios))
+        if not quiet:
+            self.statusBar().showMessage(f"Project saved to {path}", 4000)
+
+    def _save_project_as(self):
+        if self.project is None:
+            self._save_project()
+            return
+        directory = QFileDialog.getExistingDirectory(self, "Save Project As \u2014 folder")
+        if not directory:
+            return
+        import shutil
+        old = self._project_dir()
+        self.project.dir = directory
+        self.project_path = str(Path(directory) / "project.yaml")
+        for sc in self.project.scenarios:          # carry the configs across
+            src, dest = old / sc.config, Path(directory) / sc.config
+            if src.exists() and src.resolve() != dest.resolve():
+                shutil.copyfile(src, dest)
+            for sub in ("output", "img"):
+                (Path(directory) / sc.slug / sub).mkdir(parents=True, exist_ok=True)
+        self._save_project()
+        self._refresh_scenarios_panel()
+
+    def _close_project(self):
+        """Leave the project, keeping what is on disk.
+
+        Saves first: a project is cheap to write and losing a scenario's beam
+        because the window was closed in the wrong order would be a poor trade.
+        """
+        if self.project is None:
+            self.statusBar().showMessage("No project is open.", 3000)
+            return
+        name = self.project.name
+        self._save_project(quiet=True)
+        self.project = None
+        self.project_path = None
+        self._machine_of = None
+        self.log.info("Project '%s' closed (saved first); its files are untouched.", name)
+        self._close_machine(confirm=False)
+        self._refresh_all()
+        self.statusBar().showMessage(f"Project '{name}' closed", 4000)
+
+    def _open_project(self):
+        directory = QFileDialog.getExistingDirectory(self, "Open Project \u2014 folder")
+        if directory:
+            self._open_project_at(Path(directory))
+
+    def _open_project_at(self, d: Path):
+        import yaml
+        path = Path(d) / "project.yaml"
+        if not path.exists():
+            QMessageBox.warning(self, "Open Project",
+                                f"No project.yaml in {d}.")
+            return
+        try:
+            self.project = GProject.from_dict(yaml.safe_load(path.read_text()) or {}, d)
+        except Exception as exc:
+            self.log.error("Could not open project %s: %s", path, exc)
+            QMessageBox.critical(self, "Open Project", str(exc))
+            return
+        self.project_path = str(path)
+        self.log.info("Project '%s' opened: %s", self.project.name,
+                      ", ".join(self.project.labels()) or "no scenarios yet")
+        self._activate_scenario()
+        self._load_computed_results()
+
+    def _load_computed_results(self):
+        """Pull back the results of every scenario that has already been computed.
+
+        Reopening a project to compare three scenarios should not mean computing
+        three scenarios again: the files are on disk, and the resume in each
+        output folder says what is in them.
+        """
+        if self.project is None:
+            return
+        found = []
+        for sc in self.project.scenarios:
+            out = self._project_dir() / sc.slug / "output"
+            if not out.is_dir() or not any(out.iterdir()):
+                continue
+            try:
+                self.results_model.add_scenario(out, sc.label)
+                found.append(sc.label)
+            except Exception as exc:
+                self.log.debug("No readable results for '%s': %s", sc.label, exc)
+        if found:
+            self.results_tree.set_model(self.results_model)
+            self.log.info("Loaded existing results for %d scenario(s): %s",
+                          len(found), ", ".join(found))
+
+
+    def _load_allowed(self, path) -> bool:
+        """Whether a machine may be loaded over what the panels currently show.
+
+        Inside a project the panels *are* the current scenario. Loading an
+        unrelated machine into them would leave the two silently out of step -
+        and the next save would write the wrong beam into the wrong scenario. So
+        it is refused before anything is replaced, with the two ways forward.
+        """
+        if self.project is None or not self.project.scenarios:
+            return True
+        QMessageBox.information(
+            self, "Load Machine",
+            f"The project '{self.project.name}' already holds "
+            f"{', '.join(self.project.labels())}, and the panels show the "
+            f"current one.\n\nTo add a case, use Duplicate Scenario, so it "
+            f"starts from one of these and stays comparable. To work on an "
+            f"unrelated machine, open or start another project.")
+        self.log.info("Load refused: project '%s' already holds %s",
+                      self.project.name, ", ".join(self.project.labels()))
+        return False
+
+    def _maybe_adopt(self, path):
+        """The first machine loaded into an open project becomes its scenario 1."""
+        if self.project is None or self.project.scenarios:
+            return
+        try:
+            self._adopt_as_scenario(path)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Scenario", str(exc))
+            return
+        self._save_project(quiet=True)
+
     # ---- file actions ----
     def _load_machine(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load Machine", "",
@@ -520,13 +927,17 @@ class MainWindow(QMainWindow):
             self._load_from(path)
 
     def _load_from(self, path):
+        if not self._load_allowed(path):
+            return
         try:
-            self.machine = from_project(path)
+            self.machine = from_machine_file(path)
         except Exception as exc:
             self.log.error("Load failed for %s: %s", path, exc)
             QMessageBox.critical(self, "Load failed", f"Could not load machine:\n{exc}")
             return
+        self.machine_path = str(path)
         self.log.info("Loaded machine '%s'", self.machine.name)
+        self._maybe_adopt(path)
         self.selected = None
         self.inspector.set_ref(None)
         self._refresh_all()
@@ -688,8 +1099,13 @@ class MainWindow(QMainWindow):
                 e.optics["bx"] = madx.get(row, "BETX")
                 e.optics["by"] = madx.get(row, "BETY")
                 n += 1
+        # remember the file, not just the numbers it produced: a scenario that
+        # differs from its sibling by the optics has to say so in its config
+        self.machine.optics_path = str(path)
+        self._capture_scenario()
         self._refresh_all()
-        self.statusBar().showMessage(f"Loaded optics \u2014 matched {n} element(s) by name", 3000)
+        self.statusBar().showMessage(
+            f"Loaded optics \u2014 matched {n} element(s) by name", 3000)
 
     # ---- element panel ----
     def _open_element(self, el):
@@ -737,6 +1153,15 @@ class MainWindow(QMainWindow):
         only interpretable once you know which one produced it.
         """
         from .. import config as _cfg
+        locate = getattr(_cfg, "engine_location", None)
+        if locate is None:
+            # config.py in this checkout does not provide it. Provenance is
+            # useful, but never useful enough to abort a calculation: the caller
+            # only catches ValueError, so an AttributeError here would surface as
+            # "Unexpected error" instead of computing.
+            self.log.debug("engine_location() not available in wimba.config; "
+                           "skipping the engine provenance line")
+            return
         methods = {"pytlwall"}
         for m in (getattr(el, "models", None) or []):
             if getattr(m, "enabled", False):
@@ -746,7 +1171,7 @@ class MainWindow(QMainWindow):
         for name, module in (("pytlwall", "pytlwall"), ("iw2d", "IW2D")):
             if name not in methods:
                 continue
-            info = _cfg.engine_location(module)
+            info = locate(module)
             if not info["available"]:
                 continue
             ver = f" {info['version']}" if info["version"] else ""
@@ -756,19 +1181,31 @@ class MainWindow(QMainWindow):
             self.log.info(line)
 
     def _log_run_settings(self, el, source=""):
-        """Say which gamma and frequency grid a calculation will use, and where
+        """Say which beam and frequency grid a calculation will use, and where
         they come from. Silent inheritance from whatever config is open is the
         easiest way to compare two runs that were never the same run."""
         own = getattr(el, "own_base", None) or {}
         opened = self._base_cfg()
         gamma = own.get("gamma") or opened.get("gamma")
-        grid = (own.get("grid") or opened.get("grid") or {}).get("frequency") or {}
+        from .model import as_number
+        grid = {k: as_number(v) for k, v in
+                (((own.get("grid") or opened.get("grid") or {}).get("frequency")) or {}).items()}
+        beam = getattr(self.machine, "beam", None) if self.machine else None
         origin = "the element's own config" if own else (
+            "the Beam panel" if beam is not None else
             f"the open config ({Path(self.config_path).name})" if self.config_path
             else "built-in defaults")
-        bits = [f"gamma = {gamma}" if gamma is not None else "gamma = (default)"]
-        if grid:
-            bits.append(f"f = {grid.get('min'):g} .. {grid.get('max'):g} Hz, "
+        if gamma is None:
+            bits = ["NO BEAM SET - this calculation will refuse to run"]
+        elif own or beam is None:
+            bits = [f"gamma = {gamma:g}"]
+        else:
+            bits = [f"{beam.label()} (1-\u03b2 = {beam.one_minus_beta:.4g})"]
+        if isinstance(grid.get("min"), float) and isinstance(grid.get("max"), float):
+            bits.append(f"f = {grid['min']:g} .. {grid['max']:g} Hz, "
+                        f"{grid.get('n')} points")
+        elif grid:
+            bits.append(f"f = {grid.get('min')} .. {grid.get('max')} Hz, "
                         f"{grid.get('n')} points")
         else:
             bits.append("f = (default grid)")
@@ -939,13 +1376,26 @@ class MainWindow(QMainWindow):
         self._calc_element(ref["obj"], wake=wake)
 
     def _base_cfg(self):
-        if not self.config_path:
-            return {}
-        try:
-            import yaml
-            return yaml.safe_load(Path(self.config_path).read_text()) or {}
-        except Exception:
-            return {}
+        """Grid, materials and gamma a calculation starts from.
+
+        The open config supplies the grid; the Beam panel supplies gamma. The
+        panel wins because it is what the user can see and change - a gamma read
+        from a file that no longer matches the panel would be exactly the silent
+        mismatch this whole change is about.
+        """
+        cfg = {}
+        if self.config_path:
+            try:
+                import yaml
+                cfg = yaml.safe_load(Path(self.config_path).read_text()) or {}
+            except Exception:
+                cfg = {}
+        beam = getattr(self.machine, "beam", None) if self.machine else None
+        if beam is not None:
+            cfg = dict(cfg)
+            cfg["gamma"] = beam.gamma
+            cfg["beam"] = beam.to_dict()
+        return cfg
 
     def _calc_element(self, el, wake=False, compare_only=False):
         import tempfile
@@ -1014,6 +1464,8 @@ class MainWindow(QMainWindow):
             "YAML (*.yaml *.yml);;All files (*)")
         if not path:
             return
+        if not self._load_allowed(path):
+            return
         self.config_path = path
         try:
             import yaml
@@ -1024,6 +1476,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Open Config", f"Could not read config:\n{exc}")
             return
 
+        self._maybe_adopt(path)
         self.selected = None
         self.inspector.set_ref(None)
         self._refresh_all()
@@ -1075,6 +1528,19 @@ class MainWindow(QMainWindow):
                       len(self.results_model.sources))
 
     def _calc_machine(self, wake=False):
+        out_dir = None
+        sc = self.project.scenario if self.project else None
+        if sc is not None:
+            # inside a project there is nothing to ask: the scenario names its own
+            # config, and its results belong in its own folder
+            path = self._project_dir() / sc.config
+            out_dir = str(self._project_dir() / sc.slug / "output")
+            if self._dialect(path) == "machine":
+                return self._build_machine(path, out_dir)
+            self.config_path = str(path)
+        elif getattr(self, "machine_path", None) and not self.config_path:
+            # a machine loaded outside a project: build it where it lives
+            return self._build_machine(self.machine_path, None)
         if not self.config_path:
             self._open_config()
         if not self.config_path:
@@ -1089,13 +1555,91 @@ class MainWindow(QMainWindow):
             self.log.info("Wake requested: computed natively from each geometry "
                           "(impedance recomputed alongside).")
         self._run_kind = "machine"
-        self.worker = RunWorker(self.config_path, wake=wake,
+        self.worker = RunWorker(self.config_path, out_dir=out_dir, wake=wake,
                                 fill_pipe=self.fill_pipe_action.isChecked())
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_calc_done)
         self.worker.failed.connect(self._on_calc_failed)
         self.statusBar().showMessage("Calculating\u2026")
         self.worker.start()
+
+    def _dialect(self, path) -> str:
+        """"assembly" (devices/default_pipe rules) or "machine" (listed groups).
+
+        Which one decides the pipeline: rules are executed by assemble/run
+        against a lattice, a listed machine is computed element by element by
+        build. Both end in the Results panel, so the distinction stops here.
+        """
+        import yaml
+        try:
+            cfg = yaml.safe_load(Path(path).read_text()) or {}
+        except Exception as exc:
+            QMessageBox.critical(self, "Calculate", f"Could not read {path}:\n{exc}")
+            return "unreadable"
+        return "assembly" if ("devices" in cfg or "default_pipe" in cfg) else "machine"
+
+    def _build_machine(self, path, out_dir):
+        """Calculate for a machine file: the build pipeline, same panels."""
+        path = Path(path)
+        if self._dialect(path) == "unreadable":
+            return
+        con = self._dock_text("console"); con.clear()
+        self.docks["console"].raise_()
+        self._job_label = path.name
+        self._job_item = QListWidgetItem(f"{self._job_label} \u2014 building\u2026")
+        self._dock_list("jobs").addItem(self._job_item)
+        self._run_kind = "build"
+        self.worker = BuildWorker(path, out_dir=out_dir)
+        self.worker.log.connect(con.appendPlainText)
+        self.worker.done.connect(self._on_build_done)
+        self.worker.failed.connect(self._on_calc_failed)
+        self.statusBar().showMessage("Building\u2026")
+        self.worker.start()
+
+    def _store_results(self, out_dir):
+        """Put a finished machine run into the Results panel.
+
+        Inside a project the results are filed under the scenario's label and
+        ADDED to what is already there, so two scenarios can be plotted
+        together. Outside a project the behaviour is unchanged: one run, one set
+        of results.
+        """
+        sc = self.project.scenario if self.project else None
+        if sc is not None and self._machine_of == sc.slug:
+            self.results_model.add_scenario(out_dir, sc.label)
+            loaded = self.results_model.scenarios()
+            self.log.info("Results now hold %d scenario(s): %s",
+                          len(loaded), ", ".join(loaded))
+        else:
+            self.results_model.load(out_dir)
+        self.results_tree.set_model(self.results_model)
+        self.docks["results"].raise_()
+
+    def _on_build_done(self, payload):
+        info = payload["info"]
+        st = info["stats"]
+        if self._job_item:
+            self._job_item.setText(f"{getattr(self, '_job_label', 'job')} \u2014 done "
+                                   f"({st['computed']} element(s))")
+        self.log.info("Build finished: %s element(s) in %s group(s) \u2192 %s",
+                      st["elements"], st["groups"], info["out"])
+        if self.project is not None:
+            sc = self.project.scenario
+            if sc is not None and self._machine_of == sc.slug:
+                from datetime import datetime
+                sc.computed_at = datetime.now().isoformat(timespec="seconds")
+                self._save_project(quiet=True)
+                self._refresh_scenarios_panel()
+        self._store_results(info["out"])
+        prob = self._dock_text("problems"); prob.clear()
+        prob.appendPlainText(
+            f"{st['elements']} element(s) in {st['groups']} group(s), "
+            f"{st['additional']} additional \u2014 all computed.")
+        prob.appendPlainText("Element-driven build: only what the machine lists is "
+                             "computed, so there is no lattice to collide on.")
+        self.statusBar().showMessage(
+            f"Done \u2192 {info['out']} \u2014 pick quantities from the Results tree",
+            6000)
 
     def _on_calc_done(self, payload):
         result, info = payload["result"], payload["info"]
@@ -1105,17 +1649,27 @@ class MainWindow(QMainWindow):
                                    f"({st['computed']} computed)")
             self.log.info("Run finished: %s computed, %s skipped \u2192 %s",
                           st["computed"], st.get("skipped", 0), info["out"])
+        if self.project is not None and getattr(self, "_run_kind", "machine") == "machine":
+            sc = self.project.scenario
+            if sc is not None and self._machine_of == sc.slug:
+                from datetime import datetime
+                sc.computed_at = datetime.now().isoformat(timespec="seconds")
+                self._save_project(quiet=True)
+                self._refresh_scenarios_panel()
         kind = getattr(self, "_run_kind", "machine")
         if kind in ("component", "element_compare"):
             self.results_model.merge(info["out"])
             self.results_model.adopt_total_wake(getattr(self, "_job_label", ""))
+        elif kind == "machine":
+            self._store_results(info["out"])
         else:
             self.results_model.load(info["out"])
         if kind == "element" and len(self.results_model.sources) > 1:
             # single-element study: the element (with its wake) and its compares
             self.results_model.adopt_total_wake(getattr(self, "_job_label", ""))
-        self.results_tree.set_model(self.results_model)
-        self.docks["results"].raise_()
+        if kind != "machine":
+            self.results_tree.set_model(self.results_model)
+            self.docks["results"].raise_()
         prob = self._dock_text("problems"); prob.clear()
         prob.appendPlainText(f"{len(result.rows)} assignments \u2014 "
                              f"computed {st['computed']}, skipped {st['skipped']}.")

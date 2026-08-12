@@ -27,7 +27,9 @@ def _layer_lines(idx_or_name, lay):
     return lines
 
 
-def write_chamber_cfg(path, geometry, gamma=7000.0, length_m=1.0) -> Path:
+def write_chamber_cfg(path, geometry, gamma=None, length_m=1.0) -> Path:
+    from ..sources.pytlwall_bridge import require_gamma
+    gamma = require_gamma(gamma, f"the cfg dump {Path(path).name}")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
