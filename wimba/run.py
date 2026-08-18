@@ -286,8 +286,18 @@ def _write_wake_note(out_dir, stats):
     (Path(out_dir) / "single_elements" / "WAKE_NOTES.txt").write_text("\n".join(lines) + "\n")
 
 
-def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True):
-    cfg = yaml.safe_load(Path(config).read_text()) or {}
+def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True,
+        cfg=None):
+    """Compute a study.
+
+    `config` is the file the study is named after and the path every relative
+    reference in it resolves against. `cfg` optionally supplies its *contents*
+    already in memory: the GUI uses this so a beam typed in the Beam panel is
+    what gets computed, instead of a stale one re-read from disk behind the
+    user's back. The file itself is never written.
+    """
+    if cfg is None:
+        cfg = yaml.safe_load(Path(config).read_text()) or {}
     if not fill_pipe:                      # GUI toggle: compute only the listed devices
         cfg = dict(cfg)
         cfg.pop("default_pipe", None)
