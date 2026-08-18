@@ -435,6 +435,77 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
     return cfg
 
 
+def component_save_config(el: GElement, method: Optional[str] = None,
+                          base_cfg: Optional[dict] = None,
+                          data_file: Optional[str] = None,
+                          data_component: str = "ZLong") -> dict:
+    """Config for saving a bench component to a file the user chooses.
+
+    Same content as `component_config`, which is what the bench already writes
+    to a temporary directory before every calculation - so this covers every
+    method the bench supports, not only pytlwall. A pytlwall .cfg would not:
+    it is a debug dump of one chamber at unit length and beta = 1, and it
+    cannot express an IW2D or a precalculated component at all.
+
+    Two differences from the temporary config. The method label is stripped
+    from the device and output names ("PIPE[pytlwall]" -> "PIPE"): the label
+    exists to keep accumulated runs apart in the Results tree, and would be
+    baked into every result computed from the saved file. And the method is
+    taken from the element's enabled model unless one is given.
+
+    The result is an assembly config with a single device, so it reopens with
+    File > Open Config and runs headless with `wimba run`.
+    """
+    if method is None:
+        model = next((m for m in el.models if m.enabled), None)
+        method = model.method if model else "pytlwall"
+    if method_base(method).lower() == "precalculated" and not data_file:
+        raise ValueError(
+            "a precalculated component has no geometry to save: what defines "
+            "it is the data file and how its columns are read. Save an import "
+            "map instead (Component > Load Precalculated), which is a file in "
+            "its own right and can be referenced from any config.")
+
+    cfg = component_config(el, method, base_cfg=base_cfg,
+                           data_file=data_file, data_component=data_component)
+    name = el.name.split("  (")[0]
+    label = f"[{method_base(method)}]"
+    for spec in cfg.get("devices", {}).values():
+        if isinstance(spec.get("name"), str) and spec["name"].endswith(label):
+            spec["name"] = spec["name"][: -len(label)]
+    cfg["output"] = [name]
+    return cfg
+
+
+def component_config_text(cfg: dict, method: str = "") -> str:
+    """A saved component config as text: a header saying what the file is,
+    then the YAML. The header matters because the file is opened again months
+    later by someone who did not write it."""
+    import yaml as _yaml
+
+    name = cfg.get("output", ["component"])[0]
+    engine = f" ({method})" if method else ""
+    header = [
+        f"# WIMBA component: {name}{engine}",
+        "#",
+        "# One device and nothing else - no lattice, no default pipe. Reopen it",
+        "# with File > Open Config in the GUI, or compute it with:",
+        "#",
+        f"#     wimba run {name}_component.yaml",
+        "#",
+        "# The grid and gamma below are the ones the component was defined with;",
+        "# used inside a machine, the study config's own values win instead.",
+        "",
+    ]
+    if cfg.get("gamma") is None:
+        header[-1:] = [
+            "# NOTE: no gamma - this file states no beam, so a calculation from",
+            "# it will refuse to run until one is added.",
+            "",
+        ]
+    return "\n".join(header) + _yaml.safe_dump(cfg, sort_keys=False)
+
+
 # ====================================================================== project
 # A project is the container the GUI works in: one grid, one output root, and the
 # scenarios being compared. A scenario is a machine plus the beam it is computed

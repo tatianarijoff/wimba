@@ -20,12 +20,36 @@ class RunWorker(QThread):
     done = pyqtSignal(object)      # {"result": AssemblyResult, "info": dict}
     failed = pyqtSignal(str)
 
-    def __init__(self, config, out_dir=None, wake=False, fill_pipe=True):
+    def __init__(self, config, out_dir=None, wake=False, fill_pipe=True,
+                 overrides=None):
         super().__init__()
         self.config = str(config)
         self.out_dir = out_dir
         self.wake = wake
         self.fill_pipe = fill_pipe
+        self.overrides = dict(overrides or {})
+        # Values the GUI panels hold that must win over the file on disk - the
+        # beam above all. The panel is what the user can see and change; a run
+        # that silently used a different energy read from the file would be the
+        # exact mismatch the Beam panel exists to prevent. The file is not
+        # rewritten: an override applies to this run only.
+
+    def _apply_overrides(self, cfg):
+        if not self.overrides:
+            return cfg
+        cfg = dict(cfg)
+        had = cfg.get("beam") or (
+            {"gamma": cfg["gamma"]} if cfg.get("gamma") is not None else None)
+        cfg.update(self.overrides)
+        now = cfg.get("beam") or {"gamma": cfg.get("gamma")}
+        if had is None:
+            self.log.emit(f"  beam from the Beam panel: {now} "
+                          f"(the file states none).")
+        elif had != now:
+            self.log.emit(f"  WARNING: the Beam panel says {now}, "
+                          f"{Path(self.config).name} says {had}. Computing with "
+                          f"the panel; the file on disk is unchanged.")
+        return cfg
 
     def run(self):
         try:
@@ -36,6 +60,7 @@ class RunWorker(QThread):
 
             self.log.emit(f"Assembling '{Path(self.config).name}' "
                           f"(default pipe: {'on' if self.fill_pipe else 'off'})...")
+            cfg = self._apply_overrides(cfg)
             result = load_assembly(self.config, cfg=cfg)
             devices = sum(1 for r in result.rows if r.kind == "device")
             self.log.emit(f"  {len(result.rows)} assignment(s): {devices} device(s), "
@@ -45,8 +70,8 @@ class RunWorker(QThread):
                 self.log.emit(f"  WARNING: {w}")
 
             self.log.emit("Computing...")
-            info = run_study(self.config, out_dir=self.out_dir, wake=self.wake,
-                             fill_pipe=self.fill_pipe)
+            info = run_study(self.config, cfg=cfg, out_dir=self.out_dir,
+                             wake=self.wake, fill_pipe=self.fill_pipe)
             st = info["stats"]
             self.log.emit(f"  computed {st['computed']}, skipped {st['skipped']}, "
                           f"{st['geometries']} distinct geometr(y/ies).")

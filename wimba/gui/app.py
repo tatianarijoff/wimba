@@ -140,6 +140,10 @@ class MainWindow(QMainWindow):
         self._job_item = None
         self.results_model = ResultsModel()
         self.component = None
+        self._last_dir = ""           # where the last file dialog ended up:
+        # a component is deliberately saved outside the WIMBA repository, so the
+        # dialogs should reopen there rather than at whatever the current
+        # working directory happens to be
         self.project = None
         self.project_path = None
         self._machine_of = None       # slug of the scenario the panels belong to
@@ -348,6 +352,7 @@ class MainWindow(QMainWindow):
         self._act(m, "New Component\u2026", self._comp_new)
         self._act(m, "Load pytlwall Config\u2026", self._comp_load_pytlwall_cfg)
         self._act(m, "Load IW2D Config\u2026", self._comp_load_iw2d_cfg)
+        self._act(m, "Save Component As\u2026", self._comp_save)
         m.addSeparator()
         self._act(m, "Calculate with pytlwall", lambda: self._comp_calc("pytlwall"))
         self._act(m, "Calculate with IW2D", lambda: self._comp_calc("IW2D"))
@@ -1219,9 +1224,11 @@ class MainWindow(QMainWindow):
 
     def _comp_load_pytlwall_cfg(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load pytlwall chamber config",
-                                              "", "pytlwall config (*.cfg);;All files (*)")
+                                              self._dir_hint(),
+                                              "pytlwall config (*.cfg);;All files (*)")
         if not path:
             return
+        self._remember_dir(path)
         from ..io.pytlwall_cfg import read_chamber_cfg
         from .model import GElement, default_models
         try:
@@ -1247,6 +1254,63 @@ class MainWindow(QMainWindow):
         self._open_element(el)
         self.log.info("Component '%s' loaded from pytlwall config %s", name, path)
         self._log_run_settings(el, source=f"pytlwall config {Path(path).name}")
+
+    # ---- where file dialogs open ----
+    def _dir_hint(self, filename=""):
+        """Start a dialog in the last directory used, not in the process's
+        working directory (which is usually the WIMBA checkout - the one place
+        a user's own files should not go)."""
+        if not self._last_dir:
+            return filename
+        return str(Path(self._last_dir) / filename) if filename else self._last_dir
+
+    def _remember_dir(self, path):
+        if path:
+            self._last_dir = str(Path(path).parent)
+
+    def _comp_save(self):
+        """Write the component to a file of the user's choosing.
+
+        What is written is a WIMBA config with a single device - the same thing
+        the bench already emits into a temporary directory before every
+        calculation. That format covers pytlwall, IW2D and precalculated alike,
+        reopens with Open Config and runs with `wimba run`.
+        """
+        el = self._comp_require()
+        if el is None:
+            return
+        from ..naming import safe
+        from .model import (component_config_text, component_save_config,
+                            method_base)
+        model = next((m for m in el.models if m.enabled), None)
+        method = model.method if model else "pytlwall"
+        try:
+            cfg = component_save_config(el, method, base_cfg=dict(self._base_cfg()))
+        except ValueError as exc:
+            self.log.error("Save Component: %s", exc)
+            QMessageBox.warning(self, "Save Component As", str(exc))
+            return
+
+        default = f"{safe(el.name.split('  (')[0])}_component.yaml"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save component as", self._dir_hint(default),
+            "WIMBA config (*.yaml *.yml);;All files (*)")
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".yaml"
+        try:
+            Path(path).write_text(component_config_text(cfg, method_base(method)))
+        except OSError as exc:
+            self.log.error("Could not write %s: %s", path, exc)
+            QMessageBox.critical(self, "Save Component As", str(exc))
+            return
+        self._remember_dir(path)
+        self.log.info("Component '%s' saved to %s", el.name, path)
+        if cfg.get("gamma") is None:
+            self.log.warning("  the file states no beam: set gamma before "
+                             "computing from it.")
+        self.statusBar().showMessage(f"Component saved to {path}", 6000)
 
     def _comp_load_iw2d_cfg(self):
         QMessageBox.information(
@@ -1309,11 +1373,12 @@ class MainWindow(QMainWindow):
         if el is None:
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load precalculated data", "",
+            self, "Load precalculated data", self._dir_hint(),
             "Data or import map (*.dat *.txt *.csv *.xlsx *.xlsm *.yaml *.yml);;"
             "Spreadsheet (*.xlsx *.xlsm);;All files (*)")
         if not path:
             return
+        self._remember_dir(path)
         if path.lower().endswith((".yaml", ".yml")):
             self._comp_calc("precalculated", data_file=path)
             return
@@ -1555,8 +1620,12 @@ class MainWindow(QMainWindow):
             self.log.info("Wake requested: computed natively from each geometry "
                           "(impedance recomputed alongside).")
         self._run_kind = "machine"
+        beam = getattr(self.machine, "beam", None) if self.machine else None
+        overrides = ({"beam": beam.to_dict(), "gamma": beam.gamma}
+                     if beam is not None else None)
         self.worker = RunWorker(self.config_path, out_dir=out_dir, wake=wake,
-                                fill_pipe=self.fill_pipe_action.isChecked())
+                                fill_pipe=self.fill_pipe_action.isChecked(),
+                                overrides=overrides)
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_calc_done)
         self.worker.failed.connect(self._on_calc_failed)
