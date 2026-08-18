@@ -232,7 +232,8 @@ the system libraries IW2D needs, is in [docs/IW2D.md](docs/IW2D.md).
 
 ## Graphical interface
 
-The desktop GUI (PyQt6) drives the same engine. Install the extra and launch it:
+The desktop GUI (PyQt6) drives the same engine — [docs/GUI.md](docs/GUI.md) is
+the guided tour of it. Install the extra and launch it:
 
 ```bash
 pip install -e ".[gui]"

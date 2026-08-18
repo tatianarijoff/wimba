@@ -10,6 +10,14 @@
 - [Settings](SETTINGS.md) — `wimba.yaml`: engine paths, data directory, logging.
   Not to be confused with a machine config.
 
+**The interface**
+
+- [The graphical interface](GUI.md) — what each panel is for, what every File
+  menu entry does, Load Machine vs Open Config, and what Problems is telling
+  you. Start here if you use the GUI.
+- [One component](COMPONENT.md) — computing a single chamber in the Component
+  bench, with no machine around it.
+
 **Building and computing a model**
 
 - [Projects and scenarios](PROJECTS.md) — one machine at several energies:
@@ -38,8 +46,6 @@
 
 - [Data model](DATA_MODEL.md) — the core objects (`ImpedanceTerm`, `Element`,
   `ElementGroup`, `Machine`), beta weighting, and how to query a machine.
-- [Component bench](COMPONENT.md) — computing one component in the GUI, with no
-  machine and no optics.
 - [Fourier transforms](FOURIER.md) — on-demand wake ↔ impedance transforms for
   consistency checks.
 - [External data](DATA.md) — files too large to track, where to get them and
