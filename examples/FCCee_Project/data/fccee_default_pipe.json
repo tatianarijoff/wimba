@@ -1,0 +1,33 @@
+{
+  "_provenance": {
+    "note": "Every number is tagged. [PUBLISHED] = taken from the reference given. [FILL IN] = not found in a public source, must be supplied before the result means anything. Nothing here is invented.",
+    "shape": "[PUBLISHED] Circular cross section was chosen deliberately, to avoid the current-dependent betatron tune shift from the quadrupolar resistive-wall wake. The winglets carrying the SR absorbers and pumping slots do not protrude into the circular part. FCC Feasibility Study Report Vol. 2 (arXiv:2505.00274) sec. 3.2.3.",
+    "radius_m": "[PUBLISHED] 60 mm inner diameter -> 30 mm radius. The ID was 70 mm early in the study and was reduced to 60 mm when the magnet yoke ID had to shrink; the FSR states all design and modelling is based on 60 mm. NOTE: the published impedance papers (Migliorati/Belli/Zobov PRAB 21 041001 (2018); Zobov et al. arXiv:1805.08466) predate that and use a 35 mm radius, so a cross-check against their k_loss numbers must use 0.035, not 0.030.",
+    "copper": "[PUBLISHED] Chamber is extruded oxygen-free silver-bearing (OFS) copper, up to 12 m per unit (FSR Vol. 2 sec. 3.2.3). sigma = 5.88e7 S/m from rho = 1.7e-8 Ohm.m as used for FCC-ee copper in arXiv:2003.10009.",
+    "copper_thickness": "[FILL IN] Wall thickness not found in a public source. 2 mm is a plausible extrusion but is NOT sourced. It barely matters above a few kHz, where the skin depth in copper is far smaller than any candidate wall, but it should still be confirmed.",
+    "neg_coating": "[PUBLISHED thickness, FILL IN conductivity] A NEG (TiZrV) coating is required for electron-cloud mitigation and its thickness drives the single-bunch instability threshold - that is the central result of PRAB 21 111002 (2018). Baseline moved from 100 nm to 150 nm on the vacuum group's advice (Migliorati, Antuono, Carideo, Zhang, Zobov, EPJ Tech. Instrum., arXiv:2204.04616). The layer is left COMMENTED OUT below because its conductivity was not found in a public source, and guessing it would defeat the purpose: with the wrong sigma this layer is the single largest error in the model."
+  },
+  "name": "fccee_default_pipe",
+  "shape": "CIRCULAR",
+  "radius_m": 0.030,
+  "hor_m": 0.030,
+  "ver_m": 0.030,
+  "layers": [
+    {
+      "_comment_neg": "UNCOMMENT once sigma is known: {\"type\": \"CW\", \"thickness\": 1.5e-07, \"sigma\": null, \"muinf_Hz\": 0.0, \"k_Hz\": \"inf\", \"epsr\": 1.0, \"tau\": 0.0, \"RQ\": 0.0}",
+      "type": "CW",
+      "thickness": 0.002,
+      "sigma": 58800000.0,
+      "muinf_Hz": 0.0,
+      "k_Hz": "inf",
+      "epsr": 1.0,
+      "tau": 0.0,
+      "RQ": 0.0
+    },
+    {
+      "type": "V",
+      "thickness": "inf",
+      "boundary": true
+    }
+  ]
+}

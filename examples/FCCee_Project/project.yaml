@@ -1,0 +1,52 @@
+name: FCC-ee (acc-models LCC_107.0.1)
+grid:
+  frequency:
+    min: 1.0e3
+    max: 5.0e10
+    n: 400
+    log: true
+  time:
+    min: 0.0
+    max: 2.0e-09
+    n: 400
+scenarios:
+- label: Z 45.6 GeV
+  slug: fccee_z
+  config: fccee_z_config.yaml
+  beam:
+    particle: positron
+    mode: energy
+    energy: 45600000000.0
+    gamma: 89236.97397029876
+    beta: 0.9999999999372114
+  computed_at: '2026-08-18T11:17:45'
+- label: W 80 GeV
+  slug: fccee_w
+  config: fccee_w_config.yaml
+  beam:
+    particle: positron
+    mode: energy
+    energy: 80000000000.0
+    gamma: 156556.09468473468
+    beta: 0.9999999999796
+  derived_from: Z 45.6 GeV
+- label: H 120 GeV
+  slug: fccee_h
+  config: fccee_h_config.yaml
+  beam:
+    particle: positron
+    mode: energy
+    energy: 120000000000.0
+    gamma: 234834.142027102
+    beta: 0.9999999999909333
+  derived_from: Z 45.6 GeV
+- label: ttbar 182.5 GeV
+  slug: fccee_t
+  config: fccee_t_config.yaml
+  beam:
+    particle: positron
+    mode: energy
+    energy: 182500000000.0
+    gamma: 357143.59099955094
+    beta: 0.99999999999608
+  derived_from: Z 45.6 GeV

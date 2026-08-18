@@ -1,0 +1,197 @@
+# FCC-ee ttbar 182.5 GeV -- acc-models LCC_107.0.1, mode 'tt'
+#
+# Optics: NOT in the acc-models release. Generate it first with
+#     python make_twiss.py <acc-models-root> t -o <data_dir>/fccee_t_twiss.tfs
+# Impedance devices: the published FCC-ee model, github.com/ImpedanCEI/fcc_ee_IW_model
+#     (FCCee_IW_2026 / V1 / Coll_taper_3deg). Clone it inside your data folder.
+#
+# Both live OUTSIDE the repository and are found through 'data_dir:' below --
+# same convention as examples/LHC/LHC_config.yaml. Edit the two paths to match
+# your machine; nothing else in this file is machine-specific.
+name: FCCee_t
+optics: fccee_t_twiss.tfs
+
+data_dir:
+- ~/CERN/impedance/externalData/FCCee_data/
+- ~/CERN/impedance/externalData/FCCee_data/fcc_ee_IW_model-main/FCCee_IW_2026/FCCee_IW_2026_V1/Coll_taper_3deg/Impedances/Devices/
+
+grid:
+  # f_max is 5e10, not 1e11: the imported model stops at 50 GHz and anything
+  # above that would be extrapolation. The lower end sits below the revolution
+  # frequency (3306.77 Hz). The grid is the project's and is the same for every
+  # scenario -- that is what makes them comparable.
+  frequency: {min: 1.0e3, max: 5.0e10, n: 400, log: true}
+  time:      {min: 0.0,   max: 2.0e-9,  n: 400}
+
+beam:
+  particle: positron
+  mode: energy
+  energy: 1.825e+11
+  gamma: 357143.590999551
+
+# From lattices/t/parameter_table.txt, for the record (WIMBA does not read these):
+#   circumference        90660.257001 m
+#   bunch length inc. BS 2.6912 mm
+#   bunch population     1.5827e+11
+#   tunes                (346.132, 262.281)
+
+output: [default_pipe, BPM, RF, COLL, KICKERS, STRIPKICK26, STRIPKICK18, SRABS, FLANGES, EMS, INT_MOD, IR]
+
+# ---------------------------------------------------------------------------
+# Beam pipe resistive wall -- computed here by pytlwall, NOT imported.
+#
+# The FCC-ee model also ships its own 'pipe_rw' (IW2D + CST winglet form
+# factors). Using both would double-count the single largest contribution, so
+# exactly one of the two must be active:
+#   * as shipped: WIMBA computes it, over all 22778 lattice segments with their
+#     own betas and this scenario's gamma. This is also what makes the four
+#     scenarios differ -- every imported device below is pure geometry and is
+#     identical at every energy.
+#   * to reproduce the published model instead: delete this block and uncomment
+#     'pipe_rw' at the bottom. The four scenarios then become identical, which
+#     is correct, not a bug.
+# Comparing the two is the interesting exercise: same chamber, two independent
+# codes, one weighted segment by segment and one summed over the ring.
+# ---------------------------------------------------------------------------
+default_pipe:
+  method: pytlwall
+  space_charge: false   # gamma = 357144: 1/gamma^2 = 7.84e-12, indirect space charge is negligible
+  file: data/fccee_default_pipe.json
+
+# ---------------------------------------------------------------------------
+# Imported devices, from the published FCC-ee impedance model.
+#
+# 'weighted: true' on every one of them, and it is not optional: these files are
+# RING TOTALS, already summed over all elements of the family. WIMBA must not
+# multiply a ring total by one local beta function. Verified numerically against
+# the thick-wall analytic formula on pipe_rw at 1 GHz -- file 3939 Ohm vs 3941
+# analytic longitudinally, 4.176e5 vs 4.179e5 Ohm/m transverse.
+#
+# The frequency unit is read from each file's own '# Freq(GHz) ...' header. Add
+# 'freq_unit: GHz' to a device if you ever meet a file without one.
+#
+# TO CONFIRM with the model's authors before trusting the numbers:
+#   - the transverse totals are NOT beta-weighted; at which beta should they be
+#     read for stability? (beta_avg,x = C/(2 pi Q1) = 41.7 m for this stage)
+#   - Z_long.txt in Devices/ is not the sum of the twelve device files
+#   - the model is built on optics LCCv106, this config uses LCC_107.0.1
+# ---------------------------------------------------------------------------
+devices:
+  bpm:
+    source: precalculated
+    name: BPM                      # 2220 arc BPMs (CST)
+    weighted: true
+    files:
+      ZLong:   Z_long_bpm.txt
+      ZDipX:   Z_dipx_bpm.txt
+      ZDipY:   Z_dipy_bpm.txt
+      ZQuadX:  Z_quadx_bpm.txt
+      ZQuadY:  Z_quady_bpm.txt
+
+  rf_cavities:
+    source: precalculated
+    name: RF                      # 33 cryomodules = 132 double-cell 400 MHz cavities (CST, modes to 3 GHz)
+    weighted: true
+    files:
+      ZLong:   Z_long_RF.txt
+      ZDipX:   Z_dipx_RF.txt
+      ZDipY:   Z_dipy_RF.txt
+
+  collimators:
+    source: precalculated
+    name: COLL                      # 40 collimators, 3 cm long, 3 deg taper (IW2D flat chamber + analytic tapers)
+    weighted: true
+    files:
+      ZLong:   Z_long_coll3cm.txt
+      ZDipX:   Z_dipx_coll3cm.txt
+      ZDipY:   Z_dipy_coll3cm.txt
+      ZQuadX:  Z_quadx_coll3cm.txt
+      ZQuadY:  Z_quady_coll3cm.txt
+
+  kickers:
+    source: precalculated
+    name: KICKERS                      # injection / extraction kickers (CST)
+    weighted: true
+    files:
+      ZLong:   Z_long_kickers.txt
+      ZDipX:   Z_dipx_kickers.txt
+      ZDipY:   Z_dipy_kickers.txt
+      ZQuadX:  Z_quadx_kickers.txt
+      ZQuadY:  Z_quady_kickers.txt
+
+  stripkickers26:
+    source: precalculated
+    name: STRIPKICK26                      # 12 stripline kickers, 26 mm (CST)
+    weighted: true
+    files:
+      ZLong:   Z_long_stripkickers26.txt
+      ZDipX:   Z_dipx_stripkickers26.txt
+      ZDipY:   Z_dipy_stripkickers26.txt
+
+  stripkickers18:
+    source: precalculated
+    name: STRIPKICK18                      # stripline kickers, 18 mm (CST)
+    weighted: true
+    files:
+      ZLong:   Z_long_stripkickers18mm.txt
+      ZDipX:   Z_dipx_stripkickers18mm.txt
+      ZDipY:   Z_dipy_stripkickers18mm.txt
+      ZQuadX:  Z_quadx_stripkickers18mm.txt
+      ZQuadY:  Z_quady_stripkickers18.txt   # the file name really does drop the 'mm'
+
+  sr_absorbers:
+    source: precalculated
+    name: SRABS                      # 13140 synchrotron-radiation absorbers (CST)
+    weighted: true
+    files:
+      ZLong:   Z_long_SRabs.txt
+      ZDipX:   Z_dipx_SRabs.txt
+      ZDipY:   Z_dipy_SRabs.txt
+
+  flanges:
+    source: precalculated
+    name: FLANGES                      # 13140 vacuum flanges (CST)
+    weighted: true
+    files:
+      ZLong:   Z_long_flanges.txt
+      ZDipX:   Z_dipx_flanges.txt
+      ZDipY:   Z_dipy_flanges.txt
+
+  ems:
+    source: precalculated
+    name: EMS                      # emittance measurement station
+    weighted: true
+    files:
+      ZLong:   Z_long_ems.txt
+      ZDipX:   Z_dipx_ems.txt
+      ZDipY:   Z_dipy_ems.txt
+
+  int_mod:
+    source: precalculated
+    name: INT_MOD                      # interconnection modules
+    weighted: true
+    files:
+      ZLong:   Z_long_int_mod.txt
+      ZDipX:   Z_dipx_int_mod.txt
+      ZDipY:   Z_dipy_int_mod.txt
+
+  ir:
+    source: precalculated
+    name: IR                      # 4 interaction regions
+    weighted: true
+    files:
+      ZLong:   Z_long_IR.txt
+      ZDipX:   Z_dipx_IR.txt
+      ZDipY:   Z_dipy_IR.txt
+
+# Alternative to the pytlwall default_pipe above -- never both:
+#  pipe_rw:
+#    source: precalculated
+#    name: PIPE_RW
+#    weighted: true
+#    files:
+#      ZLong:   Z_long_pipe_rw.txt
+#      ZDipX:   Z_dipx_pipe_rw.txt
+#      ZDipY:   Z_dipy_pipe_rw.txt
+#      ZQuadX:  Z_quadx_pipe_rw.txt
+#      ZQuadY:  Z_quady_pipe_rw.txt
