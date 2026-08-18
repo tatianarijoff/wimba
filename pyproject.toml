@@ -28,7 +28,9 @@ authors = [
 dev = ["pytest", "xwakes"]
 # reading impedance tables out of .xlsx / .xls; plain text needs nothing extra
 spreadsheets = ["pandas", "openpyxl"]
-gui = ["PyQt6"]
+# ruamel.yaml is what keeps a user's comments alive when the GUI writes a
+# config back: PyYAML parses the text away, ruamel round-trips it.
+gui = ["PyQt6", "ruamel.yaml"]
 
 [project.scripts]
 wimba = "wimba.cli:main"

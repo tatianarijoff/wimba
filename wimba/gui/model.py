@@ -600,17 +600,20 @@ def freeze_config(src, dest) -> Path:
     using absolute paths, or one whose data is missing, is copied unharmed and
     fails later with its own error rather than a confusing one from here.
     """
-    import yaml
-
     src, dest = Path(src), Path(dest)
     base = src.parent
-    data = yaml.safe_load(src.read_text()) or {}
+    data = read_yaml_text(src.read_text())
 
+    # Nodes are edited IN PLACE rather than rebuilt. A dict comprehension would
+    # return a plain dict and drop every comment ruamel attached to that
+    # mapping, which is the whole point of loading it round-trip.
     def walk(node):
         if isinstance(node, dict):
-            return {k: _resolve(k, v, base) for k, v in node.items()}
-        if isinstance(node, list):
-            return [walk(v) for v in node]
+            for k in list(node):
+                node[k] = _resolve(k, node[k], base)
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                node[i] = walk(v)
         return node
 
     def _resolve(key, value, base):
@@ -618,13 +621,62 @@ def freeze_config(src, dest) -> Path:
             here = base / value
             return str(here.resolve()) if here.exists() else value
         if key in PATH_DICT_KEYS and isinstance(value, dict):
-            return {c: (str((base / f).resolve()) if isinstance(f, str)
-                        and (base / f).exists() else f) for c, f in value.items()}
+            for c in list(value):
+                f = value[c]
+                if isinstance(f, str) and (base / f).exists():
+                    value[c] = str((base / f).resolve())
+            return value
         return walk(value)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(yaml.safe_dump(walk(data), sort_keys=False))
+    dest.write_text(write_yaml_text(walk(data)))
     return dest
+
+
+# ============================================================ comment-safe YAML
+# PyYAML parses a document into plain Python objects and throws the text away:
+# comments, blank lines and hand alignment do not survive safe_load/safe_dump.
+# That is fine for a file WIMBA generates, and wrong for a file a user wrote --
+# a config's comments are where the reasoning lives (why space charge is off,
+# where a number came from, which alternative block to uncomment), and losing
+# them on a Save Project is worse than losing nothing at all, because nothing
+# reports it.
+#
+# ruamel.yaml in round-trip mode keeps the original text for everything it did
+# not change. It normalises padding inside values and may re-wrap a very long
+# flow sequence, which is cosmetic; every comment and the key order survive.
+
+def _rt():
+    """A round-trip YAML instance, or None when ruamel is not installed."""
+    try:
+        from ruamel.yaml import YAML
+    except ImportError:
+        return None
+    y = YAML()                 # typ="rt" is the default
+    y.preserve_quotes = True
+    y.width = 4096             # do not re-wrap long flow sequences
+    return y
+
+
+def read_yaml_text(text):
+    """Parse YAML, keeping the formatting when ruamel is available."""
+    y = _rt()
+    if y is None:
+        import yaml
+        return yaml.safe_load(text) or {}
+    return y.load(text) or {}
+
+
+def write_yaml_text(data) -> str:
+    """Serialise, preserving whatever ``read_yaml_text`` kept."""
+    y = _rt()
+    if y is None:
+        import yaml
+        return yaml.safe_dump(data, sort_keys=False)
+    import io
+    buf = io.StringIO()
+    y.dump(data, buf)
+    return buf.getvalue()
 
 
 # =================================================================== serialiser
@@ -655,6 +707,44 @@ def _entry_names(spec) -> set:
     return set()          # a file-driven entry expands to names we cannot see here
 
 
+def _deepcopy(node):
+    """Deep copy that keeps ruamel's comment metadata (dict() would not)."""
+    import copy as _copy
+    return _copy.deepcopy(node)
+
+
+def _set_mapping(cfg, key, new):
+    """Write `new` into cfg[key] without replacing the node itself.
+
+    Assigning a fresh dict would work, but ruamel attaches a mapping's trailing
+    comments to its last key -- so replacing the `beam:` block also deletes the
+    comment block written under it. Updating the existing node in place keeps
+    those comments where the user put them.
+    """
+    old = cfg.get(key)
+    if not isinstance(old, dict):
+        cfg[key] = new
+        return
+    for k in list(old):
+        if k not in new:
+            del old[k]
+    for k, v in new.items():
+        old[k] = v
+
+
+def _same_kind_copy(node):
+    """A shallow copy that keeps the node's type.
+
+    ``dict(node)`` would work, but on a ruamel CommentedMap it produces a plain
+    dict and every comment attached to that mapping -- including the comments at
+    the top of the document -- is dropped on the way out. ``.copy()`` keeps them.
+    """
+    if node is None:
+        return {}
+    copy = getattr(node, "copy", None)
+    return copy() if callable(copy) else dict(node)
+
+
 def patch_config(cfg: dict, machine, optics=None) -> dict:
     """Return `cfg` with the machine's beam, removals and edits applied.
 
@@ -662,12 +752,15 @@ def patch_config(cfg: dict, machine, optics=None) -> dict:
     names this function cannot resolve (a `file:`-driven device expands to many
     elements at load time, so it is never dropped on the strength of a name).
     """
-    cfg = dict(cfg or {})
+    # A deep copy, so the nested in-place edits below never reach the caller's
+    # dict: this function is pure, and the GUI keeps the config it passes in.
+    # deepcopy preserves ruamel's comments, where dict() would drop them.
+    cfg = _deepcopy(cfg) if cfg else {}
     assembly = "devices" in cfg or "default_pipe" in cfg
 
     beam = getattr(machine, "beam", None)
     if beam is not None:
-        cfg["beam"] = beam.to_dict()
+        _set_mapping(cfg, "beam", beam.to_dict())
         cfg.pop("gamma", None)      # one authority for the energy, not two
     if optics:
         cfg["optics"] = str(optics)
@@ -681,15 +774,16 @@ def patch_config(cfg: dict, machine, optics=None) -> dict:
             edits[e.name] = e
 
     if assembly:
-        devices = dict(cfg.get("devices") or {})
+        devices = _same_kind_copy(cfg.get("devices"))
         for key, spec in list(devices.items()):
             names = _entry_names(spec)
             if names and not (names & set(alive)):
                 devices.pop(key)
                 continue
             for name in names & set(edits):
-                devices[key] = _apply_edits(dict(spec), edits[name], assembly=True)
-        cfg["devices"] = devices
+                devices[key] = _apply_edits(_same_kind_copy(spec), edits[name],
+                                            assembly=True)
+        _set_mapping(cfg, "devices", devices)
     else:
         groups = {}
         for gname, entries in (cfg.get("groups") or {}).items():
@@ -698,11 +792,11 @@ def patch_config(cfg: dict, machine, optics=None) -> dict:
                 name = spec.get("name")
                 if name is not None and name not in alive:
                     continue
-                kept.append(_apply_edits(dict(spec), edits[name], assembly=False)
+                kept.append(_apply_edits(_same_kind_copy(spec), edits[name], assembly=False)
                             if name in edits else spec)
             if kept:
                 groups[gname] = kept
-        cfg["groups"] = groups
+        _set_mapping(cfg, "groups", groups)
         extra = [spec for spec in (cfg.get("additional") or [])
                  if spec.get("name") is None or spec.get("name") in alive]
         if extra:
@@ -740,12 +834,10 @@ def _apply_edits(spec: dict, el, assembly: bool) -> dict:
 
 def write_config(path, machine, optics=None) -> Path:
     """Patch the config at `path` in place and report whether anything changed."""
-    import yaml
-
     path = Path(path)
     before = path.read_text()
-    cfg = yaml.safe_load(before) or {}
-    after = yaml.safe_dump(patch_config(cfg, machine, optics=optics), sort_keys=False)
+    cfg = read_yaml_text(before)
+    after = write_yaml_text(patch_config(cfg, machine, optics=optics))
     if after != before:
         path.write_text(after)
     return path
