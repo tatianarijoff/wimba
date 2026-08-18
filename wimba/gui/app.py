@@ -1678,6 +1678,11 @@ class MainWindow(QMainWindow):
             self.log.warning(note)
         if st.get("notes"):
             self.docks["problems"].raise_()
+        for w in getattr(result, "warnings", []):
+            prob.appendPlainText(f"WARNING  {w}")
+            self.log.warning(w)
+        if getattr(result, "warnings", []):
+            self.docks["problems"].raise_()
         if result.collisions:
             for c in result.collisions:
                 tag = "intentional" if c.intentional else "ERROR"

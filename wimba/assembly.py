@@ -81,6 +81,8 @@ class AssemblyResult:
     name: str
     rows: list = field(default_factory=list)
     collisions: list = field(default_factory=list)
+    #: Assembly problems that are not collisions -- see :func:`unlocated_warnings`.
+    warnings: list = field(default_factory=list)
 
 
 class _Beta:
@@ -125,6 +127,35 @@ def _resolve(dev: Device, twiss: dict, beta: _Beta):
         return s, bx, by, "name"
     # not found anywhere: append at end of machine, beta defaults to 1 (editable)
     return None, 1.0, 1.0, "default-1"
+
+
+def unlocated_warnings(rows):
+    """Flag devices that were never located in the lattice AND need a beta.
+
+    ``_resolve`` falls back to beta = 1 for a device it cannot place: no
+    ``position:``, no explicit ``beta:``, and a name that is not in the twiss.
+    That is legitimate for a *lumped* device whose data is already summed over
+    the ring -- an imported impedance model publishes one file per device family,
+    and there is no single place where all 2220 BPMs sit. Such a device carries
+    ``weighted: true``, and the compute path multiplies by 1 by design.
+
+    It is almost never legitimate for a device with ``weighted: false``, where
+    WIMBA is supposed to apply the local beta and instead applies 1. Nothing
+    fails, and the result stays plausible -- which is exactly why it has to be
+    said out loud rather than left in the ``beta_source`` column for someone to
+    notice.
+    """
+    out = []
+    for r in rows:
+        if r.kind == "default_pipe" or r.beta_source != "default-1" or r.weighted:
+            continue
+        out.append(
+            f"device '{r.name}' was not found in the lattice (no position:, no "
+            f"beta:, and the name is not a twiss element), so beta = 1 was used "
+            f"instead of the local optics. Give it a position: or an explicit "
+            f"beta:, or set weighted: true if its data is already beta-weighted "
+            f"or is a ring total.")
+    return out
 
 
 def _collisions(rows, tol):
@@ -180,7 +211,8 @@ def assemble(twiss: dict, devices, default_pipe: Optional[DefaultPipe],
                                    default_pipe.weighted, sc, bx, by, "interp",
                                    False, float(L), default_pipe.geometry, "default_pipe"))
 
-    return AssemblyResult(name, rows, _collisions(rows, tol))
+    return AssemblyResult(name, rows, _collisions(rows, tol),
+                          unlocated_warnings(rows))
 
 
 CSV_COLUMNS = ["position_s", "name", "kind", "method", "weighted", "space_charge",
@@ -226,9 +258,21 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
         cfg = yaml.safe_load(cfg_path.read_text()) or {}
 
     from .config import resolve_data_path
-    twiss = (madx.read_twiss(resolve_data_path(cfg["optics"], base,
-                                               what="optics table",
-                                               study_dirs=cfg.get("data_dir")))
+
+    def _data(reference, what="data file"):
+        """Locate a file referenced by this config.
+
+        Every reference in the config goes through here, not just the optics:
+        device tables, collimator and resonator JSON, the default-pipe geometry.
+        Data that ships with an example stays relative to the config, as before,
+        because resolve_data_path falls back to `base`; data too large or too
+        external to track -- an imported impedance model, a twiss -- is found via
+        `data_dir:` without absolute paths in a committed file.
+        """
+        return resolve_data_path(reference, base, what=what,
+                                 study_dirs=cfg.get("data_dir"))
+
+    twiss = (madx.read_twiss(_data(cfg["optics"], "optics table"))
              if cfg.get("optics") else {})
 
     # user-defined materials (name -> sigma [S/m]) extend the built-in table
@@ -260,7 +304,7 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
         sc = bool(spec.get("space_charge", method == "pytlwall"))
         overlap = bool(spec.get("allow_overlap", False))
         if src == "collimators_json":
-            for name, geo in read_collimators(base / spec["file"]).items():
+            for name, geo in read_collimators(_data(spec["file"], "collimator file")).items():
                 geometry = {"radius": geo.get("halfgap", 0.02),
                             "layers": geo.get("layers"),
                             "length": geo.get("length")}
@@ -269,18 +313,24 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
                                       space_charge=sc, allow_overlap=overlap,
                                       length=geo.get("length"), geometry=geometry, group=gname))
         elif src == "resonators_json":
-            r = read_resonators(base / spec["file"])
+            r = read_resonators(_data(spec["file"], "resonator file"))
             devices.append(Device(name=r.get("name", "resonator"), method=method,
                                   weighted=weighted, space_charge=sc,
                                   allow_overlap=overlap, length=r.get("length"),
                                   group=gname, params={"modes": r.get("modes", [])}))
         elif src == "precalculated":
-            base_dir = cfg_path.parent
-            files = {c: str(base_dir / f) for c, f in (spec.get("files") or {}).items()}
-            wfiles = {c: str(base_dir / f) for c, f in (spec.get("wake_files") or {}).items()}
+            files = {c: str(_data(f, "impedance table"))
+                     for c, f in (spec.get("files") or {}).items()}
+            wfiles = {c: str(_data(f, "wake table"))
+                      for c, f in (spec.get("wake_files") or {}).items()}
             params = {"files": files, "wake_files": wfiles}
+            # Units are read from each file's header when it declares one
+            # (# Freq(GHz) ...); these keys override that, for files that don't.
+            for key in ("freq_unit", "time_unit"):
+                if spec.get(key):
+                    params[key] = str(spec[key])
             if "map" in spec:
-                params["map"] = str(base_dir / spec["map"])
+                params["map"] = str(_data(spec["map"], "import map"))
             devices.append(Device(name=spec.get("name", gname), method="precalculated",
                                   weighted=weighted, allow_overlap=overlap,
                                   length=spec.get("length_m"), position=spec.get("position"),
@@ -311,7 +361,7 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     if dp_spec:
         if "file" in dp_spec:
             from .io.json_io import read_pipe
-            geometry = read_pipe(base / dp_spec["file"])
+            geometry = read_pipe(_data(dp_spec["file"], "default pipe geometry"))
         else:
             radius = dp_spec.get("radius_mm", 22.0) / 1000.0
             geometry = {"radius": radius,

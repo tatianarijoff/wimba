@@ -14,6 +14,7 @@ import numpy as np
 import yaml
 
 from .assembly import load_assembly
+from .logutil import get_logger
 from .builders.loader import read_beam
 from .naming import safe
 from .io.pytlwall_cfg import write_chamber_cfg
@@ -186,6 +187,7 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
         elif row.method == "precalculated":
             params = row.params or {}
             files, wfiles = params.get("files", {}), params.get("wake_files", {})
+            funit, tunit = params.get("freq_unit"), params.get("time_unit")
             map_data = None
             if params.get("map"):
                 from .io.import_map import (interp_impedance, interp_wake,
@@ -200,7 +202,7 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
             if map_data is not None:
                 loaded = interp_impedance(map_data, freqs)
             else:
-                loaded = precalculated_impedance(freqs, files)
+                loaded = precalculated_impedance(freqs, files, freq_unit=funit)
             zterms = {c: np.zeros(len(freqs), dtype=complex) for c in COMPONENTS}
             for c, v in loaded.items():
                 if c in zterms:
@@ -214,7 +216,7 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
                             wterms[c] = v * _bw(c)
                     stats["wake_native"].add("precalculated")
                 elif wfiles:
-                    for c, v in precalculated_wake(times, wfiles).items():
+                    for c, v in precalculated_wake(times, wfiles, time_unit=tunit).items():
                         if c in wterms:
                             wterms[c] = v * _bw(c)
                     stats["wake_native"].add("precalculated")
@@ -290,6 +292,8 @@ def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True)
         cfg = dict(cfg)
         cfg.pop("default_pipe", None)
     result = load_assembly(config, cfg=cfg)
+    for w in result.warnings:
+        get_logger(__name__).warning(w)
     freqs = _grid(cfg)
     out = Path(out_dir) if out_dir else Path(config).parent / f"{result.name}_output"
     per_device = cfg.get("output") or []

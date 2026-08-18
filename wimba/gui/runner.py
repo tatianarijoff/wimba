@@ -41,6 +41,8 @@ class RunWorker(QThread):
             self.log.emit(f"  {len(result.rows)} assignment(s): {devices} device(s), "
                           f"{len(result.rows) - devices} default-pipe row(s), "
                           f"{len(result.collisions)} collision(s).")
+            for w in getattr(result, "warnings", []):
+                self.log.emit(f"  WARNING: {w}")
 
             self.log.emit("Computing...")
             info = run_study(self.config, out_dir=self.out_dir, wake=self.wake,
