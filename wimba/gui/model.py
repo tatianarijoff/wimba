@@ -302,6 +302,25 @@ def layer_out(lay: dict) -> dict:
     return out
 
 
+# A chamber method computes every impedance component at once, so a compare
+# entry that names one is only choosing a label. This is the value that says
+# "all of them" - it must match the entry in the Models tab.
+ALL_IMPEDANCE = "All impedance"
+
+
+#: The wake counterpart of ALL_IMPEDANCE. A chamber method produces every wake
+#: component in one call, exactly as it does for the impedance.
+ALL_WAKE = "All wake"
+
+#: Wake components a comparison can name. WIMBA's own names, as in the results.
+WAKE_COMPONENTS = ("WLong", "WDipX", "WDipY", "WQuadX", "WQuadY")
+
+
+def is_wake_component(q) -> bool:
+    """True when a compare entry asks for a wake rather than an impedance."""
+    return (q or "") == ALL_WAKE or str(q or "").startswith("W")
+
+
 def _carry_beam(cfg: dict, base_cfg: dict) -> None:
     """Put the beam into an emitted config, not just its gamma.
 
@@ -315,6 +334,26 @@ def _carry_beam(cfg: dict, base_cfg: dict) -> None:
         cfg["beam"] = {k: v for k, v in beam.items() if not k.startswith("_")}
     if base_cfg.get("gamma") is not None:
         cfg["gamma"] = base_cfg["gamma"]
+
+
+#: Five factors - long, xdip, ydip, xquad, yquad - in IW2D's own order. They
+#: turn a round solve into another geometry and are read ONLY by the IW2D path;
+#: pytlwall applies its own tables and ignores them.
+IW2D_YOKOYA = "iw2d_yokoya"
+
+
+def _yokoya_out(geo: dict) -> dict:
+    """The Yokoya factors of a geometry, if it states any."""
+    raw = geo.get(IW2D_YOKOYA)
+    if not raw:
+        return {}
+    factors = [float(v) for v in raw] if not isinstance(raw, str) else \
+        [float(v) for v in raw.split()]
+    if len(factors) != 5:
+        raise ValueError(
+            f"{IW2D_YOKOYA} needs five numbers - long, xdip, ydip, xquad, "
+            f"yquad - got {len(factors)}.")
+    return {IW2D_YOKOYA: factors}
 
 
 def _aperture(geo: dict, who: str) -> dict:
@@ -357,15 +396,16 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
     opened from (base_cfg), unless the element carries its own (``own_base``),
     as one loaded from a pytlwall config does: such an element belongs to no
     machine, so its own settings win. Geometry, layers and beta come from the
-    element as edited in the GUI. Only pytlwall elements are supported for now (resonator /
-    precalculated single-element runs come with the full machine->config bridge).
+    element as edited in the GUI. Chamber methods - pytlwall and IW2D - are both
+    supported; resonator and precalculated single-element runs come with the
+    full machine->config bridge.
     """
     model = next((m for m in el.models if m.enabled), None)
-    base = method_base(model.method) if model else "pytlwall"
-    if base.lower() != "pytlwall":
+    base = (method_base(model.method) if model else "pytlwall").lower()
+    if base not in ("pytlwall", "iw2d"):
         raise ValueError(
-            f"single-element calculation supports pytlwall elements for now "
-            f"(this one is '{base}').")
+            f"single-element calculation supports chamber methods (pytlwall, "
+            f"IW2D); this one is '{base}'.")
 
     geo = el.geometry or {}
     aperture = _aperture(geo, f"element '{el.name}'")
@@ -374,13 +414,16 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
     spec = {
         "source": "chamber",
         "name": name,
-        "method": "pytlwall",
+        "method": base,
         **aperture,
         "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
         "beta_x": float(el.optics.get("bx") or 1.0),
         "beta_y": float(el.optics.get("by") or 1.0),
         "weighted": method_weighted(model.method) if model else False,
         "layers": [layer_out(lay) for lay in el.layers],
+        **_yokoya_out(geo),
+        **({"test_beam_shift": geo["test_beam_shift"]}
+           if geo.get("test_beam_shift") is not None else {}),
     }
     # An element that carries its own gamma/grid belongs to no machine: its
     # settings win over the config that happens to be open in the GUI.
@@ -390,23 +433,57 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
     output = [] if compare_only else [name]
     for i, cmp_ in enumerate(getattr(el, "compare", []) or []):
         cbase = method_base(cmp_.method).lower()
-        cname = f"{name}[{method_base(cmp_.method)} {cmp_.q}]"
+        wake = is_wake_component(cmp_.q)
+        every = (cmp_.q or ALL_IMPEDANCE) in (ALL_IMPEDANCE, ALL_WAKE)
+        cname = (f"{name}[{method_base(cmp_.method)}]" if every
+                 else f"{name}[{method_base(cmp_.method)} {cmp_.q}]")
         if cbase == "precalculated":
+            if every:
+                raise ValueError(
+                    "a precalculated comparison is one file, so it holds one "
+                    "component: pick the component that file contains instead "
+                    f"of '{cmp_.q}'.")
             if not cmp_.file:
                 raise ValueError(
                     f"compare entry {cmp_.q} (precalculated) needs a file "
                     "(a plain .dat or an import-map .yaml).")
-            key = "map" if cmp_.file.lower().endswith((".yaml", ".yml")) else "files"
-            val = cmp_.file if key == "map" else {cmp_.q: cmp_.file}
+            if cmp_.file.lower().endswith((".yaml", ".yml")):
+                # a map describes its own components, wake ones included
+                key, val = "map", cmp_.file
+            else:
+                # a wake column belongs in wake_files: the run pipeline reads
+                # the two separately, and putting a wake in files would have it
+                # interpolated onto the frequency grid as if it were impedance
+                key = "wake_files" if wake else "files"
+                val = {cmp_.q: cmp_.file}
             cspec = {"source": "precalculated", "name": cname, key: val,
                      "weighted": method_weighted(cmp_.method)}
+            if not cspec["weighted"]:
+                # it is the same element, so it has the same optics: without
+                # these the assembler cannot locate it and falls back to
+                # beta = 1, warning about a device the user never placed
+                cspec["beta_x"] = float(el.optics.get("bx") or 1.0)
+                cspec["beta_y"] = float(el.optics.get("by") or 1.0)
         elif cbase in ("pytlwall", "iw2d"):
             cspec = dict(spec, name=cname, method=cbase,
                          weighted=method_weighted(cmp_.method))
+            if cbase != "iw2d":
+                # the factors are IW2D's; copying the base spec dragged them
+                # into a pytlwall device, where they mean nothing
+                cspec.pop(IW2D_YOKOYA, None)
         else:
             raise ValueError(f"compare entry: method '{cmp_.method}' not supported.")
+
+        # Two rows can ask for the same thing - the same method on the same
+        # component - and would then produce two devices with one name: the
+        # second silently overwrites the first in the results, and the output
+        # list carries a duplicate. Number the repeats instead.
+        if cspec["name"] in output:
+            n = sum(1 for o in output if o == cspec["name"]
+                    or o.startswith(cspec["name"] + " #"))
+            cspec["name"] = f"{cspec['name']} #{n + 1}"
         devices[f"compare_{i}"] = cspec
-        output.append(cname)
+        output.append(cspec["name"])
     if compare_only and not devices:
         raise ValueError(
             "no comparison to calculate: add one under 'Additional calculations' "
@@ -425,6 +502,16 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
         cfg["grid"] = dict(cfg["grid"])
         cfg["grid"].setdefault("time", {"min": 1.0e-12, "max": 5.0e-9, "n": 200})
     return cfg
+
+
+def wants_wake(el: GElement) -> bool:
+    """True when any comparison on this element asks for a wake.
+
+    Such a comparison produces nothing at all unless the calculation runs with
+    a time grid, so asking for one is taken as asking for the wake rather than
+    quietly returning an empty column.
+    """
+    return any(is_wake_component(c.q) for c in (getattr(el, "compare", None) or []))
 
 
 def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
@@ -478,7 +565,10 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
                 "beta_x": float(el.optics.get("bx") or 1.0),
                 "beta_y": float(el.optics.get("by") or 1.0),
                 "weighted": method_weighted(method),
-                "layers": [layer_out(lay) for lay in el.layers]}
+                "layers": [layer_out(lay) for lay in el.layers],
+                **_yokoya_out(geo),
+                **({"test_beam_shift": geo["test_beam_shift"]}
+                   if geo.get("test_beam_shift") is not None else {})}
     else:
         raise ValueError(f"component bench: method '{method}' not supported.")
 

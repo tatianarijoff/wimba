@@ -44,8 +44,15 @@ def _geo_key(geo):
             return str(x)                      # e.g. thickness 'inf'
     layers = tuple(tuple(sorted((k, _num(v)) for k, v in l.items()))
                    for l in (geo.get("layers") or []))
+    # Anything that changes the numbers belongs in the key. The Yokoya factors
+    # and the test-beam shift do, and leaving them out meant two devices with
+    # the same wall but different factors shared one cached result: the second
+    # was served the first's answer, silently.
+    yokoya = tuple(_num(v) for v in (geo.get("iw2d_yokoya") or ()))
     return (round(float(geo.get("radius", 0.02)), 9), geo.get("shape", "CIRCULAR"),
-            geo.get("hor"), geo.get("ver"), layers)
+            geo.get("hor"), geo.get("ver"), layers, yokoya,
+            _num(geo.get("test_beam_shift"), None)
+            if geo.get("test_beam_shift") is not None else None)
 
 
 def _cached(cache, geo, factory, method="pytlwall"):
@@ -96,12 +103,20 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
                                                                  g.get("layers"), length_m=1.0,
                                                                  shape=g.get("shape", "CIRCULAR"),
                                                                  hor_m=g.get("hor"), ver_m=g.get("ver"),
-                                                                 betax=1.0, betay=1.0, gamma=gamma))
+                                                                 betax=1.0, betay=1.0, gamma=gamma,
+                                                                 test_beam_shift=g.get("test_beam_shift")))
             if fresh:
                 stats["geometries"] += 1
                 write_chamber_cfg(Path(out_dir) / "pytlwall_inputs" /
                                   f"{stats['geometries']:02d}_{safe(geo.get('name') or row.name)}.cfg",
-                                  geo, gamma=gamma)
+                                  geo, gamma=gamma,
+                                  test_beam_shift=geo.get("test_beam_shift"))
+                if geo.get("test_beam_shift") is not None:
+                    # a number that changes a result should never be invisible
+                    stats.setdefault("notes", []).append(
+                        f"{row.name}: test_beam_shift = "
+                        f"{geo['test_beam_shift']} (from the config; only the "
+                        f"space-charge terms use it)")
             zterms = _scale(zbase, row, COMPONENTS, "ZLong")   # wall: scales with L and beta
             if row.space_charge:
                 # indirect space charge: kept as separate components (ZLongISC, ...),
@@ -118,7 +133,8 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
                                                              g.get("layers"), length_m=1.0,
                                                              shape=g.get("shape", "CIRCULAR"),
                                                              hor_m=g.get("hor"), ver_m=g.get("ver"),
-                                                             betax=1.0, betay=1.0, gamma=gamma))
+                                                             betax=1.0, betay=1.0, gamma=gamma,
+                                                             test_beam_shift=g.get("test_beam_shift")))
                 wterms = _scale(wbase, row, WAKE_COMPONENTS, "WLong")
                 stats["wake_native"].add("pytlwall")
 
@@ -128,23 +144,36 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
                 raise ValueError(
                     f"device '{row.name}' uses iw2d but has no geometry/radius; "
                     "check its config (radius_m / radius_mm or halfgap).")
-            if str(geo.get("shape", "CIRCULAR")).upper() != "CIRCULAR":
+            shape = str(geo.get("shape", "CIRCULAR")).upper()
+            yokoya = geo.get("iw2d_yokoya")
+            if shape != "CIRCULAR" and not yokoya:
                 raise ValueError(
-                    f"device '{row.name}': the IW2D bridge computes circular "
-                    f"chambers, got shape={geo.get('shape')!r}. IW2D does support "
-                    "flat geometries, through a different input object, but that "
-                    "path is not wired yet.")
+                    f"device '{row.name}' is {shape} and asks for IW2D. IW2D "
+                    "solves round and flat chambers; any other shape is "
+                    "represented by a round solve rescaled with Yokoya "
+                    "factors, which this device does not state. Add "
+                    "'iw2d_yokoya: [long, xdip, ydip, xquad, yquad]', or "
+                    "compute it with pytlwall, which carries its own tables.")
             zbase, fresh = _cached(
                 zcache, geo, method="iw2d",
                 factory=lambda g=geo: compute_iw2d(freqs, g.get("radius", 0.02),
                                                    g.get("layers"), length_m=1.0,
-                                                   shape=g.get("shape", "CIRCULAR"),
-                                                   betax=1.0, betay=1.0, gamma=gamma))
+                                                   shape="CIRCULAR",
+                                                   betax=1.0, betay=1.0,
+                                                   gamma=gamma,
+                                                   yokoya=g.get("iw2d_yokoya")))
             if fresh:
                 stats["geometries"] += 1
                 _out, notes = compute_iw2d(freqs[:1], geo.get("radius", 0.02),
                                            geo.get("layers"), length_m=1.0,
-                                           gamma=gamma, return_notes=True)
+                                           gamma=gamma, yokoya=yokoya,
+                                           return_notes=True)
+                if shape != "CIRCULAR":
+                    stats.setdefault("notes", []).append(
+                        f"{row.name}: {shape} computed by IW2D as a round "
+                        f"chamber rescaled with the Yokoya factors "
+                        f"{list(yokoya)} — an approximation, and the factors "
+                        f"are the ones this config states, not WIMBA's.")
                 for note in notes:
                     stats.setdefault("notes", []).append(f"{row.name}: {note}")
             zterms = _scale(zbase, row, COMPONENTS, "ZLong")

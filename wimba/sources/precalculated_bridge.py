@@ -42,13 +42,21 @@ def precalculated_impedance(freqs, files, freq_unit=None):
     return out
 
 
-def precalculated_components(path):
+def precalculated_components(path, return_reason=False):
     """Component names available in one precalculated file, or () if it is a
-    plain three-column table with nothing to choose from."""
+    plain three-column table with nothing to choose from.
+
+    With ``return_reason`` the caller also gets why nothing was found. The
+    reader's message is usually the useful part - "the frequencies stop at 719,
+    which is not credible in Hz" says exactly what is wrong with the file -
+    and throwing it away left the user describing the file by hand with no idea
+    what had gone wrong.
+    """
     try:
-        return tuple(sorted(read_impedance_table(path)))
-    except (ValueError, OSError, ImportError):
-        return ()
+        comps = tuple(sorted(read_impedance_table(path)))
+        return (comps, None) if return_reason else comps
+    except (ValueError, OSError, ImportError) as exc:
+        return ((), str(exc)) if return_reason else ()
 
 
 def precalculated_wake(times, files, time_unit=None):

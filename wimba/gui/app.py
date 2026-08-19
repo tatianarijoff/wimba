@@ -15,7 +15,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtCore import QObject, QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import (QAction, QActionGroup, QColor, QIcon, QKeySequence,
                          QPainter, QPixmap)
 from PyQt6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QHBoxLayout,
@@ -77,6 +77,31 @@ def empty_state(icon: str, title: str, text: str) -> QWidget:
     return w
 
 
+class _LogBridge(QObject):
+    """Carries a formatted line from whatever thread logged it to the GUI one.
+
+    A Qt widget may only be touched from the thread that owns it. The library
+    logs from inside the calculation, which runs in a worker thread, so writing
+    straight into the console widget was a cross-thread GUI call: it usually
+    appeared to work, then corrupted the text layout and the process died in
+    the font engine during a later repaint - in the main thread, far from the
+    line that caused it.
+
+    Emitting a signal is thread-safe, and because this object lives in the GUI
+    thread Qt delivers it there, queued.
+    """
+
+    message = pyqtSignal(str)
+
+    def __init__(self, widget):
+        super().__init__()
+        self._widget = widget
+        self.message.connect(self._append)
+
+    def _append(self, html):
+        self._widget.appendHtml(html)
+
+
 class QtLogHandler(logging.Handler):
     """Streams log records into a QPlainTextEdit, coloured by level."""
 
@@ -86,12 +111,14 @@ class QtLogHandler(logging.Handler):
     def __init__(self, widget):
         super().__init__()
         self.widget = widget
+        self.bridge = _LogBridge(widget)
         self.setFormatter(logging.Formatter("%(levelname)-8s %(name)s: %(message)s"))
 
     def emit(self, record):
         msg = self.format(record).replace("<", "&lt;").replace(">", "&gt;")
         color = self.COLORS.get(record.levelname, "#c9d1d9")
-        self.widget.appendHtml(f'<span style="color:{color}">{msg}</span>')
+        # never touch the widget here: this runs in whichever thread logged
+        self.bridge.message.emit(f'<span style="color:{color}">{msg}</span>')
 
 
 class Watermark(QWidget):
@@ -1277,6 +1304,14 @@ class MainWindow(QMainWindow):
         geo = data["geometry"]
         layers = geo.pop("layers", [])
         name = geo.pop("name", None) or Path(path).stem
+        # the Geometry tab reads the length from the geometry, the calculation
+        # from the optics: set both, or the panel shows an empty field for a
+        # length the file did state
+        geo["length"] = data["length"]
+        if data.get("test_beam_shift") is not None:
+            # stated in the cfg: it must travel, or the same file read back
+            # computes the space charge with pytlwall's default instead
+            geo["test_beam_shift"] = data["test_beam_shift"]
         own = {k: v for k, v in (("gamma", data["gamma"]),
                                  ("grid", data["grid"])) if v}
         el = GElement(name=name, category="component", geometry=geo,
@@ -1350,11 +1385,47 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Component saved to {path}", 6000)
 
     def _comp_load_iw2d_cfg(self):
-        QMessageBox.information(
-            self, "Load IW2D Config",
-            "Reading IW2D inputs is planned, but I will not guess the format: "
-            "send a sample IW2D input file and the loader will be calibrated on "
-            "it (as done for the CST exports).")
+        """Open an IW2D round-chamber input file as a component.
+
+        WIMBA does not compute through these files - it drives IW2D's Python
+        API - but the format is how an IW2D case is written down and handed
+        around, so it is worth being able to open one.
+        """
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load IW2D input file", self._dir_hint(),
+            "IW2D input (*.txt *.dat);;All files (*)")
+        if not path:
+            return
+        self._remember_dir(path)
+        from ..io.iw2d_input import read_iw2d_input
+        from .model import GElement, default_models
+        try:
+            data = read_iw2d_input(path)
+        except Exception as exc:
+            self.log.error("Could not read %s: %s", path, exc)
+            QMessageBox.critical(self, "Load IW2D Config", str(exc))
+            return
+
+        geo = data["geometry"]
+        layers = geo.pop("layers", [])
+        name = geo.pop("name", None) or Path(path).stem
+        geo["length"] = data["length"]
+        own = {k: v for k, v in (("gamma", data["gamma"]),
+                                 ("grid", data["grid"])) if v}
+        el = GElement(name=name, category="component", geometry=geo,
+                      optics={"bx": data["betax"], "by": data["betay"],
+                              "l": data["length"]},
+                      layers=layers, models=default_models("IW2D"),
+                      own_base=own)
+        self.component = el
+        self._component_base = own
+        self._open_element(el)
+        self.log.info("Component '%s' loaded from IW2D input %s", name, path)
+        for note in data.get("notes", []):
+            # what the file said and WIMBA could not keep: reported, never
+            # dropped in silence
+            self.log.warning("  %s", note)
+        self._log_run_settings(el, source=f"IW2D input {Path(path).name}")
 
     def _comp_require(self):
         if getattr(self, "component", None) is None:
@@ -1423,7 +1494,13 @@ class MainWindow(QMainWindow):
         # A spreadsheet or an export carries every component in one file, with
         # named columns: take them all rather than asking which single one.
         from ..sources.precalculated_bridge import precalculated_components
-        comps = precalculated_components(path)
+        try:
+            comps, reason = precalculated_components(path, return_reason=True)
+        except Exception as exc:                 # a broken file must not end the session
+            self.log.error("Could not read %s: %s", path, exc)
+            QMessageBox.critical(self, "Load Precalculated",
+                                 f"{Path(path).name} could not be read:\n\n{exc}")
+            return
         if len(comps) > 1:
             self.log.info("Precalculated %s: %d component(s) found -- %s",
                           Path(path).name, len(comps), ", ".join(comps))
@@ -1431,11 +1508,27 @@ class MainWindow(QMainWindow):
                             data_file={c: path for c in comps})
             return
 
+        if reason:
+            # the reader knew what was wrong: say it, then offer the manual
+            # route rather than dropping the user into it unexplained
+            self.log.warning("Precalculated %s: %s", Path(path).name, reason)
+            answer = QMessageBox.question(
+                self, "Load Precalculated",
+                f"WIMBA could not read {Path(path).name} on its own:\n\n{reason}"
+                f"\n\nDescribe the file by hand instead?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
         from .import_dialog import ImportMapDialog
-        dlg = ImportMapDialog(path, self)
-        if dlg.exec() and dlg.map_path:
-            self.log.info("Import map written: %s (reusable in configs).", dlg.map_path)
-            self._comp_calc("precalculated", data_file=str(dlg.map_path))
+        try:
+            dlg = ImportMapDialog(path, self)
+            if dlg.exec() and dlg.map_path:
+                self.log.info("Import map written: %s (reusable in configs).",
+                              dlg.map_path)
+                self._comp_calc("precalculated", data_file=str(dlg.map_path))
+        except Exception as exc:
+            self.log.error("Import map for %s failed: %s", path, exc)
+            QMessageBox.critical(self, "Load Precalculated", str(exc))
 
     def _comp_clear(self):
         removed = [k for k in self.results_model.sources if "[" in k]
@@ -1551,7 +1644,15 @@ class MainWindow(QMainWindow):
         import yaml as _yaml
 
         from ..naming import safe
-        from .model import element_to_config
+        from .model import element_to_config, wants_wake
+        if not wake and wants_wake(el):
+            # A wake comparison yields an empty column without a time grid.
+            # Asking for one is asking for the wake, so the wake is computed -
+            # and the grid that decision implies is stated, not assumed.
+            wake = True
+            self.log.info(
+                "A comparison on '%s' asks for a wake, so the wake is computed "
+                "too.", el.name)
         try:
             self._log_run_settings(el)
             cfg = element_to_config(el, base_cfg=self._base_cfg(),
@@ -1576,6 +1677,12 @@ class MainWindow(QMainWindow):
             self.log.info("Wake requested: the native pytlwall wake is computed from the "
                           "geometry (impedance is recomputed alongside; cached geometries "
                           "keep it cheap).")
+            t = (cfg.get("grid") or {}).get("time") or {}
+            if t:
+                self.log.info("  time grid: %s .. %s s, %s points%s",
+                              t.get("min"), t.get("max"), t.get("n"),
+                              "" if "time" in (self._base_cfg().get("grid") or {})
+                              else " (WIMBA's default: the open config states none)")
         # a compare-only run adds to what is already there instead of replacing it
         self._run_kind = "element_compare" if compare_only else "element"
         self.worker = RunWorker(str(cfg_path), wake=wake, fill_pipe=False)

@@ -116,14 +116,17 @@ def _one_layer(lay, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility):
     ``sigma`` [S/m]     dc_resistivity [Ohm.m]     reciprocal
     ``tau``             resistivity relaxation [s] none
     ``epsr``            re_dielectric_constant     none
-    ``muinf_Hz``        magnetic susceptibility    chi = mu_r - 1
+    ``muinf_Hz``        magnetic susceptibility    none
     ``k_Hz`` [Hz]       permeability relax. f [Hz] none
     ``thickness`` [m]   thickness [m]              none
     ==================  =========================  ===========================
 
-    ``muinf_Hz`` is pytlwall's name for a relative permeability; IW2D wants the
-    susceptibility, so 460 becomes 459. On a strongly magnetic material the
-    error would be invisible, on a weakly magnetic one fatal.
+    ``muinf_Hz`` reads like a relative permeability and is not one. pytlwall
+    computes ``mur = 1 + muinf / (1 + j f/k)`` (pytlwall/layer.py, calc_mur), so
+    the quantity it stores is already the susceptibility and passes through
+    unchanged. Subtracting one from it - as this did - turned the default
+    muinf = 0 into chi = -1, that is a relative permeability of zero, on every
+    non-magnetic wall computed with IW2D.
     """
     ltype = str(lay.get("type", "CW")).upper()
     thick = lay.get("thickness", lay.get("thick_m", 0.002))
@@ -151,8 +154,9 @@ def _one_layer(lay, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility):
         rho = float("inf") if sigma == 0 else 1.0 / sigma
         tau = float(lay.get("tau", 0.0))
         epsr = float(lay.get("epsr", 1.0))
-        muinf = float(lay.get("muinf_Hz", lay.get("muinf", 1.0))) or 1.0
-        chi = muinf - 1.0
+        # pytlwall's muinf IS the susceptibility (see the docstring above), so
+        # it is what IW2D wants. Its default is 0: a non-magnetic wall.
+        chi = float(lay.get("muinf_Hz", lay.get("muinf", 0.0)) or 0.0)
         k_hz = lay.get("k_Hz", lay.get("k", float("inf")))
         k_hz = float("inf") if str(k_hz).lower() == "inf" else float(k_hz)
 
@@ -262,11 +266,15 @@ def compute_iw2d(freqs, radius_m, layers=None, length_m=1.0, shape="CIRCULAR",
 class IW2DProvider:
     """Build-flow provider for IW2D, mirroring pytlwall's ChamberProvider."""
 
-    def __init__(self, radius_m, layers=None, length_m=1.0, gamma=None, **kw):
+    def __init__(self, radius_m, layers=None, length_m=1.0, gamma=None,
+                 iw2d_yokoya=None, **kw):
         self.radius = float(radius_m)
         self.layers = layers
         self.length = float(length_m)
         self.gamma = require_gamma(gamma, f'IW2D chamber of radius {radius_m} m')
+        #: five factors that turn the round solve into another geometry; the
+        #: IW2D path reads them, pytlwall applies its own tables instead
+        self.yokoya = tuple(iw2d_yokoya) if iw2d_yokoya else None
 
     def terms(self, element):
         from ..core.terms import STANDARD_TERMS
@@ -274,6 +282,7 @@ class IW2DProvider:
 
         def z(f):
             return compute_iw2d(f, self.radius, self.layers,
-                                length_m=self.length, gamma=self.gamma)["ZLong"]
+                                length_m=self.length, gamma=self.gamma,
+                                yokoya=self.yokoya)["ZLong"]
         return [ImpedanceTerm(id="zlong", tid=STANDARD_TERMS["zlong"],
                               origin="resistive_wall", z=z, w=None)]

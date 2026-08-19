@@ -1,0 +1,38 @@
+# The RoundChamber verification case, computed with IW2D instead of pytlwall.
+#
+# The wall is IW2D's own RoundChamberInputFile.txt, key by key: CIRCULAR,
+# radius 2 mm, length 1 m, beta = 1, DC resistivity 5e-06 Ohm.m (sigma = 2e5
+# S/m), relaxation time 4.2 ps, epsr 1, susceptibility 0, layer extending to
+# infinity, gamma = 479.605064966 - the same numbers as
+# examples/RoundChamber_TLW/RoundChamber_TLW_config.yaml, which computes them with
+# pytlwall. The only difference is the method: run both and the curves should
+# lie on top of each other.
+#
+#   wimba run examples/RoundChamber_IW2D/RoundChamber_IW2D_config.yaml
+#
+# In the interface this is a WIMBA config, so it opens with File > Open Config
+# - not with Component > Load IW2D Config..., which reads IW2D's own input
+# format and is not implemented yet.
+#
+# IW2D handles circular chambers in WIMBA today; for other shapes use pytlwall.
+
+name: RoundChamber_IW2D
+gamma: 479.605064966
+
+grid:
+  frequency: {min: 1.0e3, max: 1.0e11, n: 300, log: true}
+
+devices:
+  round_chamber:
+    source: chamber
+    name: RoundChamber_IW2D
+    method: iw2d
+    radius_m: 0.002
+    length_m: 1.0
+    beta_x: 1.0
+    beta_y: 1.0
+    layers:
+      - {sigma: 2.0e5, tau: 4.2e-12, epsr: 1.0, muinf_Hz: 0.0, k_Hz: inf,
+         thickness: inf}
+
+output: [RoundChamber_IW2D]

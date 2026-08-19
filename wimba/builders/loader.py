@@ -148,16 +148,30 @@ def _chamber_geom(el, base, beam):
     return dict(radius_m=radius, layers=el.get("layers"),
                 length_m=float(el.get("length", 1.0)),
                 gamma=_element_gamma(el, beam),
-                shape=el.get("shape", "CIRCULAR"), hor_m=_axis("hor"), ver_m=_axis("ver"))
+                shape=el.get("shape", "CIRCULAR"), hor_m=_axis("hor"),
+                ver_m=_axis("ver"),
+                # read by the IW2D path only: pytlwall applies its own tables
+                iw2d_yokoya=el.get("iw2d_yokoya"),
+                # read by the pytlwall path only: IW2D's formalism has no
+                # equivalent parameter
+                test_beam_shift=el.get("test_beam_shift"))
 
 
 def _build_pytlwall(el, base, beam):
+    geom = _chamber_geom(el, base, beam)
+    # The Yokoya factors are read by the IW2D path alone: pytlwall carries its
+    # own tables and applies them itself, so handing it these would either be
+    # ignored or - worse - applied twice.
+    geom.pop("iw2d_yokoya", None)
     return ChamberProvider(space_charge=bool(el.get("space_charge", False)),
-                           **_chamber_geom(el, base, beam))
+                           **geom)
 
 
 def _build_iw2d(el, base, beam):
-    return IW2DProvider(**_chamber_geom(el, base, beam))
+    geom = _chamber_geom(el, base, beam)
+    # the mirror of the pytlwall case: IW2D's formalism has no test-beam shift
+    geom.pop("test_beam_shift", None)
+    return IW2DProvider(**geom)
 
 
 SOURCE_BUILDERS = {

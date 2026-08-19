@@ -80,9 +80,32 @@ def require_gamma(gamma, what="this calculation"):
     return float(gamma)
 
 
+#: pytlwall's own default for the test particle's transverse offset. WIMBA
+#: never invents a value: it passes what the config states, and leaves the
+#: default to pytlwall when nothing is stated - but it reports which one is in
+#: use, because a number that decides a result should not be invisible.
+#:
+#: Only the space-charge terms depend on it; ZLong does not use it at all. It
+#: still matters that it travels: a chamber cfg written with 0.01 and read back
+#: at 0.001 is not the same calculation.
+PYTLWALL_TEST_BEAM_SHIFT = None      # None = leave pytlwall's own default
+
+
+def _beam(pytlwall, gamma, test_beam_shift=None):
+    """pytlwall's Beam, with the test shift only when one was stated.
+
+    Passing None would override pytlwall's own default with nothing; not
+    passing it at all is what leaves the engine in charge of its default.
+    """
+    if test_beam_shift is None:
+        return pytlwall.Beam(gammarel=float(gamma))
+    return pytlwall.Beam(gammarel=float(gamma),
+                         test_beam_shift=float(test_beam_shift))
+
+
 def compute_chamber(freqs, radius_m, layers=None, length_m=1.0,
                     shape="CIRCULAR", hor_m=None, ver_m=None,
-                    gamma=None, betax=1.0, betay=1.0):
+                    gamma=None, betax=1.0, betay=1.0, test_beam_shift=None):
     """Return pytlwall's get_all_impedances() for one chamber on `freqs`."""
     gamma = require_gamma(gamma, "a chamber impedance")
     try:
@@ -99,7 +122,7 @@ def compute_chamber(freqs, radius_m, layers=None, length_m=1.0,
                                pipe_hor_m=hor_m, pipe_ver_m=ver_m, chamber_shape=shape,
                                betax=float(betax), betay=float(betay),
                                layers=_build_layers(pytlwall, layers))
-    beam = pytlwall.Beam(gammarel=float(gamma))
+    beam = _beam(pytlwall, gamma, test_beam_shift)
     frequencies = pytlwall.Frequencies(freq_list=list(np.asarray(freqs, dtype=float)))
     wall = pytlwall.TlWall(chamber=chamber, beam=beam, frequencies=frequencies)
     return wall.get_all_impedances()
@@ -111,7 +134,7 @@ COMPONENTS = ("ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY")
 
 def chamber_terms(freqs, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.0,
                   gamma=None, space_charge=False, shape="CIRCULAR",
-                  hor_m=None, ver_m=None):
+                  hor_m=None, ver_m=None, test_beam_shift=None):
     """Compute a chamber and return the beta-weighted WIMBA components.
 
     The chamber is evaluated at beta = 1 (beta-free), then WIMBA applies the beta
@@ -122,7 +145,8 @@ def chamber_terms(freqs, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1
     """
     imp = compute_chamber(freqs, radius_m, layers=layers, length_m=length_m,
                           shape=shape, hor_m=hor_m, ver_m=ver_m, gamma=gamma,
-                          betax=1.0, betay=1.0)
+                          betax=1.0, betay=1.0,
+                          test_beam_shift=test_beam_shift)
     out = {
         "ZLong":  imp["ZLong"],
         "ZDipX":  imp["ZDipX"] * betax,
@@ -143,6 +167,7 @@ WAKE_COMPONENTS = ("WLong", "WDipX", "WDipY", "WQuadX", "WQuadY")
 
 
 def chamber_wake(times, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.0,
+                 test_beam_shift=None,
                  gamma=None, shape="CIRCULAR", hor_m=None, ver_m=None):
     """Compute a chamber's wake with pytlwall (TLWallWake), beta-weighted.
 
@@ -161,7 +186,7 @@ def chamber_wake(times, radius_m, layers=None, length_m=1.0, betax=1.0, betay=1.
     chamber = pytlwall.Chamber(pipe_len_m=float(length_m), pipe_rad_m=float(radius_m),
                                pipe_hor_m=hor_m, pipe_ver_m=ver_m, chamber_shape=shape,
                                betax=1.0, betay=1.0, layers=_build_layers(pytlwall, layers))
-    beam = pytlwall.Beam(gammarel=float(gamma))
+    beam = _beam(pytlwall, gamma, test_beam_shift)
     times_obj = pytlwall.Times(time_list=list(
         np.where(np.asarray(times, dtype=float) <= 0.0, 1.0e-15,
                  np.asarray(times, dtype=float))))
@@ -197,7 +222,8 @@ class ChamberProvider:
     space-charge) impedance/wake, computed lazily on whatever grid is supplied."""
 
     def __init__(self, radius_m, layers=None, length_m=1.0, gamma=None,
-                 space_charge=False, shape="CIRCULAR", hor_m=None, ver_m=None):
+                 space_charge=False, shape="CIRCULAR", hor_m=None, ver_m=None,
+                 test_beam_shift=None):
         self.radius = float(radius_m)
         self.layers = layers
         self.length = float(length_m)
@@ -206,6 +232,9 @@ class ChamberProvider:
         self.shape = shape
         self.hor = hor_m
         self.ver = ver_m
+        #: None means "leave pytlwall's own default"; a number means the config
+        #: asked for it, and it must reach every calculation of this chamber
+        self.test_beam_shift = test_beam_shift
         self._imp_cache = {}
         self._wake_cache = {}
 
@@ -216,7 +245,8 @@ class ChamberProvider:
             self._imp_cache[key] = compute_chamber(
                 freqs, self.radius, self.layers, length_m=self.length,
                 shape=self.shape, hor_m=self.hor, ver_m=self.ver,
-                betax=1.0, betay=1.0, gamma=self.gamma)
+                betax=1.0, betay=1.0, gamma=self.gamma,
+                test_beam_shift=self.test_beam_shift)
         return self._imp_cache[key]
 
     def _wake(self, times):
@@ -226,7 +256,8 @@ class ChamberProvider:
             self._wake_cache[key] = chamber_wake(
                 times, self.radius, self.layers, length_m=self.length,
                 shape=self.shape, hor_m=self.hor, ver_m=self.ver,
-                betax=1.0, betay=1.0, gamma=self.gamma)
+                betax=1.0, betay=1.0, gamma=self.gamma,
+                test_beam_shift=self.test_beam_shift)
         return self._wake_cache[key]
 
     def _zfun(self, comp):

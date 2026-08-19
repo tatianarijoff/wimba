@@ -27,7 +27,8 @@ def _layer_lines(idx_or_name, lay):
     return lines
 
 
-def write_chamber_cfg(path, geometry, gamma=None, length_m=1.0) -> Path:
+def write_chamber_cfg(path, geometry, gamma=None, length_m=1.0,
+                      test_beam_shift=None) -> Path:
     from ..sources.pytlwall_bridge import require_gamma
     gamma = require_gamma(gamma, f"the cfg dump {Path(path).name}")
     path = Path(path)
@@ -59,7 +60,10 @@ def write_chamber_cfg(path, geometry, gamma=None, length_m=1.0) -> Path:
         lines += _layer_lines(f"layer{i}", lay) + [""]
     if boundary is not None:
         lines += _layer_lines("boundary", boundary) + [""]
-    lines += ["[beam_info]", f"gammarel = {gamma}", ""]
+    lines += ["[beam_info]", f"gammarel = {gamma}"]
+    if test_beam_shift is not None:
+        lines.append(f"test_beam_shift = {test_beam_shift}")
+    lines.append("")
     path.write_text("\n".join(lines))
     return path
 
@@ -123,6 +127,11 @@ def read_chamber_cfg(path) -> dict:
         b = parser["beam_info"]
         if "gammarel" in b:
             out["gamma"] = float(b["gammarel"])
+        # the transverse offset of the test particle. Only the space-charge
+        # terms use it, but a cfg that states 0.01 and is read back at
+        # pytlwall's 0.001 is a different calculation, quietly.
+        if "test_beam_shift" in b:
+            out["test_beam_shift"] = float(b["test_beam_shift"])
     if parser.has_section("frequency_info"):
         f = parser["frequency_info"]
         if "fmin" in f and "fmax" in f:

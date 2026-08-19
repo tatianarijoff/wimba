@@ -159,12 +159,17 @@ def test_a_broken_custom_file_does_not_take_the_catalogue_down(tmp_path,
 
 def test_the_example_file_is_readable_and_never_the_one_in_use():
     """It ships as a starter; if WIMBA ever loaded it, everyone would inherit
-    somebody's prototype copper."""
+    somebody's prototype copper.
+
+    The example lives at the top of the repository, next to wimba.example.yaml
+    - two levels above wimba/defaults/, not one. Looking one level up found
+    nothing and skipped, so this test passed by not running.
+    """
     import yaml as _yaml
     from pathlib import Path as _Path
-    example = _Path(materials.CATALOGUE).parents[1] / "custom_materials.example.yaml"
+    example = _Path(materials.CATALOGUE).parents[2] / "custom_materials.example.yaml"
     if not example.is_file():
-        pytest.skip("example file not installed next to the package")
+        pytest.skip("running from an installed package, not a checkout")
     data = _yaml.safe_load(example.read_text())
     assert data["materials"]
     assert materials.custom_path() != example
@@ -206,15 +211,26 @@ def test_saving_writes_only_the_user_file(tmp_path, monkeypatch):
     assert materials.CATALOGUE.read_text() == packaged_before
 
 
-def test_the_user_file_is_listed_first():
-    """The table shows your own materials on top; names() is what feeds it."""
-    import yaml as _yaml
-    from pathlib import Path as _P
-    import os
-    target = _P(os.environ.get("WIMBA_MATERIALS", "")) if os.environ.get(
-        "WIMBA_MATERIALS") else None
-    if target is None:
-        pytest.skip("no custom file in this environment")
-    names = materials.names()
-    custom = [n for n in names if materials.origin(n) == "custom file"]
-    assert names[:len(custom)] == custom
+def test_the_user_file_is_listed_first(tmp_path, monkeypatch):
+    """The Materials tab shows your own materials on top; names() is what feeds
+    it, so the order is what has to be right.
+
+    This used to skip unless the machine running the tests happened to have a
+    custom file - which meant it never ran anywhere. It makes its own now.
+    """
+    custom = tmp_path / "custom_materials.yaml"
+    custom.write_text("materials:\n"
+                      "  zzz-alloy:\n    sigma: 1.0e+6\n"
+                      "  aaa-alloy:\n    sigma: 2.0e+6\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WIMBA_MATERIALS", str(custom))
+    materials.reload()
+    try:
+        names = materials.names()
+        mine = [n for n in names if materials.origin(n) == "custom file"]
+        assert set(mine) == {"zzz-alloy", "aaa-alloy"}
+        # first, and in the file's own order - not sorted behind WIMBA's back
+        assert names[:2] == ["zzz-alloy", "aaa-alloy"]
+    finally:
+        monkeypatch.delenv("WIMBA_MATERIALS", raising=False)
+        materials.reload()

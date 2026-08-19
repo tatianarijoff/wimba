@@ -349,7 +349,11 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
                 beta = (float(spec["beta_x"]), float(spec["beta_y"]))
             geometry = {"radius": radius, "layers": spec.get("layers"),
                         "shape": spec.get("shape", "CIRCULAR"),
-                        "hor": _half_axis(spec, "hor"), "ver": _half_axis(spec, "ver")}
+                        "hor": _half_axis(spec, "hor"), "ver": _half_axis(spec, "ver"),
+                        # read by the IW2D path only; pytlwall has its own tables
+                        "iw2d_yokoya": spec.get("iw2d_yokoya"),
+                        # read by the pytlwall path only
+                        "test_beam_shift": spec.get("test_beam_shift")}
             unknown_materials += _resolve_layers(geometry["layers"], spec.get("name", gname))
             devices.append(Device(name=spec.get("name", gname), method=method,
                                   weighted=weighted, space_charge=sc, allow_overlap=overlap,
@@ -371,7 +375,10 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
                                   or [{"material": dp_spec.get("material", "stainless_steel"),
                                        "thickness": dp_spec.get("thickness_m", 0.002)}],
                         "shape": dp_spec.get("shape", "CIRCULAR"),
-                        "hor": _half_axis(dp_spec, "hor"), "ver": _half_axis(dp_spec, "ver")}
+                        "hor": _half_axis(dp_spec, "hor"),
+                        "ver": _half_axis(dp_spec, "ver"),
+                        "iw2d_yokoya": dp_spec.get("iw2d_yokoya"),
+                        "test_beam_shift": dp_spec.get("test_beam_shift")}
         unknown_materials += _resolve_layers(geometry.get("layers"), "default_pipe")
         from .config import default_method as _dm
         dp_method = str(dp_spec.get("method", _dm())).lower()

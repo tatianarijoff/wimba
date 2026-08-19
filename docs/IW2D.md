@@ -150,13 +150,21 @@ comparison goes wrong.
 | `thickness` [m] | thickness [m] | none in the Python API |
 | `k_Hz` [Hz] | relaxation frequency [Hz] | none in the Python API |
 | `epsr` | relative permittivity | none |
-| `muinf_Hz` | magnetic **susceptibility** | χ = µ_r − 1 |
+| `muinf_Hz` | magnetic **susceptibility** | none |
 | — | outermost thickness | forced to infinity |
 
-The last two deserve care. `muinf_Hz` is pytlwall's name for a relative
-permeability: IW2D wants the susceptibility, so 460 becomes 459. On a strongly
-magnetic material the error is invisible; on a weakly magnetic one it is fatal.
-And IW2D's last layer is semi-infinite whatever the input says, so the bridge
+`muinf_Hz` reads like a relative permeability and is not one. pytlwall computes
+`µ_r = 1 + muinf / (1 + j f/k)` (`pytlwall/layer.py`, `calc_mur`), so the
+quantity it stores is already the susceptibility that IW2D asks for, and it
+passes through unchanged.
+
+This page previously said the bridge subtracted one from it. It did, and that
+was a bug: the default `muinf = 0` — every ordinary metal — reached IW2D as
+χ = −1, a relative permeability of zero. Fixed, and pinned by
+`tests/test_iw2d_layer_mapping.py`. IW2D's own round-chamber input file agrees:
+it states a magnetic susceptibility, 0.0 for the reference case.
+
+IW2D's last layer is semi-infinite whatever the input says, so the bridge
 extends it rather than letting a finite thickness be silently ignored.
 
 The command-line input files use different units again — thickness in mm,
@@ -171,8 +179,16 @@ long, xdip, ydip, xquad, yquad  =  1, 1, 1, 0, 0
 ```
 
 Note `xquad = yquad = 0`: for a circular chamber the quadrupolar terms are
-exactly zero. Override with the `yokoya=` argument if a non-circular geometry is
-being represented by an equivalent round one.
+exactly zero — and IW2D itself branches on this, treating the geometry as
+axisymmetric when the three leading factors are all 1 and using the quadrupolar
+factors otherwise.
+
+Today the factors can only be set through the `yokoya=` argument of
+`compute_iw2d`; there is no config key for them, so from a config the IW2D path
+covers circular chambers only. WIMBA does not compute the factors for other
+shapes and does not carry a table of its own: pytlwall has its own tables and
+applies them itself, IW2D expects them from the caller, and a WIMBA-owned third
+set would be one source of truth too many.
 
 ## Comparing the three codes
 

@@ -137,6 +137,14 @@ are the same list the interface offers under Materials. Each entry carries a
 note on how firm its conductivity is: grades, tempers and temperature move
 these numbers, sometimes by a factor of two.
 
+A chamber may also state `test_beam_shift` — the transverse offset of the test
+particle, in metres, which pytlwall uses in the Bessel expansion of the source
+field. Only the space-charge terms depend on it; the wall impedance does not.
+WIMBA states no default of its own: without the key, pytlwall's own default
+applies, and with it the stated value travels through every calculation of that
+chamber and is written into the cfg dump. The IW2D path has no equivalent
+parameter and never receives it.
+
 Space charge is not imported by hand: it is computed per chamber alongside the
 wall and kept as separate components. Import (`cst`) is for genuinely external
 data, e.g. a measured or CST-simulated device.
