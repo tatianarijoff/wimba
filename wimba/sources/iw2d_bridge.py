@@ -130,6 +130,13 @@ def _one_layer(lay, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility):
     thick = float("inf") if str(thick).lower() == "inf" else float(thick)
 
     sigma = lay.get("sigma", lay.get("sigmaDC"))
+    if sigma is None and lay.get("material") is not None:
+        # A layer can name its material instead of giving a number. The config
+        # loader normally resolves that before we get here; doing it again means
+        # the two engines agree even when this bridge is called directly, rather
+        # than IW2D quietly falling back to 1e6 for a wall that says copper.
+        from ..materials import sigma_of
+        sigma = sigma_of(lay["material"])
     sigma = float(sigma) if sigma is not None else None
 
     if ltype == "V":
@@ -139,7 +146,8 @@ def _one_layer(lay, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility):
         rho, tau, epsr, chi, k_hz = PEC_RESISTIVITY, 0.0, 1.0, 0.0, float("inf")
     else:
         if sigma is None:
-            sigma = 1.0e6
+            from ..materials import DEFAULT_SIGMA
+            sigma = DEFAULT_SIGMA
         rho = float("inf") if sigma == 0 else 1.0 / sigma
         tau = float(lay.get("tau", 0.0))
         epsr = float(lay.get("epsr", 1.0))
@@ -169,7 +177,11 @@ def _build_layers(layers, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility)
     IW2D's last layer is semi-infinite by construction, so the outermost layer
     is extended to infinite thickness whatever the input says.
     """
-    layers = layers or [{"type": "CW", "thickness": 0.002, "sigma": 5.96e7}]
+    # The same wall pytlwall assumes when a chamber states no layers: naming
+    # the material rather than a number is what keeps the two engines from
+    # computing different default chambers (this used to say 5.96e7 while the
+    # other bridge used copper's 5.9e7).
+    layers = layers or [{"type": "CW", "thickness": 0.002, "material": "copper"}]
     built = []
     for i, lay in enumerate(layers):
         is_last = (i == len(layers) - 1) or bool(lay.get("boundary"))

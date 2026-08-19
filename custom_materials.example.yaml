@@ -1,0 +1,66 @@
+# Your own materials, layered on top of the ones WIMBA ships with.
+#
+# Copy this file to `custom_materials.yaml` and edit that one. WIMBA looks for
+# it the same way it looks for wimba.yaml: the nearest one at or above the
+# directory you are working in, so a single file at the top of your working
+# copy covers everything you run inside it. `$WIMBA_MATERIALS` overrides that,
+# and `~/.config/wimba/custom_materials.yaml` is the fallback.
+#
+# `custom_materials.yaml` is deliberately NOT committed: the conductivity of
+# your sample is yours, and pushing it would quietly change the numbers for
+# everyone who pulls. This example file IS committed, so people know the
+# mechanism exists.
+#
+# A name used here replaces the catalogue entry of the same name - if you have
+# measured your own copper, say so once and every layer that names copper uses
+# your value. Names not in the catalogue are simply added.
+#
+# Only put a material here if you will use it again. For a conductivity you
+# need once, for one chamber, choose CW (custom) in the layer and type the
+# numbers straight into the row: nothing is added to any list, and the config
+# carries the values just the same.
+#
+# What reaches a calculation is always the numbers. Choosing a material fills
+# the layer's parameters, and that is what gets written: a config produced by
+# WIMBA carries sigma, epsr, tau, k, mu-infinity and RQ, never the name. So a
+# file you send to a colleague computes the same on their machine even though
+# they have never seen your custom_materials.yaml.
+#
+# The one case where a name travels is a config written BY HAND that says
+# `material: something`. Then the name has to be resolvable where the file is
+# opened - from the catalogue, from that reader's own custom file, or from the
+# study's own `materials:` block, which is the place for a name that has to
+# travel with the config.
+#
+# Fields (all optional except sigma):
+#   sigma      DC conductivity [S/m]                 infinity is not allowed
+#   epsr       real relative permittivity            default 1
+#   tau        relaxation time for permittivity [s]  default 0
+#   k_Hz       relaxation frequency for permeability [Hz]   zero is not allowed
+#   muinf_Hz   mu infinity                           default 0
+#   RQ         surface roughness factor              default 0
+#   label      what the interface shows
+#   note       anything the next reader should know - how it was measured, at
+#              which temperature, which grade. Please write one.
+
+materials:
+
+  my-copper:
+    label: Copper, our sample
+    sigma: 5.75e+7
+    note: >
+      Four-point measurement on the batch used for the 2026 prototype, at room
+      temperature. Replace with your own value and delete this line.
+
+  my-ferrite:
+    label: Ferrite 8C11
+    sigma: 1.0e+0
+    muinf_Hz: 460.0
+    k_Hz: 2.0e+7
+    note: >
+      Magnetic layer: mu-infinity and the relaxation frequency matter more than
+      the conductivity. Take these from the supplier's datasheet for the grade
+      you actually have - they are not universal constants.
+
+# You can also change which material a new layer starts from:
+# default: my-copper

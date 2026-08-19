@@ -52,6 +52,12 @@ docs/html/
 # Local settings: wimba.example.yaml is the tracked starter, wimba.yaml is
 # yours. Machine-specific paths must not travel with the repository.
 wimba.yaml
+
+# Your own materials: custom_materials.example.yaml is the tracked starter,
+# custom_materials.yaml is yours. Committing it would silently change other
+# people's numbers on the next pull.
+custom_materials.yaml
+custom_materials.yml
 wimba.yml
 
 # Results computed inside an example project: reproducible from the configs,
