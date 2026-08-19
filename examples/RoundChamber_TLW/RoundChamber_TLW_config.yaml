@@ -1,0 +1,39 @@
+# Single-chamber verification example.
+#
+# The wall is IW2D's own RoundChamberInputFile.txt, key by key: CIRCULAR,
+# radius 2 mm, L = 1 m, beta = 1, DC resistivity 5e-06 Ohm.m (sigma = 2e5 S/m),
+# relaxation time 4.2 ps, epsr 1, susceptibility 0, layer extending to
+# infinity, gamma = 479.605064966. Stating the same numbers is what makes the
+# three RoundChamber examples comparable at all:
+#
+#   examples/RoundChamber_TLW/            this file, computed with pytlwall
+#   examples/RoundChamber_TLW_native/    the same wall as a pytlwall .cfg
+#   examples/RoundChamber_IW2D/        the same wall, computed with IW2D
+#
+#   wimba run examples/RoundChamber_TLW/RoundChamber_TLW_config.yaml --wake
+
+name: RoundChamber
+gamma: 479.605064966
+
+grid:
+  frequency: {min: 1.0e3, max: 1.0e11, n: 300, log: true}
+
+devices:
+  round_chamber:
+    source: chamber
+    name: LHC_1layers_2mm_test_coll_round
+    method: pytlwall
+    space_charge: true
+    radius_m: 0.002
+    length_m: 1.0
+    beta_x: 1.0
+    beta_y: 1.0
+    layers:
+      # tau is the relaxation time for the resistivity, in seconds: IW2D's
+      # reference input states it in picoseconds (4.2 ps). Leaving it at zero
+      # is a different wall, and the difference shows at the top of the range.
+      - {sigma: 2.0e5, tau: 4.2e-12, epsr: 1.0, muinf_Hz: 0.0, k_Hz: inf,
+         thickness: inf}
+
+# single chamber -> write it individually too
+output: [LHC_1layers_2mm_test_coll_round]

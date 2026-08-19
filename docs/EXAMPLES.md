@@ -20,7 +20,10 @@ not.
 
 | Example | Flow | Needs pytlwall | What it is for |
 |---------|------|:---:|----------------|
-| [RoundChamber](#roundchamber) | run | yes | verify a single chamber (known analytic geometry) |
+| [RoundChamber_TLW](#roundchamber_tlw) | run | yes | verify a single chamber (known analytic geometry) |
+| [RoundChamber_IW2D](#roundchamber_iw2d) | run | IW2D | the same chamber through the other engine |
+| [RoundChamber_TLW_native](#roundchamber_tlw_native) | component bench | yes | the same chamber in pytlwall's own `.cfg` format |
+| [RoundChamber_IW2D_native](#roundchamber_iw2d_native) | — | — | the same chamber in IW2D's own input format; not readable yet |
 | [LHC](#lhc) | assemble / run | yes | a full realistic machine from real LHC data |
 | [SubLHC](#sublhc) | build | no | the group/element build flow end to end |
 | [resonator](#resonator) | script | no | the analytic resonator source, standalone |
@@ -28,18 +31,18 @@ not.
 
 ---
 
-## RoundChamber
+## RoundChamber_TLW
 
-`examples/RoundChamber/` — a single-chamber **verification**. A round beam pipe
+`examples/RoundChamber_TLW/` — a single-chamber **verification**. A round beam pipe
 (CIRCULAR, radius 2 mm, length 1 m, beta = 1, one conducting layer of
 sigma = 2e5 S/m, gamma = 479.605) defined inline in the config with a `chamber`
 source, so the whole model is one chamber with a known geometry.
 
 ```bash
-wimba run examples/RoundChamber/RoundChamber_config.yaml --wake
+wimba run examples/RoundChamber_TLW/RoundChamber_TLW_config.yaml --wake
 ```
 
-Produces, under `RoundChamber_output/`, `single_elements/total.csv` (and the same
+Produces, under `RoundChamber_TLW_output/`, `single_elements/total.csv` (and the same
 chamber under `single_elements/round_chamber/…`), the impedance plots
 `total_ZLong.png`, `total_ZDipX.png`, `total_ZDipY.png` and, with `--wake`, the
 wake plots `total_W*.png`.
@@ -48,6 +51,50 @@ Because beta = 1 and length = 1, WIMBA's numbers here are exactly pytlwall's
 `get_all_impedances` / `TLWallWake` for that chamber — a direct check of the
 bridge against a single, well-defined geometry. Run this first when you want to
 confirm the values are right before trusting a full machine.
+
+## RoundChamber_TLW_native
+
+`examples/RoundChamber_TLW_native/` — the RoundChamber wall written as a **pytlwall
+chamber `.cfg`** rather than a WIMBA config. Same numbers, other format.
+
+It is here because the two are opened by different menu entries, and that is
+the commonest first mistake: `RoundChamber.cfg` goes through **Component →
+Load pytlwall Config…**, while a WIMBA config goes through **File → Open
+Config**.
+
+WIMBA reads geometry, layers, betas, length, gamma and the frequency range, but
+**rebuilds** the grid: it lays one logarithmic grid across the range, where
+pytlwall restarts the count in each decade. Same span, different points, so two
+output files never line up row by row — see
+[PYTLWALL_CFG.md](PYTLWALL_CFG.md).
+
+## RoundChamber_IW2D
+
+`examples/RoundChamber_IW2D/` — the same chamber with `method: iw2d`.
+
+```bash
+wimba run examples/RoundChamber_IW2D/RoundChamber_IW2D_config.yaml
+```
+
+Two independent codes on the same input should give the same answer; running
+this beside RoundChamber is the cheapest check that they do. It is a WIMBA
+config, so in the interface it opens with **File → Open Config** —
+`Component → Load IW2D Config…` reads IW2D's own input format and is not
+implemented yet. IW2D covers circular chambers in WIMBA today; the two
+conventions that differ from pytlwall are in [IW2D.md](IW2D.md).
+
+## RoundChamber_IW2D_native
+
+`examples/RoundChamber_IW2D_native/` — the same wall in IW2D's own input
+format. **WIMBA cannot read it yet**: `Component → Load IW2D Config…` says so
+rather than guessing at the format. The file is here as the sample that reader
+will be written and tested against, and as a record of the wall all four
+examples share.
+
+Its README carries what a reader will have to decide — the Yokoya factors, the
+frequency *scan* that WIMBA can only rebuild as a grid, and the flat-chamber
+keys WIMBA's single layer stack has no place for — plus the unit conversions,
+taken from IW2D's own legacy reader.
 
 ## LHC
 
