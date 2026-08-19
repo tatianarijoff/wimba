@@ -19,18 +19,34 @@ python -m wimba.gui                    # launch
 Two ways, from the **Component** menu:
 
 - **New Component…** — give it a name; a panel opens with a default circular
-  chamber. Set your geometry in the **Geometry** tab (shape CIRCULAR /
-  ELLIPTICAL / RECTANGULAR, radius or half-axes in metres) and the wall in the
-  **Layers** tab: one row per layer, inside → out, with the full
-  electromagnetic parameter set (thickness, sigma or a known material name,
-  muinf_Hz, k_Hz, epsr, tau, RQ) and the boundary as last row (type V for
-  vacuum, PEC/PMC for perfect conductors — those need no sigma).
-- **Load pytlwall Config…** — if you already have a pytlwall chamber `.cfg`
-  (the format of pytlwall's own examples), WIMBA reads it: geometry, layers,
-  boundary, beta, gamma and the frequency grid come from the file. The grid is
-  rebuilt by WIMBA from `[frequency_info]`, so it covers the same range as
-  pytlwall's own but does not sample the same points; see
-  **[PYTLWALL_CFG.md](PYTLWALL_CFG.md)** before comparing the two codes.
+  chamber and a single layer of the default material. The tab appears in the
+  centre of the window, not in the Machine Explorer on the left: a component
+  built here belongs to no machine.
+
+  In the **Geometry** tab pick the shape and give the aperture. The fields
+  follow the shape: a radius for CIRCULAR, a horizontal and a vertical
+  semi-axis for ELLIPTICAL and RECTANGULAR, all in metres. Length is in metres
+  too.
+
+  In the **Layers** tab each row is a layer, inside → out. Choose the type from
+  the list — `CW` followed by a material name, `CW (custom)` to type the
+  numbers yourself, or `V` and `PEC`, whose parameters are closed because
+  pytlwall computes those from a formula and reads none of them. Thickness and
+  k take infinity through the box beside the field; everything else is a
+  number. The outermost layer is the boundary automatically, with infinite
+  thickness.
+
+  In the **Beam & Optics** tab state the energy. There is no default: a
+  component with no beam will not compute, and the config it saves says so.
+  The twiss betas sit beside it and are 1 unless you say otherwise.
+- **Load pytlwall Config…** — a pytlwall chamber `.cfg`, in the format of
+  pytlwall's own examples. WIMBA reads geometry, layers, boundary, beta, gamma
+  and the frequency grid from the file. The grid is rebuilt from
+  `[frequency_info]`, so it covers the same range as pytlwall's own but does
+  not sample the same points; see **[PYTLWALL_CFG.md](PYTLWALL_CFG.md)** before
+  comparing the two codes. This entry takes a pytlwall `.cfg` — a WIMBA config
+  is opened with **File → Open Config** instead.
+- **Load IW2D Config…** — the same, for an IW2D input.
 
 The **Models** tab shows how the component will be computed: one base method
 for the impedance (all components at once) and a Wakefield line that *declares*
@@ -58,7 +74,29 @@ accumulate for comparison. Double-click or drag any quantity into the **Plot
 Workspace** (log/linear axes, curve list, PNG/CSV export) or the **Results
 Table** (CSV export). **Clear Component Results** empties the bench.
 
-## Step 4 (optional) — compare with imported data
+## Step 4 — keep it
+
+**Component → Save Component As…** writes the component wherever you choose —
+your own working folder, not the WIMBA checkout; the file dialogs reopen where
+you last saved.
+
+What is written is a WIMBA config holding a single device: geometry, layers,
+beam and grid. Not a pytlwall `.cfg`, because the same WIMBA file also
+describes an IW2D or an imported component, and a chamber dump cannot. The
+layer carries the numbers of its material and not the name, so the file
+computes the same for someone who has never seen your material list.
+
+That file is a real input, not an export: reopen it with **File → Open Config**,
+or compute it with no interface at all.
+
+```bash
+wimba run RoundChamber_component.yaml
+```
+
+A precalculated component is refused here, with the reason: what defines it is
+its data file and its import map, which is already a file in its own right.
+
+## Step 5 (optional) — compare with imported data
 
 **Component → Load Precalculated…** and pick your data file (e.g. a CST
 export). For a plain text file a dialog opens with a preview: set the comment
@@ -72,7 +110,11 @@ reference.
 ## Troubleshooting
 
 - *Unknown material*: give the layer an explicit `sigma`, or use a known
-  material name. Unknown names are an error, never a silent default.
+  material name. Unknown names are an error, never a silent default. The known
+  names are the ones listed under **Materials → Show Materials**; see
+  [GUI.md](GUI.md#materials).
+- *does not say at which energy to compute*: the component has no beam. Set one
+  in its **Beam & Optics** tab, or add a `beam:` block to the config.
 - *pytlwall is required…*: install it into the same environment (see
   [SETUP.md](SETUP.md)).
 - The persistent log (always at debug level) lives at
