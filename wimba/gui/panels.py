@@ -5,7 +5,8 @@ controller (MainWindow) can refresh the tree, inspector and status bar.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
                              QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                              QListWidget, QListWidgetItem, QProgressBar,
@@ -13,6 +14,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayou
                              QTabWidget, QTreeWidget, QTreeWidgetItem,
                              QVBoxLayout, QWidget)
 
+from .. import materials
 from ..core.beam import MODES, PARTICLES, Beam
 from .model import (METHODS, QLABEL, QUANTITIES, QUNITS, GElement, GGroup,
                     GMachine, GModel, method_needs_file, new_element,
@@ -100,18 +102,70 @@ class MachineTree(QTreeWidget):
 
 
 # ============================================================== element panel
+class SearchCombo(QComboBox):
+    """A dropdown you can type into, from the second letter on.
+
+    Qt's own keyboard search jumps on the first keystroke and matches only the
+    start of an entry: typing "st" for steel lands on "titanium" the moment the
+    t is pressed. With a list that will keep growing, that is worse than no
+    search. Here one letter does nothing, two or more match anywhere in the
+    entry, and the buffer clears after a pause or on Escape.
+    """
+
+    RESET_MS = 1200
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._typed = ""
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(self.RESET_MS)
+        self._timer.timeout.connect(self._clear_typed)
+
+    def _clear_typed(self):
+        self._typed = ""
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._clear_typed()
+            return super().keyPressEvent(event)
+        if key == Qt.Key.Key_Backspace:
+            self._typed = self._typed[:-1]
+            self._timer.start()
+            return
+        text = event.text()
+        if not text or not text.isprintable() or text.isspace():
+            self._clear_typed()
+            return super().keyPressEvent(event)
+
+        self._typed += text.lower()
+        self._timer.start()
+        if len(self._typed) < 2:          # one letter searches nothing
+            return
+        for i in range(self.count()):
+            if self._typed in self.itemText(i).lower():
+                self.setCurrentIndex(i)
+                return
+
+
 class ElementPanel(QWidget):
-    def __init__(self, element: GElement, on_change, on_calc):
+    def __init__(self, element: GElement, on_change, on_calc, machine=None):
+        """`machine` is the GMachine this element belongs to, or None for a
+        component standing on its own in the bench. It decides one thing: who
+        owns the beam."""
         super().__init__()
         self.el = element
         self.on_change = on_change
         self.on_calc = on_calc
+        self.machine = machine
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         tabs = QTabWidget()
         tabs.addTab(self._geometry_tab(), "Geometry")
         tabs.addTab(self._layers_tab(), "Layers")
+        tabs.addTab(self._beam_tab(), "Beam & Optics")
         tabs.addTab(self._models_tab(), "Models")
         outer.addWidget(tabs)
 
@@ -129,17 +183,135 @@ class ElementPanel(QWidget):
         fl.addWidget(wbtn)
         outer.addWidget(foot)
 
+    # pytlwall accepts exactly these three (Chamber.chamber_shape), and the
+    # aperture is spelled differently for each: one radius for a circle, two
+    # semi-axes otherwise. Showing the fields the shape does not use is how a
+    # chamber ends up carrying a radius nobody meant.
+    SHAPES = ["CIRCULAR", "ELLIPTICAL", "RECTANGULAR"]
+
     def _geometry_tab(self):
-        w = QWidget(); form = QFormLayout(w)
-        keys = ["length", "radius", "half_gap_mm", "material"]
-        for k in list(self.el.geometry):
-            if k not in keys and k != "pre_weighted":
-                keys.append(k)
-        for k in keys:
-            ed = QLineEdit("" if self.el.geometry.get(k) is None else str(self.el.geometry.get(k)))
-            ed.textChanged.connect(lambda v, key=k: self._set_geom(key, v))
-            form.addRow(k.replace("_", " ") + ":", ed)
+        w = QWidget()
+        self.geo_form = QFormLayout(w)
+
+        self.geo_form.addRow("length [m]:", self._geo_edit("length"))
+
+        self.shape_box = QComboBox()
+        self.shape_box.addItems(self.SHAPES)
+        current = str(self.el.geometry.get("shape") or "CIRCULAR").upper()
+        if current not in self.SHAPES:          # a config may say something else
+            self.shape_box.addItem(current)
+        self.shape_box.setCurrentText(current)
+        self.shape_box.currentTextChanged.connect(self._set_shape)
+        self.geo_form.addRow("shape:", self.shape_box)
+
+        # rows that come and go with the shape
+        self._aperture_rows = []
+        self._build_aperture_rows(current)
+
+        # anything else the element carries, so a config with unusual keys is
+        # still editable - but never invented for an element that lacks it
+        skip = {"length", "shape", "radius", "hor", "ver", "pre_weighted",
+                "material"}
+        for k in self.el.geometry:
+            if k not in skip:
+                self.geo_form.addRow(k.replace("_", " ") + ":", self._geo_edit(k))
+        if "material" in self.el.geometry:
+            lbl = QLabel("ignored: materials belong to the layers")
+            lbl.setStyleSheet("color:#8A7B5C;")
+            self.geo_form.addRow("material:", lbl)
         return w
+
+    def _geo_edit(self, key, suffix=""):
+        val = self.el.geometry.get(key)
+        ed = QLineEdit("" if val is None else str(val))
+        ed.textChanged.connect(lambda v, k=key: self._set_geom(k, v))
+        if suffix:
+            ed.setPlaceholderText(suffix)
+        return ed
+
+    def _build_aperture_rows(self, shape):
+        """Insert the aperture fields for `shape` after the shape row."""
+        for widget in self._aperture_rows:
+            self.geo_form.removeRow(widget)
+        self._aperture_rows = []
+        at = 2                                   # after length and shape
+        if shape == "CIRCULAR":
+            fields = [("radius", "radius [m]:")]
+        else:
+            fields = [("hor", "horizontal semi-axis [m]:"),
+                      ("ver", "vertical semi-axis [m]:")]
+        for key, label in fields:
+            ed = self._geo_edit(key)
+            self.geo_form.insertRow(at, label, ed)
+            self._aperture_rows.append(ed)
+            at += 1
+
+    def _set_shape(self, shape):
+        self.el.geometry["shape"] = shape
+        self._mark("geometry")
+        self._build_aperture_rows(shape)
+
+    def _beam_tab(self):
+        """The energy and the optics this element is computed with.
+
+        The beam is editable only for a component that belongs to no machine.
+        Inside a ring there is one beam, and letting a single element carry a
+        different one would compute a plausible number at an energy nobody
+        chose - the machine's beam is shown here instead, read-only, so it is
+        clear what the calculation will use.
+
+        The betas are editable either way: they belong to the element.
+        """
+        w = QWidget(); v = QVBoxLayout(w)
+        if self.machine is None:
+            self.beam_panel = BeamPanel(_ElementBeam(self.el, self.on_change),
+                                        self.on_change)
+        else:
+            own = _ElementBeam(self.el, self.on_change).beam
+            machine_beam = getattr(self.machine, "beam", None)
+            if own is not None and machine_beam is not None and \
+                    abs(own.gamma - machine_beam.gamma) > 1e-9 * machine_beam.gamma:
+                note = ("This element carries a beam of its own, and it differs "
+                        "from the machine's. Its own wins for this element - "
+                        "which is worth knowing before comparing it with the "
+                        "rest of the ring.")
+            else:
+                note = ("Inside a machine the beam belongs to the ring, not to "
+                        "one element: set it in the Beam panel and every device "
+                        "follows it. One ring, one beam.")
+            self.beam_panel = BeamPanel(self.machine, self.on_change,
+                                        override=own or machine_beam, note=note)
+        v.addWidget(self.beam_panel)
+
+        box = QWidget(); form = QFormLayout(box)
+        form.setContentsMargins(0, 8, 0, 0)
+        for key, label, default in (("bx", "twiss beta x [m]", 1.0),
+                                    ("by", "twiss beta y [m]", 1.0)):
+            ed = QLineEdit()
+            val = self.el.optics.get(key)
+            ed.setText("" if val is None else str(val))
+            ed.setPlaceholderText(f"{default:g} if left empty")
+            validator = QDoubleValidator(); validator.setBottom(0.0)
+            validator.setNotation(QDoubleValidator.Notation.ScientificNotation)
+            ed.setValidator(validator)
+            ed.textChanged.connect(lambda t, k=key: self._set_optics(k, t))
+            form.addRow(label + ":", ed)
+        v.addWidget(box)
+
+        note = QLabel("The transverse terms are scaled by length and by the beta "
+                      "beside them; the longitudinal one only by length. Betas "
+                      "given here override whatever the twiss says at this "
+                      "element's position - see docs/BEAM_AND_OPTICS.md.")
+        note.setObjectName("EmptyText"); note.setWordWrap(True)
+        v.addWidget(note)
+        v.addStretch(1)
+        return w
+
+    def _set_optics(self, key, text):
+        text = (text or "").strip()
+        self.el.optics[key] = None if text == "" else _num(text)
+        self._mark(key)
+        self._mark("optics")
 
     def _mark(self, what):
         self.el.edited.add(what)
@@ -151,11 +323,16 @@ class ElementPanel(QWidget):
             self.el.optics["l"] = _num(value)
             self._mark("l")
 
+    # pytlwall's Layer takes exactly these. Two of them may be infinite
+    # (thickness, k); the rest are finite numbers, and its own configs say so
+    # explicitly: k = 0 is not allowed and sigma = inf is not allowed.
     LAYER_COLS = [
         ("type", "Type"), ("thickness", "Thickness [m]"), ("sigma", "\u03c3 [S/m]"),
         ("epsr", "\u03b5r"), ("tau", "\u03c4 [s]"), ("k_Hz", "k [Hz]"),
         ("muinf_Hz", "\u03bc\u221e"), ("RQ", "RQ"),
     ]
+    LAYER_TYPES = ["CW", "V", "PEC"]
+    INFINITE_OK = {"thickness", "k_Hz"}
 
     def _layers_tab(self):
         w = QWidget(); v = QVBoxLayout(w)
@@ -164,9 +341,11 @@ class ElementPanel(QWidget):
         self.ltab.setHorizontalHeaderLabels(headers)
         self.ltab.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.ltab.verticalHeader().setVisible(False)
+        self._sync_boundary()
         for L in self.el.layers:
             self._layer_row(L)
-        self.ltab.cellChanged.connect(self._layer_edit)
+        for i, L in enumerate(self.el.layers):
+            self._sync_row_enabled(i, L)
         v.addWidget(self.ltab)
         row = QHBoxLayout()
         add = QPushButton("+ Add layer"); add.clicked.connect(self._add_layer)
@@ -174,54 +353,263 @@ class ElementPanel(QWidget):
         row.addWidget(add); row.addWidget(rm); row.addStretch(1)
         v.addLayout(row)
         v.addWidget(QLabel(
-            "Wall build-up from inside out. Mark the outermost layer as Boundary "
-            "(its thickness is usually \u2018inf\u2019); if none is marked, a vacuum "
-            "boundary is assumed. Thickness and k accept \u2018inf\u2019."))
+            "Wall build-up from inside out. The outermost layer is the boundary "
+            "and is marked automatically. Thickness and k can be set to infinity "
+            "with the box beside the field; every other value is a number."))
         return w
 
     def _default_layer(self):
-        return {"type": "CW", "thickness": 0.002, "sigma": 5.9e7, "epsr": 1.0,
-                "tau": 0.0, "k_Hz": "inf", "muinf_Hz": 0.0, "RQ": 0.0, "boundary": False}
+        """A new layer is a named material, not a row of bare numbers.
+
+        pytlwall's own default conductivity is a round 1e6 that corresponds to
+        no material at all; starting from something with a name means the user
+        can recognise it, and change it on purpose.
+        """
+        L = {"type": "CW", "thickness": 0.002, "boundary": False}
+        name = materials.default_name()
+        if name:
+            materials.apply_to(L, name)
+            L["boundary"] = False
+        else:
+            L.update(materials.NEUTRAL, sigma=1.0e6)
+        return L
+
+    # ---- cells ----
+    def _number_cell(self, L, key):
+        """A numeric field, with an infinity box where pytlwall allows one.
+
+        A free-text cell let a typo travel all the way into the solver. The
+        field now takes numbers only, and infinity is a state you switch on
+        rather than a word you spell.
+        """
+        box = QWidget(); lay = QHBoxLayout(box)
+        lay.setContentsMargins(2, 0, 2, 0); lay.setSpacing(4)
+        ed = QLineEdit()
+        val = L.get(key)
+        is_inf = str(val).strip().lower() in ("inf", "infinity", "+inf")
+        ed.setText("" if val is None or is_inf else str(val))
+        validator = QDoubleValidator()
+        validator.setNotation(QDoubleValidator.Notation.ScientificNotation)
+        if key in ("sigma", "thickness"):
+            validator.setBottom(0.0)
+        ed.setValidator(validator)
+        ed.textChanged.connect(lambda t, LL=L, k=key: self._set_layer(LL, k, t))
+        lay.addWidget(ed)
+
+        if key in self.INFINITE_OK:
+            chk = QCheckBox("\u221e")
+            chk.setToolTip("Write this value as inf")
+            chk.setChecked(is_inf)
+            ed.setEnabled(not is_inf)
+            chk.toggled.connect(
+                lambda on, LL=L, k=key, e=ed: self._set_infinite(LL, k, e, on))
+            lay.addWidget(chk)
+        return box
+
+    CUSTOM = "CW (custom)"
+
+    def _type_items(self):
+        """CW appears once per named material, then the two analytic types.
+
+        V and PEC are not materials at all: pytlwall computes them from a
+        formula and never looks at sigma, epsr or the rest. That is why their
+        parameters looked identical - they are unused, not equal.
+        """
+        items = [(f"CW \u2014 {materials.label(n)}", ("CW", n))
+                 for n in materials.names()]
+        items.append((self.CUSTOM, ("CW", None)))
+        items.append(("V (vacuum)", ("V", None)))
+        items.append(("PEC (perfect conductor)", ("PEC", None)))
+        return items
+
+    def _type_cell(self, L):
+        cb = SearchCombo()
+        items = self._type_items()
+        for text, _ in items:
+            cb.addItem(text)
+        cb.setProperty("payloads", [p for _, p in items])
+        kind = str(L.get("type") or "CW").upper()
+        if kind == "CW":
+            found = materials.match(L)
+            cb.setCurrentText(f"CW \u2014 {materials.label(found)}" if found
+                              else self.CUSTOM)
+            if found:
+                cb.setToolTip(materials.note(found))
+        else:
+            cb.setCurrentText("V (vacuum)" if kind == "V"
+                              else "PEC (perfect conductor)")
+        cb.currentIndexChanged.connect(
+            lambda i, LL=L, box=cb: self._set_type(LL, box, i))
+        return cb
+
+    def _set_type(self, layer, box, index):
+        kind, material = box.property("payloads")[index]
+        layer["type"] = kind
+        if material:
+            materials.apply_to(layer, material)
+            box.setToolTip(materials.note(material))
+        else:
+            box.setToolTip("")
+        if kind in ("V", "PEC"):
+            # pytlwall computes these from a formula and reads none of the
+            # material parameters. Leaving numbers behind would put values in
+            # the config that no calculation ever used.
+            for key in materials.PARAMS:
+                layer.pop(key, None)
+        self._mark("layers")
+        self._refresh_layers()
 
     def _layer_row(self, L):
         r = self.ltab.rowCount(); self.ltab.insertRow(r)
         for c, (key, _) in enumerate(self.LAYER_COLS):
-            val = L.get(key)
-            self.ltab.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
+            cell = self._type_cell(L) if key == "type" else self._number_cell(L, key)
+            self.ltab.setCellWidget(r, c, cell)
         chk = QCheckBox(); chk.setChecked(bool(L.get("boundary")))
-        chk.stateChanged.connect(lambda s, LL=L: self._set_boundary(LL, bool(s)))
+        chk.setEnabled(False)                    # the outermost layer decides it
+        chk.setToolTip("The outermost layer is the boundary.")
         cw = QWidget(); cl = QHBoxLayout(cw); cl.addWidget(chk)
         cl.setAlignment(Qt.AlignmentFlag.AlignCenter); cl.setContentsMargins(0, 0, 0, 0)
         self.ltab.setCellWidget(r, len(self.LAYER_COLS), cw)
 
+    def _set_layer(self, layer, key, text):
+        text = (text or "").strip()
+        layer[key] = None if text == "" else _num(text)
+        self._mark("layers")
+        if key in materials.PARAMS:
+            # The catalogue is not edited from here. A hand-changed parameter
+            # means this layer is no longer that material - the entry stays as
+            # it was, and the row is shown as custom.
+            self._retitle_type(layer)
+
+    def _retitle_type(self, layer):
+        row = self._row_of(layer)
+        if row is None:
+            return
+        box = self.ltab.cellWidget(row, 0)
+        if not isinstance(box, QComboBox):
+            return
+        found = materials.match(layer)
+        box.blockSignals(True)
+        box.setCurrentText(f"CW \u2014 {materials.label(found)}" if found
+                           else self.CUSTOM)
+        box.blockSignals(False)
+        box.setToolTip(materials.note(found) if found else "")
+
+    def _row_of(self, layer):
+        for i, L in enumerate(self.el.layers):
+            if L is layer:
+                return i
+        return None
+
+    def _refresh_layers(self):
+        """Redraw the rows from the model, keeping the selection.
+
+        The model is already correct when this runs: _sync_boundary decides what
+        the layers are, this only shows them.
+        """
+        row = self.ltab.currentRow()
+        self.ltab.setRowCount(0)
+        for L in self.el.layers:
+            self._layer_row(L)
+        for i, L in enumerate(self.el.layers):
+            self._sync_row_enabled(i, L)
+        if 0 <= row < self.ltab.rowCount():
+            self.ltab.setCurrentCell(row, 0)
+
+    def _set_infinite(self, layer, key, editor, on):
+        editor.setEnabled(not on)
+        if on:
+            layer[key] = "inf"
+        else:
+            layer[key] = _num(editor.text()) if editor.text().strip() else None
+        self._mark("layers")
+
     def _add_layer(self):
-        L = self._default_layer()
-        self.el.layers.append(L); self._layer_row(L)
+        self.el.layers.append(self._default_layer())
+        self._sync_boundary()
+        self._refresh_layers()
         self._mark("layers")
 
     def _rm_layer(self):
         r = self.ltab.currentRow()
         if r >= 0:
-            self.ltab.removeRow(r); del self.el.layers[r]
+            del self.el.layers[r]
+            self._sync_boundary()
+            self._refresh_layers()
             self._mark("layers")
 
-    def _layer_edit(self, r, c):
-        if r < len(self.el.layers) and c < len(self.LAYER_COLS):
-            key = self.LAYER_COLS[c][0]
-            self.el.layers[r][key] = _num(self.ltab.item(r, c).text())
+    FINITE_THICKNESS = 0.002
+
+    def _sync_boundary(self):
+        """The outermost layer is the boundary - always, and only it.
+
+        pytlwall's chamber has a boundary section of its own, so a wall with no
+        layer marked was being computed against an implicit vacuum. Leaving the
+        choice to a checkbox meant a single-layer chamber - the commonest case
+        of all - was wrong by default.
+
+        The boundary has no thickness: it is the half-space outside the wall,
+        and pytlwall's own [boundary] section states no thick_m at all. It is
+        written as inf. A layer that STOPS being the boundary must lose that
+        infinity again - otherwise adding a second layer leaves the first one
+        infinitely thick, which is not a wall at all.
+        """
+        last = len(self.el.layers) - 1
+        for i, L in enumerate(self.el.layers):
+            was = bool(L.get("boundary"))
+            now = (i == last)
+            L["boundary"] = now
+            if now:
+                L["thickness"] = "inf"
+            elif was or str(L.get("thickness", "")).strip().lower() == "inf":
+                L["thickness"] = self.FINITE_THICKNESS
+        if self.el.layers:
             self._mark("layers")
 
-    def _set_boundary(self, layer, checked):
-        layer["boundary"] = checked
-        if checked:                                       # keep a single boundary
-            for i, other in enumerate(self.el.layers):
-                if other is not layer and other.get("boundary"):
-                    other["boundary"] = False
-                    cw = self.ltab.cellWidget(i, len(self.LAYER_COLS))
-                    box = cw.findChild(QCheckBox) if cw else None
-                    if box:
-                        box.blockSignals(True); box.setChecked(False); box.blockSignals(False)
-        self.on_change()
+    def _sync_row_enabled(self, row, layer):
+        """Close the fields that cannot mean anything for this row.
+
+        A V or PEC layer is computed from a formula: pytlwall reads none of
+        sigma, epsr, tau, k, mu-infinity or RQ for it. Leaving them editable
+        invites the reasonable question of why vacuum and a perfect conductor
+        have the same numbers - they have the same numbers because nothing
+        reads them.
+        """
+        kind = str(layer.get("type") or "CW").upper()
+        material_cells = kind == "CW"
+        is_boundary = bool(layer.get("boundary"))
+        for c, (key, _) in enumerate(self.LAYER_COLS):
+            if key == "type":
+                continue
+            cell = self.ltab.cellWidget(row, c)
+            if cell is None:
+                continue
+            editor = cell.findChild(QLineEdit)
+            check = cell.findChild(QCheckBox)
+            if key == "thickness":
+                on = not is_boundary
+                if editor:
+                    editor.setEnabled(on)
+                    if is_boundary:
+                        editor.blockSignals(True); editor.clear()
+                        editor.blockSignals(False)
+                if check:
+                    check.blockSignals(True)
+                    check.setChecked(is_boundary or
+                                     str(layer.get("thickness")).lower() == "inf")
+                    check.setEnabled(on)
+                    check.blockSignals(False)
+                if is_boundary:
+                    cell.setToolTip("The boundary is the half-space outside "
+                                    "the wall: its thickness is infinite.")
+                continue
+            if editor:
+                editor.setEnabled(material_cells)
+            if check:
+                check.setEnabled(material_cells)
+            if not material_cells:
+                cell.setToolTip(f"{kind} is computed from a formula; this "
+                                f"value is not read.")
 
     COMPARE_COMPONENTS = ["ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY"]
 
@@ -494,6 +882,48 @@ _MODE_LABELS = [("gamma", "\u03b3 (relativistic)", ""),
 _GeV = {"energy", "kinetic", "momentum"}     # entered in GeV, stored in eV
 
 
+class _ElementBeam:
+    """Lets BeamPanel edit a lone component's beam.
+
+    BeamPanel writes to `machine.beam`; a component built in the bench has no
+    machine, which is why a manually created component could not be given an
+    energy at all and its saved config came out with no beam. The element keeps
+    its own in `own_base`, where component_config already looks for it - so a
+    component that carries a beam wins over whatever the open config says,
+    which is the rule the bench follows everywhere else.
+    """
+
+    def __init__(self, element: GElement, on_change):
+        self._el = element
+        self._on_change = on_change
+
+    @property
+    def beam(self):
+        cached = self._el.own_base.get("_beam_obj")
+        if cached is not None:
+            return cached
+        data = self._el.own_base.get("beam")
+        if data:
+            try:
+                return Beam.from_dict(data)
+            except (ValueError, KeyError):
+                return None
+        gamma = self._el.own_base.get("gamma")
+        if gamma is None:
+            return None
+        try:
+            return Beam("proton", "gamma", float(gamma))
+        except ValueError:
+            return None
+
+    @beam.setter
+    def beam(self, beam):
+        self._el.own_base["_beam_obj"] = beam
+        self._el.own_base["beam"] = beam.to_dict()
+        self._el.own_base["gamma"] = beam.gamma
+        self._el.edited.add("beam")
+
+
 class BeamPanel(QWidget):
     """Particle and one number: the beam a calculation is run with.
 
@@ -505,7 +935,8 @@ class BeamPanel(QWidget):
     core would refuse.
     """
 
-    def __init__(self, machine: GMachine, on_change, override: Beam = None):
+    def __init__(self, machine: GMachine, on_change, override: Beam = None,
+                 note: str = ""):
         super().__init__()
         self.gm = machine
         self.on_change = on_change
@@ -541,11 +972,12 @@ class BeamPanel(QWidget):
         if override is not None:
             for w in (self.particle, self.mode, self.value):
                 w.setEnabled(False)          # read-only: not this machine's beam
-            note = QLabel("This component carries its own beam, from the config it "
-                          "was loaded with. That beam wins over the machine's for "
-                          "every calculation of this component.")
-            note.setObjectName("EmptyText"); note.setWordWrap(True)
-            v.addWidget(note)
+            label = QLabel(note or
+                           "This component carries its own beam, from the config "
+                           "it was loaded with. That beam wins over the machine's "
+                           "for every calculation of this component.")
+            label.setObjectName("EmptyText"); label.setWordWrap(True)
+            v.addWidget(label)
         v.addStretch(1)
 
         self._load(override or getattr(machine, "beam", None))

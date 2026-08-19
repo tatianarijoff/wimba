@@ -270,6 +270,80 @@ def optics_completeness(gm: GMachine):
     return have, need
 
 
+# pytlwall's Layer defaults (pytlwall/layer.py). These are the parameters that
+# have a neutral value: writing them out changes no result, and leaving them
+# out leaves a file that only computes because the solver happens to fill the
+# same numbers in. A config should say what it means.
+LAYER_DEFAULTS = {"type": "CW", "epsr": 1.0, "tau": 0.0, "k_Hz": "inf",
+                  "muinf_Hz": 0.0, "RQ": 0.0}
+
+
+# Vacuum and perfect-conductor layers are computed from a formula: pytlwall
+# reads none of sigma, epsr, tau, k, mu-infinity or RQ for them.
+ANALYTIC_TYPES = ("V", "PEC")
+MATERIAL_KEYS = ("sigma", "epsr", "tau", "k_Hz", "muinf_Hz", "RQ")
+
+
+def layer_out(lay: dict) -> dict:
+    """One layer, as it should appear in a config.
+
+    Thickness and conductivity are NOT defaulted: they are the physics of the
+    wall, and a guess there would be a number nobody chose. The model
+    parameters are completed from pytlwall's own defaults - except for V and
+    PEC layers, where they would be figures no calculation ever reads.
+    """
+    out = {k: v for k, v in lay.items() if v not in (None, "")}
+    kind = str(out.get("type") or "CW").upper()
+    out["type"] = kind
+    if kind in ANALYTIC_TYPES:
+        return {k: v for k, v in out.items() if k not in MATERIAL_KEYS}
+    for key, value in LAYER_DEFAULTS.items():
+        out.setdefault(key, value)
+    return out
+
+
+def _carry_beam(cfg: dict, base_cfg: dict) -> None:
+    """Put the beam into an emitted config, not just its gamma.
+
+    gamma alone computes the same numbers, but it throws away the particle and
+    the quantity the user actually typed - so a component defined for positrons
+    at a given energy reopens as a bare number, and the file no longer says
+    what it was written for.
+    """
+    beam = base_cfg.get("beam")
+    if isinstance(beam, dict) and beam:
+        cfg["beam"] = {k: v for k, v in beam.items() if not k.startswith("_")}
+    if base_cfg.get("gamma") is not None:
+        cfg["gamma"] = base_cfg["gamma"]
+
+
+def _aperture(geo: dict, who: str) -> dict:
+    """The aperture keys a chamber spec needs, for the shape it declares.
+
+    A circle is defined by one radius; an ellipse or a rectangle by two
+    semi-axes. Requiring a radius for all three (as this did) makes a
+    rectangular chamber impossible to state, and lets a stale radius travel
+    with a shape that ignores it.
+    """
+    shape = str(geo.get("shape") or "CIRCULAR").upper()
+    out = {"shape": shape}
+    hor, ver = geo.get("hor"), geo.get("ver")
+    if shape == "CIRCULAR":
+        if geo.get("radius") is None:
+            raise ValueError(f"{who} has no radius in its geometry.")
+        out["radius_m"] = float(geo["radius"])
+        return out
+    if hor is None or ver is None:
+        raise ValueError(
+            f"{who} is {shape} but gives no horizontal and vertical "
+            f"semi-axis. A circle takes a radius; every other shape takes both.")
+    out["hor_m"] = float(hor)
+    out["ver_m"] = float(ver)
+    if geo.get("radius") is not None:
+        out["radius_m"] = float(geo["radius"])
+    return out
+
+
 # ---------- element -> runnable config (single-element calculation) ----------
 def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
                       compare_only: bool = False) -> dict:
@@ -294,27 +368,20 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
             f"(this one is '{base}').")
 
     geo = el.geometry or {}
-    if geo.get("radius") is None:
-        raise ValueError(f"element '{el.name}' has no radius in its geometry.")
+    aperture = _aperture(geo, f"element '{el.name}'")
     name = el.name.split("  (")[0]                     # strip '  (xN lattice segments)'
 
     spec = {
         "source": "chamber",
         "name": name,
         "method": "pytlwall",
-        "radius_m": float(geo["radius"]),
-        "shape": geo.get("shape", "CIRCULAR"),
+        **aperture,
         "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
         "beta_x": float(el.optics.get("bx") or 1.0),
         "beta_y": float(el.optics.get("by") or 1.0),
         "weighted": method_weighted(model.method) if model else False,
-        "layers": [{k: v for k, v in lay.items() if v not in (None, "")}
-                   for lay in el.layers],
+        "layers": [layer_out(lay) for lay in el.layers],
     }
-    for axis in ("hor", "ver"):
-        if geo.get(axis) is not None:
-            spec[f"{axis}_m"] = float(geo[axis])
-
     # An element that carries its own gamma/grid belongs to no machine: its
     # settings win over the config that happens to be open in the GUI.
     base_cfg = dict(base_cfg or {})
@@ -351,8 +418,7 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
         "output": output,
         "devices": devices,
     }
-    if base_cfg.get("gamma") is not None:
-        cfg["gamma"] = base_cfg["gamma"]
+    _carry_beam(cfg, base_cfg)
     if base_cfg.get("materials"):
         cfg["materials"] = base_cfg["materials"]
     if "time" not in cfg["grid"]:
@@ -390,8 +456,7 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
             cfg = {"name": f"{el.name}_component", "grid": base_cfg.get("grid") or {
                        "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},
                    "output": [spec["name"]], "devices": {"component": spec}}
-            if base_cfg.get("gamma") is not None:
-                cfg["gamma"] = base_cfg["gamma"]
+            _carry_beam(cfg, base_cfg)
             if base_cfg.get("materials"):
                 cfg["materials"] = base_cfg["materials"]
             return cfg
@@ -405,21 +470,15 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
                     "files": {data_component: str(data_file)}, "weighted": True}
     elif base in ("pytlwall", "iw2d"):
         geo = el.geometry or {}
-        if geo.get("radius") is None:
-            raise ValueError(f"component '{name}' has no radius in its geometry.")
+        aperture = _aperture(geo, f"component '{name}'")
         label = "IW2D" if base == "iw2d" else "pytlwall"
         spec = {"source": "chamber", "name": f"{name}[{label}]", "method": base,
-                "radius_m": float(geo["radius"]),
-                "shape": geo.get("shape", "CIRCULAR"),
+                **aperture,
                 "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
                 "beta_x": float(el.optics.get("bx") or 1.0),
                 "beta_y": float(el.optics.get("by") or 1.0),
                 "weighted": method_weighted(method),
-                "layers": [{k: v for k, v in lay.items() if v not in (None, "")}
-                           for lay in el.layers]}
-        for axis in ("hor", "ver"):
-            if geo.get(axis) is not None:
-                spec[f"{axis}_m"] = float(geo[axis])
+                "layers": [layer_out(lay) for lay in el.layers]}
     else:
         raise ValueError(f"component bench: method '{method}' not supported.")
 
@@ -428,8 +487,7 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
                "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 100, "log": True}},
            "output": [spec["name"]],
            "devices": {"bench": spec}}
-    if base_cfg.get("gamma") is not None:
-        cfg["gamma"] = base_cfg["gamma"]
+    _carry_beam(cfg, base_cfg)
     if base_cfg.get("materials"):
         cfg["materials"] = base_cfg["materials"]
     return cfg
@@ -898,6 +956,9 @@ def _apply_edits(spec: dict, el, assembly: bool) -> dict:
         if geo.get("shape"):
             spec["shape"] = geo["shape"]
     if "layers" in el.edited and el.layers:
+        # patch_config edits a file someone else maintains: it writes what was
+        # changed and nothing more. Completing the layers here would inject five
+        # keys into a hand-kept config as a side effect of an unrelated edit.
         spec["layers"] = [{k: v for k, v in lay.items() if v not in (None, "")}
                           for lay in el.layers]
     return spec
