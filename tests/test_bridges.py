@@ -61,7 +61,16 @@ def test_iw2d_clear_error_when_not_installed(monkeypatch):
 
 def test_iw2d_layer_conversion_applies_the_unit_traps(iw2d):
     """The pytlwall -> IW2D conversion is where the comparison can silently go
-    wrong: muinf is a relative permeability, IW2D wants a susceptibility."""
+    wrong.
+
+    This test used to assert chi = muinf - 1, on the belief that pytlwall's
+    muinf_Hz is a relative permeability. It is not: pytlwall computes
+    mur = 1 + muinf / (1 + j f/k) (pytlwall/layer.py, calc_mur), so muinf is
+    already the susceptibility IW2D asks for. Subtracting one turned the
+    default muinf = 0 - every ordinary metal - into a relative permeability of
+    zero. IW2D's own round-chamber input file agrees: it states a magnetic
+    susceptibility, 0.0 for a non-magnetic wall.
+    """
     from IW2D.interface import (IW2DLayer, Eps1FromResistivity,
                                 Mu1FromSusceptibility)
     from wimba.sources.iw2d_bridge import _one_layer
@@ -69,15 +78,15 @@ def test_iw2d_layer_conversion_applies_the_unit_traps(iw2d):
     def build(d):
         return _one_layer(d, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility)
 
-    # ferrite: mu_r = 460 at DC, relaxing at 20 MHz
+    # ferrite: susceptibility 460, relaxing at 20 MHz, so mu_r = 461 at DC
     lay = build({"type": "CW", "thickness": 0.015, "sigma": 1e-4,
                  "epsr": 12.0, "muinf_Hz": 460.0, "k_Hz": 20e6})
     assert lay.thickness == 0.015
-    assert lay.mu1.magnetic_susceptibility == pytest.approx(459.0)  # mu_r - 1
-    assert abs(lay.mu1(1.0) - 460.0) < 1e-3        # chi + 1 = mu_r at low f
+    assert lay.mu1.magnetic_susceptibility == pytest.approx(460.0)  # unchanged
+    assert abs(lay.mu1(1.0) - 461.0) < 1e-3        # chi + 1 = mu_r at low f
     # single-pole relaxation: above the cut-off the deviation from 1 falls as
     # chi*f_mu/f, so it is still ~1e-2 at 1 THz and only ~1e-5 at 1 PHz
-    assert abs(lay.mu1(1e12) - 1.0) == pytest.approx(459.0 * 20e6 / 1e12, rel=1e-3)
+    assert abs(lay.mu1(1e12) - 1.0) == pytest.approx(460.0 * 20e6 / 1e12, rel=1e-3)
     assert abs(lay.mu1(1e15) - 1.0) < 1e-4
     assert abs(lay.eps1(1e12).real - 12.0) < 1e-6  # epsr passes through
     # sigma became a resistivity, not a conductivity
@@ -87,6 +96,11 @@ def test_iw2d_layer_conversion_applies_the_unit_traps(iw2d):
     vac = build({"type": "V", "thickness": 0.002})
     assert vac.mu1(1e6) == 1.0
     assert vac.eps1(1e6) == 1.0
+
+    # the default muinf = 0 is a non-magnetic wall, not an absence of magnetism
+    plain = build({"type": "CW", "thickness": 0.002, "sigma": 2.0e5})
+    assert plain.mu1.magnetic_susceptibility == pytest.approx(0.0)
+    assert abs(plain.mu1(1e6) - 1.0) < 1e-12       # mu_r = 1, not 0
 
     # tau reaches IW2D instead of being silently dropped
     cu = build({"type": "CW", "thickness": 0.002, "sigma": 5.96e7, "tau": 2.7e-14})
