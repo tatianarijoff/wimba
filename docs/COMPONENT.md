@@ -46,7 +46,20 @@ Two ways, from the **Component** menu:
   not sample the same points; see **[PYTLWALL_CFG.md](PYTLWALL_CFG.md)** before
   comparing the two codes. This entry takes a pytlwall `.cfg` — a WIMBA config
   is opened with **File → Open Config** instead.
-- **Load IW2D Config…** — the same, for an IW2D input.
+- **Load IW2D Config…** — an IW2D round-chamber input file, the tab-separated
+  format of IW2D's own `examples/input_files/`. WIMBA converts the units (mm,
+  ps, MHz, and resistivity to conductivity) and opens it as a component, with
+  IW2D preselected as the method. See `examples/RoundChamber_IW2D_native/`.
+
+  Two things it refuses rather than approximating: a **flat**-chamber input,
+  which carries a half gap and two layer stacks a WIMBA element cannot hold,
+  and **Yokoya factors** other than the circular set `1 1 1 0 0`, which
+  describe another shape through an equivalent round one. Anything it keeps but
+  cannot reproduce exactly — a scan mode, added frequencies — is written to the
+  console rather than dropped in silence.
+
+  Note that WIMBA does not compute through these files: it drives IW2D's Python
+  API. The format is how an IW2D case is written down and passed around.
 
 The **Models** tab shows how the component will be computed: one base method
 for the impedance (all components at once) and a Wakefield line that *declares*
@@ -95,6 +108,20 @@ wimba run RoundChamber_component.yaml
 
 A precalculated component is refused here, with the reason: what defines it is
 its data file and its import map, which is already a file in its own right.
+
+## Comparing a wake
+
+The same table takes wake components — `WLong`, `WDipX`, `WDipY`, `WQuadX`,
+`WQuadY`, or `All wake`. Choosing one makes the calculation compute the wake as
+well: without a time grid a wake comparison would come out empty, so asking for
+one is taken as asking for the wake, and the grid that decision implies is
+written to the console.
+
+Where the wake comes from depends on the method, and the row says so: pytlwall
+solves it natively, a precalculated entry reads it from the file, and IW2D's
+impedance is transformed by WIMBA — its Python package has no wake solver.
+Comparing pytlwall against IW2D on a wake therefore compares a solver with a
+Fourier transform, which is worth doing and worth knowing.
 
 ## Step 5 (optional) — compare with imported data
 

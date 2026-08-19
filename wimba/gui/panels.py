@@ -102,6 +102,21 @@ class MachineTree(QTreeWidget):
 
 
 # ============================================================== element panel
+def _note(text):
+    """A wrapping explanatory label.
+
+    A QLabel reports a minimum width as wide as its longest unbroken line, so a
+    sentence of guidance under a table quietly forces the panel, the tab and the
+    whole window past the edge of the screen. Every note in this file goes
+    through here.
+    """
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setObjectName("EmptyText")
+    label.setMinimumWidth(1)          # the text wraps; it does not set the width
+    return label
+
+
 class SearchCombo(QComboBox):
     """A dropdown you can type into, from the second letter on.
 
@@ -298,12 +313,11 @@ class ElementPanel(QWidget):
             form.addRow(label + ":", ed)
         v.addWidget(box)
 
-        note = QLabel("The transverse terms are scaled by length and by the beta "
-                      "beside them; the longitudinal one only by length. Betas "
-                      "given here override whatever the twiss says at this "
-                      "element's position - see docs/BEAM_AND_OPTICS.md.")
-        note.setObjectName("EmptyText"); note.setWordWrap(True)
-        v.addWidget(note)
+        v.addWidget(_note(
+            "The transverse terms are scaled by length and by the beta beside "
+            "them; the longitudinal one only by length. Betas given here "
+            "override whatever the twiss says at this element's position - see "
+            "docs/BEAM_AND_OPTICS.md."))
         v.addStretch(1)
         return w
 
@@ -339,7 +353,17 @@ class ElementPanel(QWidget):
         headers = [lbl for _, lbl in self.LAYER_COLS] + ["Boundary"]
         self.ltab = QTableWidget(0, len(headers))
         self.ltab.setHorizontalHeaderLabels(headers)
-        self.ltab.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Nine columns do not fit a narrow panel. Stretch would squeeze them all
+        # until nothing is readable; fixed widths plus a horizontal scrollbar
+        # keep each one usable and let the panel be as narrow as the user wants.
+        head = self.ltab.horizontalHeader()
+        head.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        head.setStretchLastSection(False)
+        for c, (key, _) in enumerate(self.LAYER_COLS):
+            self.ltab.setColumnWidth(c, 150 if key == "type" else 96)
+        self.ltab.setColumnWidth(len(self.LAYER_COLS), 74)      # Boundary
+        self.ltab.setHorizontalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.ltab.verticalHeader().setVisible(False)
         self._sync_boundary()
         for L in self.el.layers:
@@ -352,7 +376,7 @@ class ElementPanel(QWidget):
         rm = QPushButton("Remove selected"); rm.clicked.connect(self._rm_layer)
         row.addWidget(add); row.addWidget(rm); row.addStretch(1)
         v.addLayout(row)
-        v.addWidget(QLabel(
+        v.addWidget(_note(
             "Wall build-up from inside out. The outermost layer is the boundary "
             "and is marked automatically. Thickness and k can be set to infinity "
             "with the box beside the field; every other value is a number."))
@@ -424,6 +448,11 @@ class ElementPanel(QWidget):
 
     def _type_cell(self, L):
         cb = SearchCombo()
+        # the longest entry is a material name and would otherwise set the
+        # column's minimum width; it elides, and the tooltip carries the rest
+        cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        cb.setMinimumContentsLength(10)
+        cb.setMinimumWidth(80)
         items = self._type_items()
         for text, _ in items:
             cb.addItem(text)
@@ -611,7 +640,19 @@ class ElementPanel(QWidget):
                 cell.setToolTip(f"{kind} is computed from a formula; this "
                                 f"value is not read.")
 
-    COMPARE_COMPONENTS = ["ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY"]
+    # A chamber method computes every component in one go, so asking for one of
+    # them is a way of labelling the curve, not of doing less work. All
+    # Impedance says that plainly and is the sensible default; the single
+    # components matter for a precalculated file, which holds one of them.
+    ALL_IMPEDANCE = "All impedance"
+    ALL_WAKE = "All wake"
+    COMPARE_COMPONENTS = [ALL_IMPEDANCE, "ZLong", "ZDipX", "ZDipY", "ZQuadX",
+                          "ZQuadY",
+                          # the wake half of the list. A wake comparison makes
+                          # the calculation compute the wake, because without a
+                          # time grid it would produce an empty column.
+                          ALL_WAKE, "WLong", "WDipX", "WDipY", "WQuadX",
+                          "WQuadY"]
 
     def _base_model(self):
         return self.el.models[0] if self.el.models else None
@@ -654,8 +695,8 @@ class ElementPanel(QWidget):
         base.setMaximumHeight(96)
         v.addWidget(base)
 
-        v.addWidget(QLabel("<b>Additional calculations \u2014 compare</b>  "
-                           "(same element, other methods: plotted side by side)"))
+        v.addWidget(_note("<b>Additional calculations \u2014 compare</b>  "
+                          "(same element, other methods: plotted side by side)"))
         self.cmp_table = QTableWidget(0, 3)
         self.cmp_table.setHorizontalHeaderLabels(["Component", "Method", "Source / File"])
         ch = self.cmp_table.horizontalHeader()
@@ -670,17 +711,32 @@ class ElementPanel(QWidget):
         rm = QPushButton("Remove selected"); rm.clicked.connect(self._cmp_rm)
         row.addWidget(add); row.addWidget(rm); row.addStretch(1)
         v.addLayout(row)
-        v.addWidget(QLabel("The base method computes every component (and its wake). "
-                           "Compare entries add the same element with another method "
-                           "for one component \u2014 IW2D runs once its binary is wired."))
+        v.addWidget(_note(
+            "The base method computes every component (and its wake). Compare "
+            "entries add the same element with another method, for one "
+            "component or for all of them. Choosing a wake component makes the "
+            "calculation compute the wake too \u2014 without a time grid a wake "
+            "comparison would come out empty."))
         return w
 
     @staticmethod
     def _wake_text(method):
+        """What will actually produce the wake, not what the engine could do.
+
+        IW2D's algorithm does compute wakes - with a Filon-type method, in its
+        C++ executables - but its Python package does not: the legacy
+        wake_roundchamber / wake_flatchamber wrappers are stubs and the
+        supported API has no wake call at all. WIMBA drives that package, so an
+        IW2D wake is a Fourier transform of the impedance, and the panel says
+        so instead of promising a native one.
+        """
         from .model import method_base
         b = method_base(method).lower()
         if b == "precalculated":
             return "from wake file if given, else FFT of the impedance"
+        if b == "iw2d":
+            return "WIMBA FFT of the impedance (IW2D's Python package computes "\
+                   "no wake)"
         return f"native from {method_base(method)}"
 
     def _set_base_method(self, value):
@@ -700,11 +756,22 @@ class ElementPanel(QWidget):
         from .model import method_needs_file
         r = self.cmp_table.rowCount(); self.cmp_table.insertRow(r)
         comp = QComboBox(); comp.addItems(self.COMPARE_COMPONENTS)
-        comp.setCurrentText(entry.q or "ZLong")
+        comp.setCurrentText(entry.q or self.ALL_IMPEDANCE)
+        comp.setToolTip(
+            "All impedance / All wake compute every component at once; a "
+            "single one is what a precalculated file holds.\n"
+            "Choosing a wake makes the calculation compute the wake as well.")
         comp.currentTextChanged.connect(lambda v, e=entry: setattr(e, "q", v))
         self.cmp_table.setCellWidget(r, 0, comp)
         meth = QComboBox(); meth.addItems(METHODS); meth.setCurrentText(entry.method)
         self.cmp_table.setCellWidget(r, 1, meth)
+        # where this row's wake would come from is not guessable from the
+        # method name: pytlwall solves it, IW2D's Python package does not
+        comp.currentTextChanged.connect(
+            lambda _v, c=comp, m=meth: self._cmp_wake_note(c, m))
+        meth.currentTextChanged.connect(
+            lambda _v, c=comp, m=meth: self._cmp_wake_note(c, m))
+        self._cmp_wake_note(comp, meth)
         cell = QWidget(); cl = QHBoxLayout(cell); cl.setContentsMargins(0, 0, 0, 0)
         fed = QLineEdit(entry.file)
         fed.setEnabled(method_needs_file(entry.method))
@@ -725,6 +792,28 @@ class ElementPanel(QWidget):
                                  if method_needs_file(v) else "\u2014")
             self.on_change()
         meth.currentTextChanged.connect(_meth_changed)
+
+    def _cmp_wake_note(self, comp, meth):
+        """Say in the row where its wake comes from.
+
+        pytlwall computes the wake natively; IW2D's Python package has no wake
+        solver, so WIMBA transforms its impedance. Comparing the two on a wake
+        is comparing a solver with a Fourier transform - worth doing, not worth
+        discovering afterwards.
+        """
+        from .model import is_wake_component, method_base
+        if not is_wake_component(comp.currentText()):
+            comp.setStyleSheet("")
+            return
+        base = method_base(meth.currentText()).lower()
+        if base == "iw2d":
+            comp.setToolTip("Wake from WIMBA's FFT of the IW2D impedance: "
+                            "IW2D's Python package computes no wake.")
+        elif base == "precalculated":
+            comp.setToolTip("Wake read from the file, interpolated onto the "
+                            "time grid.")
+        else:
+            comp.setToolTip(f"Wake computed natively by {method_base(meth.currentText())}.")
 
     def _cmp_browse(self, entry, fed):
         from PyQt6.QtWidgets import QFileDialog
@@ -783,7 +872,7 @@ class OpticsPanel(QWidget):
         v.addLayout(top)
         msg = ("All elements have \u03b2 and position." if have == need
                else "Some elements are missing \u03b2. Load optics or enter values below.")
-        lab = QLabel(msg); lab.setObjectName("EmptyText"); v.addWidget(lab)
+        v.addWidget(_note(msg))
 
         rows = [e for _, e in machine.all_elements()]
         t = QTableWidget(len(rows), 5)
@@ -856,7 +945,7 @@ class ScenarioPanel(QWidget):
         v.addLayout(row)
 
         if not project.scenarios:
-            hint = QLabel("Load a machine or open a config: it becomes Scenario 1.")
+            hint = _note("Load a machine or open a config: it becomes Scenario 1.")
             hint.setObjectName("EmptyText"); hint.setWordWrap(True)
             v.addWidget(hint)
         else:
@@ -972,12 +1061,10 @@ class BeamPanel(QWidget):
         if override is not None:
             for w in (self.particle, self.mode, self.value):
                 w.setEnabled(False)          # read-only: not this machine's beam
-            label = QLabel(note or
-                           "This component carries its own beam, from the config "
-                           "it was loaded with. That beam wins over the machine's "
-                           "for every calculation of this component.")
-            label.setObjectName("EmptyText"); label.setWordWrap(True)
-            v.addWidget(label)
+            v.addWidget(_note(
+                note or "This component carries its own beam, from the config "
+                        "it was loaded with. That beam wins over the machine's "
+                        "for every calculation of this component."))
         v.addStretch(1)
 
         self._load(override or getattr(machine, "beam", None))

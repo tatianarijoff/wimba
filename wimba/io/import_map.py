@@ -139,6 +139,41 @@ def _load_entry(base_dir: Path, common: dict, entry: dict, kind: str):
     return np.asarray(x)[order], np.asarray(y)[order]
 
 
+def check_x_column(x, path, kind, column):
+    """Refuse an x column that cannot be a frequency or a time.
+
+    The commonest mistake is off by one column, and the commonest reason is a
+    spreadsheet written by ``DataFrame.to_excel`` without ``index=False``: the
+    first column is then the row number, and a map that says ``freq: 1`` picks
+    0, 1, 2, ... The values interpolate happily and the result is wrong in
+    silence, which is why this is an error and not a warning.
+    """
+    x = np.asarray(x, dtype=float)
+    what = "frequency" if kind == "impedance" else "time"
+    name = Path(path).name
+
+    if x.size == 0:
+        raise ValueError(f"{name}: column {column} is empty.")
+    if not np.all(np.isfinite(x)):
+        raise ValueError(f"{name}: column {column} holds non-numeric values "
+                         f"where a {what} was expected.")
+    if np.any(np.diff(x) <= 0):
+        raise ValueError(
+            f"{name}: column {column} does not increase, so it cannot be a "
+            f"{what}. Check the column numbers in the map - they count from 1.")
+    if x[0] < 0:
+        raise ValueError(f"{name}: column {column} starts below zero, so it "
+                         f"cannot be a {what}.")
+    if (x.size > 2 and x[0] == 0.0
+            and np.allclose(x, np.arange(x.size), rtol=0, atol=1e-9)):
+        raise ValueError(
+            f"{name}: column {column} is 0, 1, 2, ... - a row number, not a "
+            f"{what}. A spreadsheet written with pandas keeps the index unless "
+            f"you pass index=False, which shifts every column by one: try "
+            f"column {column + 1}, or rewrite the file with "
+            f"df.to_excel(..., index=False).")
+
+
 def load_import_map(path) -> dict:
     """Read a descriptor -> {"impedance": {comp: (x, z)}, "wake": {comp: (x, w)}}."""
     path = Path(path)
@@ -146,11 +181,21 @@ def load_import_map(path) -> dict:
     base = path.parent
     out = {"impedance": {}, "wake": {}}
     for comp, entry in (data.get("components") or {}).items():
-        out["impedance"][comp] = _load_entry(base, data.get("common_impedance") or {},
-                                             entry, "impedance")
+        common = data.get("common_impedance") or {}
+        x, z = _load_entry(base, common, entry, "impedance")
+        check_x_column(x, base / (entry.get("file") or common.get("file", path.name)),
+                       "impedance",
+                       int((entry.get("columns") or common.get("columns")
+                            or {}).get("freq", 1)))
+        out["impedance"][comp] = (x, z)
     for comp, entry in (data.get("wake_components") or {}).items():
-        out["wake"][comp] = _load_entry(base, data.get("common_wake") or {},
-                                        entry, "wake")
+        common = data.get("common_wake") or {}
+        x, w = _load_entry(base, common, entry, "wake")
+        check_x_column(x, base / (entry.get("file") or common.get("file", path.name)),
+                       "wake",
+                       int((entry.get("columns") or common.get("columns")
+                            or {}).get("time", 1)))
+        out["wake"][comp] = (x, w)
     if not out["impedance"] and not out["wake"]:
         raise ValueError(f"{path}: the map defines no components.")
     return out
