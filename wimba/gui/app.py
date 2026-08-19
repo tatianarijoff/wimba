@@ -198,10 +198,16 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.center)
 
     def _close_center_tab(self, index: int):
-        if index >= 2:
-            w = self.center.widget(index)
-            self.center.removeTab(index)
-            self._elem_tabs = {k: v for k, v in self._elem_tabs.items() if v is not w}
+        if index < 2:
+            return
+        w = self.center.widget(index)
+        confirm = getattr(w, "confirm_close", None)
+        if confirm is not None and not confirm():
+            return                     # unsaved edits, and the user said no
+        self.center.removeTab(index)
+        self._elem_tabs = {k: v for k, v in self._elem_tabs.items() if v is not w}
+        if w is getattr(self, "_mat_tab", None):
+            self._mat_tab = None
 
     # ---- dock panels ----
     def _build_docks(self):
@@ -361,6 +367,11 @@ class MainWindow(QMainWindow):
                   lambda: self._comp_calc("pytlwall", wake=True))
         m.addSeparator()
         self._act(m, "Clear Component Results", self._comp_clear)
+
+        m = mb.addMenu("Ma&terials")
+        self._act(m, "Add Material\u2026", self._material_add)
+        self._act(m, "Show Materials\u2026", self._material_show)
+        self._act(m, "Delete Material\u2026", self._material_delete)
 
         m = mb.addMenu("&Optics")
         self._act(m, "Load Optics\u2026", self._load_optics)
@@ -1113,6 +1124,21 @@ class MainWindow(QMainWindow):
             f"Loaded optics \u2014 matched {n} element(s) by name", 3000)
 
     # ---- element panel ----
+    def _machine_of_element(self, el):
+        """The machine this element belongs to, or None if it stands alone.
+
+        Asked of the model rather than of how the panel was opened: an element
+        picked from the tree into the bench is still part of the ring, and the
+        beam it is computed with has to follow the ring's.
+        """
+        gm = self.machine
+        if gm is None:
+            return None
+        try:
+            return gm if any(e is el for _, e in gm.all_elements()) else None
+        except Exception:
+            return None
+
     def _open_element(self, el):
         self.log.debug("Opening element panel for '%s' (category %s, %d layer(s)).",
                        el.name, el.category, len(el.layers))
@@ -1121,7 +1147,8 @@ class MainWindow(QMainWindow):
         if key in self._elem_tabs:
             self.center.setCurrentWidget(self._elem_tabs[key])
             return
-        panel = ElementPanel(el, self._after_edit, self._calc_element)
+        panel = ElementPanel(el, self._after_edit, self._calc_element,
+                             machine=self._machine_of_element(el))
         self._elem_tabs[key] = panel
         self.center.setCurrentIndex(self.center.addTab(panel, el.name))
 
@@ -1140,11 +1167,21 @@ class MainWindow(QMainWindow):
                                         text="COMP")
         if not ok or not name:
             return
+        from .. import materials
         from .model import default_models, new_element
         el = new_element(name)
         el.models = default_models()
-        el.layers = [{"type": "CW", "thickness": 0.002, "sigma": 1.4e6}]
-        el.geometry = {"radius": 0.02, "shape": "CIRCULAR"}
+        # The first layer is a named material, not a hand-written conductivity:
+        # a bare 1.4e6 belongs to nothing, so the Layers tab had to show it as
+        # custom and the user could not tell what they had started from.
+        layer = {"type": "CW", "thickness": 0.002, "boundary": True}
+        default_material = materials.default_name()
+        if default_material:
+            materials.apply_to(layer, default_material)
+            layer["boundary"] = True         # a single layer is the boundary
+            layer["thickness"] = "inf"
+        el.layers = [layer]
+        el.geometry = {"length": 1.0, "radius": 0.02, "shape": "CIRCULAR"}
         self.component = el
         self._open_element(el)
         self.log.info("Component bench: new component '%s' (edit geometry/layers, "
@@ -1439,6 +1476,52 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Select an element in the Machine tree first.", 4000)
             return
         self._calc_element(ref["obj"], wake=wake)
+
+    # ---- Materials: the named conductivities a CW layer can be filled from ----
+    def _materials_tab(self):
+        """Open the Materials tab, creating it once."""
+        from .materials_tab import MaterialsTab
+        if getattr(self, "_mat_tab", None) is None:
+            self._mat_tab = MaterialsTab(log=self.log)
+            self._mat_tab.changed.connect(self._materials_changed)
+            self.center.addTab(self._mat_tab, "Materials")
+        self.center.setCurrentWidget(self._mat_tab)
+        return self._mat_tab
+
+    def _material_show(self):
+        self._materials_tab()
+
+    def _material_add(self):
+        """Add Material opens the same table and starts a row in it.
+
+        A dialog that took a name and a number told you nothing about what was
+        already there, and the material it produced was invisible until you
+        opened a layer. The table is where materials live; adding one is an
+        edit to it.
+        """
+        self._materials_tab().add_row()
+
+    def _material_delete(self):
+        tab = self._materials_tab()
+        self.statusBar().showMessage(
+            "Select one of your own materials (the pink rows) and press "
+            "Delete selected.", 6000)
+        return tab
+
+    def _materials_changed(self):
+        """After a save, rebuild the material dropdown of every open element.
+
+        A panel builds its list once, so a material added while a component was
+        open stayed invisible until the tab was closed and reopened - which is
+        exactly what looked like the material not having been added at all.
+        """
+        for panel in list(self._elem_tabs.values()):
+            refresh = getattr(panel, "_refresh_layers", None)
+            if refresh is not None:
+                try:
+                    refresh()
+                except Exception as exc:            # a stale tab must not stop the save
+                    self.log.debug("Could not refresh a panel: %s", exc)
 
     def _base_cfg(self):
         """Grid, materials and gamma a calculation starts from.

@@ -27,6 +27,9 @@
   field by field, including the `beam:` block.
 - [Assemble & run](ASSEMBLE_AND_RUN.md) — optics + devices → machine total
   (assemble/run/plot).
+- [Beam and optics: who decides](BEAM_AND_OPTICS.md) — which gamma and which
+  betas a device is computed with when a machine and an element each state
+  their own, and how to check afterwards which values were used.
 - [Building a machine](BUILD.md) — `wimba build` and `wimba show`; output
   layout, resume and totals.
 - [Examples](EXAMPLES.md) — the five bundled examples and how to run them.
