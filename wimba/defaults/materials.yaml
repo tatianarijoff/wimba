@@ -1,0 +1,163 @@
+# Materials for conductive-wall (CW) layers.
+#
+# A layer of type CW is described by six numbers. Typing them by hand every
+# time is how a chamber ends up with the conductivity of nothing in
+# particular, so they are named here instead: choosing "CW - Copper" fills
+# them in, and the value that lands in the config is the number, not the name.
+#
+# Every entry carries a `note` saying how firm the value is. Conductivity of
+# an alloy or a coating depends on grade, temper and temperature, sometimes by
+# a factor of two - a name in this list is a starting point, not an authority.
+# For published work, use the value your own sample or supplier gives.
+#
+# sigma      DC conductivity [S/m]           (infinity is not allowed)
+# epsr       real relative permittivity      (1 for a metal: conduction is
+#                                             carried by sigma, not by epsr)
+# tau        relaxation time for permittivity [s]
+# k_Hz       relaxation frequency for permeability [Hz]  (zero is not allowed)
+# muinf_Hz   mu infinity
+# RQ         surface roughness factor
+#
+# Users can add their own with Materials > Add Material; those are written
+# into the config being edited, not into this file.
+
+default: stainless-steel-316LN
+
+materials:
+
+  copper:
+    label: Copper (OFHC)
+    sigma: 5.9e+7
+    note: >
+      Room temperature, oxygen-free. This matches the value WIMBA already
+      resolves for `material: copper` and `material: cu` in a config - the two
+      must agree, or the same name would mean two different conductivities
+      depending on whether it came from the interface or from a file.
+      Handbook values for annealed copper run 5.8-5.9e7; at cryogenic
+      temperature it is higher by orders of magnitude and depends on the
+      residual resistivity ratio.
+
+  aluminium:
+    label: Aluminium (pure)
+    sigma: 3.8e7
+    note: Room temperature, unalloyed.
+
+  aluminium-6061:
+    label: Aluminium 6061
+    sigma: 2.5e7
+    note: Alloy; temper changes this appreciably.
+
+  stainless-steel-316LN:
+    label: Stainless steel 316LN
+    sigma: 1.35e6
+    note: >
+      Room temperature. The commonest beam-pipe material, and the closest
+      named material to the bare 1e6 that pytlwall uses as its own default -
+      which corresponds to no named material at all.
+
+  titanium:
+    label: Titanium
+    sigma: 2.4e6
+    note: Room temperature, commercially pure.
+
+  molybdenum:
+    label: Molybdenum
+    sigma: 1.9e7
+    note: Room temperature.
+
+  beryllium:
+    label: Beryllium
+    sigma: 2.5e7
+    note: Room temperature. Used where transparency to particles matters.
+
+  graphite:
+    label: Graphite
+    sigma: 1.0e5
+    note: >
+      Strongly grade- and direction-dependent: isotropic collimator grades
+      span roughly 7e4 to 1.4e5 S/m. Check the grade you actually have.
+
+  neg:
+    label: NEG coating
+    sigma: 1.0e6
+    note: >
+      Order of magnitude only. The conductivity of a getter coating depends
+      on thickness, composition and activation state.
+
+  magnetic-example:
+    label: Magnetic layer (pytlwall example)
+    sigma: 1.0e6
+    muinf_Hz: 500.0
+    k_Hz: 1.0e4
+    note: >
+      Not a named material: these are the boundary values of pytlwall's
+      ex_CWMag example, kept as a starting point for a magnetic layer.
+      Replace them with the ferrite grade you are modelling.
+
+# ---------------------------------------------------------------------------
+# Names that WIMBA has always resolved, kept with the exact conductivity they
+# have always had. Configs in the wild say `material: stainless_steel`, and a
+# layer written years ago has to keep computing the same number - so these are
+# frozen. Where a modern entry above covers the same metal it is listed under
+# its full name instead; the two are deliberately separate.
+# ---------------------------------------------------------------------------
+
+  cu:
+    label: Copper (config name)
+    sigma: 5.9e+7
+    note: >
+      Frozen alias. A config can name it directly in a layer.
+
+  stainless_steel:
+    label: Stainless steel (config name)
+    sigma: 1.4e+6
+    note: >
+      Frozen for compatibility with configs that already use it. Close to but
+      not the same as stainless-steel-316LN above (1.35e6).
+
+  ss:
+    label: Stainless steel (short config name)
+    sigma: 1.4e+6
+    note: Frozen alias of stainless_steel.
+
+  ss304:
+    label: Stainless steel 304 (config name)
+    sigma: 1.4e+6
+    note: Frozen alias, same value as stainless_steel.
+
+  cfc:
+    label: Carbon fibre composite (config name)
+    sigma: 1.0e+5
+    note: Frozen; grade-dependent, as all carbon is.
+
+  mogr:
+    label: Molybdenum-graphite (config name)
+    sigma: 1.0e+6
+    note: Frozen. Collimator material; the real value depends on the grade.
+
+  inermet180:
+    label: Inermet 180 (config name)
+    sigma: 4.0e+6
+    note: Frozen. Tungsten heavy alloy used in collimator jaws.
+
+  inermet:
+    label: Inermet (config name)
+    sigma: 4.0e+6
+    note: Frozen alias of inermet180.
+
+  beam_screen:
+    label: Beam screen (config name)
+    sigma: 5.9e+7
+    note: >
+      Frozen. Not a material but a component: the value is copper's. Prefer
+      naming the actual metal.
+
+  w:
+    label: Tungsten (config name)
+    sigma: 1.8e+7
+    note: Frozen. Room temperature.
+
+  mo:
+    label: Molybdenum (config name)
+    sigma: 1.9e+7
+    note: Frozen alias of molybdenum.

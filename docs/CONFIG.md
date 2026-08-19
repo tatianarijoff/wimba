@@ -129,7 +129,13 @@ layers:                       # inside -> out
 Layers take the full electromagnetic parameter set (`type`, `thickness`, `sigma`
 or a known `material`, `muinf_Hz`, `k_Hz`, `epsr`, `tau`, `RQ`). An unknown
 material name is an error, never a silent default; declare your own in a
-top-level `materials: {name: sigma}` block.
+top-level `materials: {name: sigma}` block, which wins over the shipped list
+for that study.
+
+The known names live in `wimba/defaults/materials.yaml` — data, not code — and
+are the same list the interface offers under Materials. Each entry carries a
+note on how firm its conductivity is: grades, tempers and temperature move
+these numbers, sometimes by a factor of two.
 
 Space charge is not imported by hand: it is computed per chamber alongside the
 wall and kept as separate components. Import (`cst`) is for genuinely external

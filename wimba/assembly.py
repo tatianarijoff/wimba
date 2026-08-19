@@ -276,9 +276,11 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
              if cfg.get("optics") else {})
 
     # user-defined materials (name -> sigma [S/m]) extend the built-in table
-    from .sources.pytlwall_bridge import MATERIALS
+    from .materials import sigma_table
     user_mats = {str(k).lower(): float(v) for k, v in (cfg.get("materials") or {}).items()}
-    mat_table = {**MATERIALS, **user_mats}
+    # A study's own materials: block wins over the shipped catalogue, so a name
+    # can be redefined for one machine without touching anyone else's.
+    mat_table = {**sigma_table(), **user_mats}
 
     def _resolve_layers(layers, owner):
         unknown = []

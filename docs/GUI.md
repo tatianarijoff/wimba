@@ -51,8 +51,23 @@ have both. The Beam tab defines the particle and the energy; see
 [The beam](#the-beam) below.
 
 **Centre** — the workspace. `Plot Workspace` and `Results Table` are always
-there; opening an element adds a tab for it, with `Geometry`, `Layers` and
-`Models` and the two Calculate buttons at the bottom.
+there; opening an element adds a tab for it, with `Geometry`, `Layers`,
+`Beam & Optics` and `Models`, and the two Calculate buttons at the bottom.
+`Materials ▸ Show Materials` opens a `Materials` tab here too — see
+[Materials](#materials).
+
+In the `Geometry` tab the aperture follows the shape: one radius for a
+CIRCULAR chamber, a horizontal and a vertical semi-axis for an ELLIPTICAL or
+RECTANGULAR one, both in metres. The fields the shape does not use are not
+shown, so a radius cannot travel with a rectangle that ignores it.
+
+In the `Layers` tab each row is a layer, inside → out. The type is chosen from
+a list: `CW` followed by a material name, `CW (custom)` when you want to type
+the numbers yourself, or `V` and `PEC`, whose parameters are closed because
+pytlwall computes them from a formula and reads none of them. Thickness and k
+may be set to infinity with the box beside the field; every other value is a
+number. The outermost layer is the boundary — marked automatically, with
+infinite thickness, because it is the half-space outside the wall.
 
 **Results** (right) — everything a calculation produced: the machine total,
 each device, the aggregated default pipe, and for chambers the wall, the
@@ -124,6 +139,17 @@ explains the rule.
 There is no default energy. A chamber calculation without a beam raises rather
 than quietly assuming one.
 
+An element tab has a `Beam & Optics` tab of its own. For a component that
+belongs to no machine — built with `Component ▸ New Component`, or loaded from
+a pytlwall or IW2D config — the beam is **editable** there: it has no ring to
+inherit from, and without a beam it cannot be computed at all. For an element
+that belongs to a machine the same panel is **read-only**: inside a ring there
+is one beam and it belongs to the ring. The twiss betas are editable either
+way, because they belong to the element.
+
+Which value wins when a machine and an element each state their own is set out
+in [BEAM_AND_OPTICS.md](BEAM_AND_OPTICS.md).
+
 ## Calculating
 
 `Calculate → Whole Machine` runs the pipeline the loaded file's dialect calls
@@ -135,6 +161,30 @@ the scenario is stamped with the time it was computed.
 
 The buttons at the bottom of an element tab — `Calculate element` and
 `Calculate wake` — compute that element alone.
+
+## Materials
+
+`Materials ▸ Show Materials` opens a table of every named material a `CW` layer
+can be filled from: conductivity, permittivity, relaxation, permeability and
+roughness, one column each. Choosing a material in a layer writes its **numbers**
+into that layer, never its name, so a config you send elsewhere carries the
+values and computes the same for someone who has never seen your list.
+
+Your own materials are at the top and are editable; the ones WIMBA ships with
+are below and are not. To change one of those, add a row with the same name: it
+overrides the catalogue entry for you and for nobody else. Values shown in grey
+italics were not written down for that material — they are the defaults the
+calculation uses, shown so that no column reads as missing data.
+
+`Materials ▸ Add Material` starts a row in the same table. It is a **permanent**
+choice: `Save` writes it to `custom_materials.yaml` — see
+`custom_materials.example.yaml` at the top of the repository — and it is offered
+from then on. For a conductivity you need once, add nothing: pick `CW (custom)`
+in the layer and type the numbers there.
+
+A study can also carry its own names, in the config's `materials:` block; those
+win over the catalogue for that study. That is the right place for a name that
+has to travel with a file.
 
 ## What Problems tells you
 
@@ -170,5 +220,7 @@ editor.
 - [SETUP.md](SETUP.md) — installing WIMBA and the engines
 - [SETTINGS.md](SETTINGS.md) — `wimba.yaml`, engine paths, `data_dir`, logging
 - [CONFIG.md](CONFIG.md) — the machine config format, key by key
+- [BEAM_AND_OPTICS.md](BEAM_AND_OPTICS.md) — which gamma and which betas a
+  device is computed with, and how to check afterwards
 - [DATA_MODEL.md](DATA_MODEL.md) — ImpedanceTerm, Element, ElementGroup, Machine
 - [EXAMPLES.md](EXAMPLES.md) — what is in `examples/` and what each one shows

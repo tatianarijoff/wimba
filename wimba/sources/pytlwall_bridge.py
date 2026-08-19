@@ -13,14 +13,11 @@ from __future__ import annotations
 import numpy as np
 
 # approximate DC conductivities [S/m] - placeholders, to be refined
-MATERIALS = {
-    "cu": 5.9e7, "copper": 5.9e7,
-    "stainless_steel": 1.4e6, "ss": 1.4e6, "ss304": 1.4e6,
-    "graphite": 1.0e5, "cfc": 1.0e5,
-    "mogr": 1.0e6, "inermet180": 4.0e6, "inermet": 4.0e6,
-    "beam_screen": 5.9e7, "w": 1.8e7, "mo": 1.9e7,
-}
-DEFAULT_SIGMA = 1.0e6
+# The name -> conductivity table used to live here. It is data, not physics
+# this module performs, and keeping it in code meant a second copy appeared the
+# moment anything else needed the same list. It is now wimba/defaults/materials.yaml,
+# read through wimba.materials, which is also what the interface offers.
+from ..materials import DEFAULT_SIGMA, sigma_of  # noqa: E402,F401
 
 
 def _one_layer(pytlwall, lay, boundary=False):
@@ -64,9 +61,7 @@ def _build_layers(pytlwall, layers):
 
 
 def _sigma(material):
-    if material is None:
-        return DEFAULT_SIGMA
-    return MATERIALS.get(str(material).lower(), DEFAULT_SIGMA)
+    return sigma_of(material)
 
 
 def require_gamma(gamma, what="this calculation"):
