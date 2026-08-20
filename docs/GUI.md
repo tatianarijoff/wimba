@@ -72,29 +72,71 @@ infinite thickness, because it is the half-space outside the wall.
 **Results** (right) — everything a calculation produced: the machine total,
 each device, the aggregated default pipe, and for chambers the wall, the
 indirect space-charge and the wall+ISC components separately. Impedance and
-wake. Inside a project the entries carry their scenario label. Double-click or
-drag into the Plot Workspace or the Results Table.
+wake. Inside a project the entries carry their scenario label.
 
-**Inspector** (bottom right) — the selected element's resolved values: its
-position, length, betas, material, how many layers it has. This is where you
-check what WIMBA actually decided, as opposed to what the config asked for.
+Drag an entry into the Plot Workspace or the Results Table, or double-click it:
+a double click goes to the Results Table when that tab is the one in front, and
+to the Plot Workspace otherwise.
 
-**Jobs / Console / Problems / Output Browser** (bottom) — Jobs shows
-calculations with live status, Console the log, Problems the assembly warnings
-(see [What Problems tells you](#what-problems-tells-you)), Output Browser the
-files on disk.
+**Inspector** (bottom right) — the resolved values of whatever is selected in
+the Machine Explorer, on a single click: for an element its category, position,
+length, betas, how many layers it has and which quantities are switched on; for
+a group how many elements it holds. This is where you check what WIMBA actually
+decided, as opposed to what the config asked for. It is also the only readout
+for a group or for the machine root, since double-clicking opens a tab for an
+element and does nothing for the rest.
 
-## The File menu
+**Jobs / Console / Problems** (bottom, tabbed) — three panels answering three
+different questions.
+
+*Console* is what is happening now: the backend commands, the files read, the
+warnings and the errors. It is **cleared at the start of every calculation**, so
+it always describes the current one.
+
+*Jobs* is what you have launched in this session — one line per calculation,
+updated to `done` with the number of quantities computed, or to `FAILED`. It is
+one calculation at a time, not a queue; it exists because the Console is wiped
+each run and this list is what survives.
+
+*Problems* is what not to trust: collisions and optics warnings, written after a
+calculation and raised automatically when there is something in it. See
+[What Problems tells you](#what-problems-tells-you).
+
+## The menus
+
+### File
 
 | entry | what it does |
 |---|---|
 | **Load Machine** | opens a machine file — the `groups:` dialect, the elements you listed |
+| **New Machine** | starts an empty machine, to be filled from the **Machine** menu |
 | **Open Config** | opens an assembly config — the `devices:`/`default_pipe:` dialect, rules WIMBA executes |
+| **Open Results** | reopens an output folder without recomputing anything |
+| **Close Machine** | clears the machine and its panels |
 | **New Project** | asks where results go; the first machine you load becomes scenario one |
 | **Open Project** | opens an existing `project.yaml` and reloads every scenario that already has output |
 | **Save Project** / **Save Project As** | writes `project.yaml` and each scenario's config |
 | **Close Project** | saves, then clears the panels; files are untouched |
-| **Open Results** | reopens an output folder without recomputing anything |
+| **Duplicate / Rename / Remove Scenario** | the same three actions as the buttons in the Scenarios dock |
+| **Export Results** | writes everything the Results tree holds, as CSV or as tab-separated TXT |
+
+### The others
+
+| menu | what is in it |
+|---|---|
+| **View** | show or hide each dock, jump to the Plot Workspace or the Results Table, switch theme (dark / light), set the log level, and save, reload or reset the window layout |
+| **Machine** | Add Group, Add Element, and Rename, Duplicate or Delete what is selected — this is how a machine is built from nothing |
+| **Component** | the component bench: see [COMPONENT.md](COMPONENT.md) |
+| **Materials** | Add, Show and Delete a material: see [Materials](#materials) |
+| **Optics** | Load Optics — the same button as the one in the Optics dock |
+| **Calculate** | see [Calculating](#calculating) |
+| **Results** | Export Results, as in the File menu |
+| **Help** | see [The documentation, inside the window](#the-documentation-inside-the-window) |
+
+Two entries are placeholders and say so when used: `Calculate ▸ Calculate
+Selected Group` and `Optics ▸ Clear Optics`. The four comparison-basket entries
+of the **Results** menu are placeholders too — build a comparison by dragging
+into the Plot Workspace instead.
 
 ### Load Machine or Open Config?
 
@@ -160,7 +202,50 @@ Inside a project the results go to `<scenario slug>/output` without asking, and
 the scenario is stamped with the time it was computed.
 
 The buttons at the bottom of an element tab — `Calculate element` and
-`Calculate wake` — compute that element alone.
+`Calculate wake` — compute that element alone; `Calculate ▸ Calculate Selected
+Element` (`F5`), `… Wake` (`Shift+F5`) and `… Comparisons Only` (`Ctrl+F5`) do
+the same from the tree.
+
+At the top of the **Calculate** menu sits a checkbox, *Fill unmodelled lattice
+with resistive wall*, ticked by default. It is the `default_pipe` rule, and
+turning it off changes the result: only the named devices are computed, and the
+thousands of lattice rows that would otherwise become resistive wall are left
+out. It applies to an assembly config; a machine file has no lattice to fill.
+
+One asymmetry to know about. For an assembly config the Beam panel wins over
+what the file says, and the Console prints a warning when the two disagree. For
+a **machine file outside a project** it does not: the build pipeline reads the
+file from disk, so the beam that counts is the one written in it. Inside a
+project the panel is captured into the scenario's config before the run, so
+there the panel wins either way.
+
+## Reading the results
+
+The **Plot Workspace** holds any number of curves. Each one can be switched off
+without removing it, the x axis is logarithmic or linear and the y axis
+logarithmic in `|y|`, symlog or linear — symlog is the one to reach for when a
+quantity changes sign. `Export PNG` writes the figure, `Export CSV` writes the
+curves that are on.
+
+The **Results Table** takes the same drops and shows the numbers column by
+column, and exports them as CSV.
+
+Whole sets go out through `File ▸ Export Results` (or the same entry in the
+**Results** menu), as CSV or as tab-separated TXT: that writes what the Results
+tree holds, not what you happened to drag into a panel.
+
+## The documentation inside the window
+
+`Help ▸ Documentation` (`F1`) opens these pages in a searchable browser without
+leaving the application; `Help ▸ Search Help for…` (`Shift+F1`) opens it on a
+query. The search knows that the words you would type are not always the words
+the documents use — asking for *excel* finds the pages about spreadsheets, *PEC*
+finds the passage on perfect conductors — and a hit in a heading outranks one in
+a paragraph. The index is built from the files on disk each time the browser
+opens, so an edited page is current with no rebuild step.
+
+`Open in web browser` on the same window generates the HTML documentation, if it
+is not there already, and opens the page outside the application.
 
 ## Materials
 
@@ -188,7 +273,9 @@ has to travel with a file.
 
 ## What Problems tells you
 
-Two kinds of entry, and both are worth reading before trusting a number.
+The panel is written when a calculation finishes, not when a file is loaded, and
+it comes to the front by itself when there is something in it. Two kinds of
+entry, and both are worth reading before trusting a number.
 
 **Collisions** are two devices claiming the same lattice position.
 

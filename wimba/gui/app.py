@@ -55,8 +55,11 @@ DOCKS = {
     "jobs":     ("Jobs",             Qt.DockWidgetArea.BottomDockWidgetArea),
     "console":  ("Console",          Qt.DockWidgetArea.BottomDockWidgetArea),
     "problems": ("Problems",         Qt.DockWidgetArea.BottomDockWidgetArea),
-    "outputs":  ("Output Browser",   Qt.DockWidgetArea.BottomDockWidgetArea),
 }
+# The bottom row answers three different questions: what is happening now
+# (Console), what has been launched in this session (Jobs), and what not to
+# trust (Problems). The Console is cleared at the start of every calculation,
+# which is why Jobs is not redundant with it.
 
 
 def empty_state(icon: str, title: str, text: str) -> QWidget:
@@ -255,10 +258,8 @@ class MainWindow(QMainWindow):
                         "Calculations you launch appear here with live status."),
             "console": ("\u203a_", "Console is quiet",
                         "Backend commands, files read, warnings and errors stream here."),
-            "problems":("\u2713", "No problems detected",
-                        "Machine, optics and quantity configuration look consistent."),
-            "outputs": ("\u25a2", "No output yet",
-                        "Outputs appear once a machine is loaded and computed."),
+            "problems":("\u2713", "Nothing to report yet",
+                        "Collisions and optics warnings appear here after a calculation."),
         }
         for pid, (title, area) in DOCKS.items():
             dock = QDockWidget(title, self)
@@ -278,7 +279,6 @@ class MainWindow(QMainWindow):
         self.docks["optics"].raise_()
         self.tabifyDockWidget(self.docks["jobs"], self.docks["console"])
         self.tabifyDockWidget(self.docks["console"], self.docks["problems"])
-        self.tabifyDockWidget(self.docks["problems"], self.docks["outputs"])
         self.docks["jobs"].raise_()
 
         self.tree = MachineTree()

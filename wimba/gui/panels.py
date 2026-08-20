@@ -1199,7 +1199,8 @@ class InspectorPanel(QWidget):
             f.addRow("position s:", QLabel(_fmt(o.get("s"), "m")))
             f.addRow("length:", QLabel(_fmt(o.get("l") or obj.geometry.get("length"), "m")))
             f.addRow("\u03b2x, \u03b2y:", QLabel(f"{_fmt(o.get('bx'))}, {_fmt(o.get('by'))} m"))
-            f.addRow("material:", QLabel(str(obj.geometry.get("material", "\u2014"))))
+            # no chamber-level material: materials belong to the layers, and the
+            # Geometry panel stopped offering that field
             f.addRow("layers:", QLabel(str(len(obj.layers))))
             on = [QLABEL[m.q].split()[0] for m in obj.models if m.enabled]
             f.addRow("quantities on:", QLabel(", ".join(on) or "\u2014"))
