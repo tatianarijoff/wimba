@@ -92,10 +92,28 @@ class BuildWorker(QThread):
     done = pyqtSignal(object)      # {"info": {...}}
     failed = pyqtSignal(str)
 
-    def __init__(self, config, out_dir=None):
+    def __init__(self, config, out_dir=None, beam=None):
         super().__init__()
         self.config = str(config)
         self.out_dir = out_dir
+        self.beam = beam
+        # The panel wins over the file, exactly as it does for RunWorker. Until
+        # this existed the two pipelines disagreed: an assembly config was
+        # computed at the energy on screen, a machine file at the energy on
+        # disk. The file is not rewritten -- an override applies to this run.
+
+    def _apply_beam(self, scenario):
+        if self.beam is None:
+            return
+        had = getattr(scenario, "beam", None)
+        if had is None:
+            self.log.emit(f"  beam from the Beam panel: {self.beam.label()} "
+                          f"(the file states none).")
+        elif had.label() != self.beam.label():
+            self.log.emit(f"  WARNING: the Beam panel says {self.beam.label()}, "
+                          f"{Path(self.config).name} says {had.label()}. Building "
+                          f"with the panel; the file on disk is unchanged.")
+        scenario.beam = self.beam
 
     def run(self):
         try:
@@ -105,6 +123,7 @@ class BuildWorker(QThread):
             name = Path(self.config).name
             self.log.emit(f"Building '{name}'...")
             scenario = load_scenario(self.config)
+            self._apply_beam(scenario)
             n_groups = len(scenario.machine.groups)
             n_el = sum(len(g.elements) for g in scenario.machine.groups)
             n_add = len(scenario.machine.additional)

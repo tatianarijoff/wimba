@@ -212,12 +212,9 @@ turning it off changes the result: only the named devices are computed, and the
 thousands of lattice rows that would otherwise become resistive wall are left
 out. It applies to an assembly config; a machine file has no lattice to fill.
 
-One asymmetry to know about. For an assembly config the Beam panel wins over
-what the file says, and the Console prints a warning when the two disagree. For
-a **machine file outside a project** it does not: the build pipeline reads the
-file from disk, so the beam that counts is the one written in it. Inside a
-project the panel is captured into the scenario's config before the run, so
-there the panel wins either way.
+The Beam panel wins over what the file says, on both pipelines, and the Console
+prints a warning when the two disagree. The file itself is not rewritten: the
+override applies to that run only.
 
 ## Reading the results
 
@@ -289,11 +286,24 @@ fails, the result stays plausible, and only this warning tells you.
 
 ## Editing and saving
 
-Panel edits are written back into the scenario's own config, and the write is a
-patch rather than a fresh dump: WIMBA changes the beam, the optics file,
-element removals and the values you actually edited, and leaves every other
-line of the file exactly as you wrote it — **comments included**. Your reasoning
-about why a number is what it is survives a Save.
+**WIMBA does not write your config unless you ask it to.** Opening a project,
+switching between scenarios, loading an optics file, running a calculation —
+none of these touches the YAML on disk. Only `File ▸ Save Project` and
+`File ▸ Save Project As` do. Closing a project with unsaved panel edits asks
+first, and takes no for an answer. (`project.yaml` is different: it is WIMBA's
+own bookkeeping — which scenarios exist, when each was last computed — and is
+kept current on its own.)
+
+When you do save, the write is a patch rather than a fresh dump: WIMBA changes
+the beam, the optics file, element removals and the values you actually edited,
+and leaves every other line of the file exactly as you wrote it — **comments
+included**. Your reasoning about why a number is what it is survives a Save.
+
+The beam is written the way you stated it — the particle, the mode, and that one
+value. The quantities derived from it are not written: three keys that have to
+agree, where one would do, are three keys that can disagree after the first hand
+edit. And a config that already states the right beam is not rewritten at all,
+so `8e+10` stays `8e+10`.
 
 What it will not do is invent the parts the interface cannot see. A pytlwall
 element loaded from a machine file arrives with its layers still inside the

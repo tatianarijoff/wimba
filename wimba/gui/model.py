@@ -964,6 +964,53 @@ def _same_kind_copy(node):
     return copy() if callable(copy) else dict(node)
 
 
+#: The five ways a beam can be stated. Exactly one of them is what the user
+#: typed; the rest are derived from it.
+BEAM_MODES = ("gamma", "beta", "energy", "kinetic", "momentum")
+
+
+def beam_out(beam) -> dict:
+    """The beam as the user stated it: the particle, the mode, and that value.
+
+    ``Beam.to_dict()`` also carries everything derived from that value, which is
+    right for handing a run its gamma and wrong for writing a file. Three keys
+    that must agree, where one would do, are three keys that can disagree after
+    the first hand edit -- and writing the derived form is what turned a
+    hand-written ``8e+10`` into ``80000000000.0`` on every save.
+    """
+    full = {k: v for k, v in beam.to_dict().items() if not str(k).startswith("_")}
+    mode = full.get("mode")
+    if mode not in BEAM_MODES or mode not in full:
+        return full                   # a mode we don't know: keep what we got
+    out = {}
+    for key in ("particle", "mode"):
+        if key in full:
+            out[key] = full[key]
+    out[mode] = full[mode]
+    return out
+
+
+def _same_beam(existing, wanted: dict) -> bool:
+    """True when the file already says what we would write.
+
+    Compared through :func:`as_number`, because a config may spell the energy
+    ``8e+10`` -- which YAML 1.1 hands back as a string, not a float. A file that
+    already states the right beam is left byte for byte alone, keeping its own
+    spelling, its own key order and any extra quantity its author chose to
+    write down.
+    """
+    if not isinstance(existing, dict):
+        return False
+    for key, value in wanted.items():
+        old, new = as_number(existing.get(key)), as_number(value)
+        if isinstance(old, float) and isinstance(new, float):
+            if old != new:
+                return False
+        elif str(old) != str(new):
+            return False
+    return True
+
+
 def patch_config(cfg: dict, machine, optics=None) -> dict:
     """Return `cfg` with the machine's beam, removals and edits applied.
 
@@ -979,8 +1026,10 @@ def patch_config(cfg: dict, machine, optics=None) -> dict:
 
     beam = getattr(machine, "beam", None)
     if beam is not None:
-        _set_mapping(cfg, "beam", beam.to_dict())
-        cfg.pop("gamma", None)      # one authority for the energy, not two
+        wanted = beam_out(beam)
+        if not _same_beam(cfg.get("beam"), wanted):
+            _set_mapping(cfg, "beam", wanted)
+            cfg.pop("gamma", None)      # one authority for the energy, not two
     if optics:
         cfg["optics"] = str(optics)
 

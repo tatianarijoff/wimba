@@ -177,6 +177,7 @@ class MainWindow(QMainWindow):
         self.project = None
         self.project_path = None
         self._machine_of = None       # slug of the scenario the panels belong to
+        self._config_dirty = False    # panel edits not yet written to a config
 
         configure(self.settings.value("loglevel", None))
         self.log = get_logger("gui")
@@ -608,6 +609,7 @@ class MainWindow(QMainWindow):
             self.lbl_sel.setText("nothing selected")
 
     def _after_edit(self):
+        self._config_dirty = self.project is not None
         if self.machine:
             self.tree.set_machine(self.machine)
         self._update_status()
@@ -768,8 +770,12 @@ class MainWindow(QMainWindow):
         self.project.current = row
         self._activate_scenario()
 
-    def _capture_scenario(self):
-        """Write what the panels hold back into the current scenario.
+    def _capture_scenario(self, write: bool = False):
+        """Take what the panels hold into the current scenario.
+
+        By default this only updates the in-memory scenario: WIMBA does not
+        rewrite a config the user has not asked it to save. Pass write=True from
+        an explicit Save Project / Save Project As, and only from there.
 
         Guarded on identity: if what is loaded is not this scenario's machine,
         writing the panels into it would put one scenario's beam on another.
@@ -780,12 +786,15 @@ class MainWindow(QMainWindow):
         if self.machine is None or getattr(self, "_machine_of", None) != sc.slug:
             return
         sc.beam = getattr(self.machine, "beam", None)
+        if not write:
+            return
         path = self._project_dir() / sc.config
         if not path.exists():
             return
         try:
             write_config(path, self.machine,
                          optics=getattr(self.machine, "optics_path", None))
+            self._config_dirty = False
         except Exception as exc:                 # never lose the session over a save
             self.log.error("Could not write %s: %s", path, exc)
             QMessageBox.warning(self, "Save Project",
@@ -832,7 +841,10 @@ class MainWindow(QMainWindow):
             return
         import yaml
 
-        self._capture_scenario()
+        # quiet saves (after a calculation, after removing a scenario) persist
+        # project.yaml, which is WIMBA's own bookkeeping. The user's config is
+        # written only when the user asks for it.
+        self._capture_scenario(write=not quiet)
         path = Path(self.project_path or (self._project_dir() / "project.yaml"))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(self.project.to_dict(), sort_keys=False))
@@ -865,18 +877,30 @@ class MainWindow(QMainWindow):
     def _close_project(self):
         """Leave the project, keeping what is on disk.
 
-        Saves first: a project is cheap to write and losing a scenario's beam
-        because the window was closed in the wrong order would be a poor trade.
+        Unsaved panel edits are offered, not written behind the user's back: a
+        config on disk is the user's file, and WIMBA changes it only on request.
         """
         if self.project is None:
             self.statusBar().showMessage("No project is open.", 3000)
             return
+        if self._config_dirty:
+            answer = QMessageBox.question(
+                self, "Close Project",
+                "The panels hold edits that have not been written to this "
+                "scenario's config.\n\nSave them before closing?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel)
+            if answer == QMessageBox.StandardButton.Cancel:
+                return
+            if answer == QMessageBox.StandardButton.Save:
+                self._save_project()
         name = self.project.name
-        self._save_project(quiet=True)
+        self._save_project(quiet=True)      # project.yaml only: WIMBA's own file
         self.project = None
         self.project_path = None
         self._machine_of = None
-        self.log.info("Project '%s' closed (saved first); its files are untouched.", name)
+        self._config_dirty = False
+        self.log.info("Project '%s' closed; its files are untouched.", name)
         self._close_machine(confirm=False)
         self._refresh_all()
         self.statusBar().showMessage(f"Project '{name}' closed", 4000)
@@ -1146,6 +1170,7 @@ class MainWindow(QMainWindow):
         # differs from its sibling by the optics has to say so in its config
         self.machine.optics_path = str(path)
         self._capture_scenario()
+        self._config_dirty = True
         self._refresh_all()
         self.statusBar().showMessage(
             f"Loaded optics \u2014 matched {n} element(s) by name", 3000)
@@ -1848,7 +1873,9 @@ class MainWindow(QMainWindow):
         self._job_item = QListWidgetItem(f"{self._job_label} \u2014 building\u2026")
         self._dock_list("jobs").addItem(self._job_item)
         self._run_kind = "build"
-        self.worker = BuildWorker(path, out_dir=out_dir)
+        self.worker = BuildWorker(path, out_dir=out_dir,
+                                  beam=getattr(self.machine, "beam", None)
+                                  if self.machine else None)
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_build_done)
         self.worker.failed.connect(self._on_calc_failed)
