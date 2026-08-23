@@ -1011,6 +1011,87 @@ def _same_beam(existing, wanted: dict) -> bool:
     return True
 
 
+def _element_length(el):
+    """The length WIMBA would use, from the optics or from the geometry."""
+    o = getattr(el, "optics", None) or {}
+    v = o.get("l")
+    if v is None:
+        v = (getattr(el, "geometry", None) or {}).get("length")
+    v = as_number(v)
+    return v if isinstance(v, float) else None
+
+
+def _carries_its_own_optics(el) -> bool:
+    """A weighted source already has the local optics folded into its data.
+
+    Counting one of these as "missing a beta" would be a false alarm: there is
+    no single place in the ring where 2220 BPMs sit, and that is the point of
+    the weighted flag.
+    """
+    return any("(weighted)" in (m.method or "")
+               for m in getattr(el, "models", []) if m.enabled)
+
+
+def summarize_elements(elements) -> dict:
+    """What a group -- or a whole machine -- is made of.
+
+    A group holds nothing but a name and its elements, so everything worth
+    saying about one has to be aggregated from them. The synthetic default-pipe
+    entry is excluded from every aggregate and counted separately: it stands for
+    thousands of lattice rows and has no position, no length and no beta, so
+    averaging it in would be meaningless rather than merely wrong.
+    """
+    els = [e for e in elements if getattr(e, "category", "") != "default_pipe"]
+    out = {"n": len(elements), "n_pipe": len(elements) - len(els),
+           "span": None, "length": None, "methods": {}, "beta_range": None,
+           "beta_have": 0, "beta_of": 0, "quantities": [], "mixed": False,
+           "attention": []}
+    starts, ends, lengths, bx_all, by_all, sets = [], [], [], [], [], []
+
+    for el in els:
+        o = getattr(el, "optics", None) or {}
+        s, length = as_number(o.get("s")), _element_length(el)
+        if isinstance(s, float):
+            starts.append(s)
+            ends.append(s + length if isinstance(length, float) else s)
+        if isinstance(length, float):
+            lengths.append(length)
+
+        enabled = [m for m in getattr(el, "models", []) if m.enabled]
+        for base in sorted({method_base(m.method or "") for m in enabled}):
+            if base:
+                out["methods"][base] = out["methods"].get(base, 0) + 1
+        on = tuple(sorted({m.q for m in enabled}))
+        if on:
+            sets.append(on)
+
+        bx, by = as_number(o.get("bx")), as_number(o.get("by"))
+        if not _carries_its_own_optics(el):
+            out["beta_of"] += 1
+            if isinstance(bx, float) and isinstance(by, float):
+                out["beta_have"] += 1
+                bx_all.append(bx)
+                by_all.append(by)
+
+        if not enabled:
+            out["attention"].append((el.name, "no quantity switched on"))
+        elif bx == 1.0 and by == 1.0 and not _carries_its_own_optics(el):
+            out["attention"].append((el.name, "\u03b2 = 1, the fallback"))
+        elif length == 0.0:
+            out["attention"].append((el.name, "zero length"))
+
+    if starts:
+        out["span"] = (min(starts), max(ends))
+    if lengths:
+        out["length"] = sum(lengths)
+    if bx_all:
+        out["beta_range"] = (min(bx_all + by_all), max(bx_all + by_all))
+    if sets:
+        out["quantities"] = sorted({q for on in sets for q in on})
+        out["mixed"] = len(set(sets)) > 1
+    return out
+
+
 def patch_config(cfg: dict, machine, optics=None) -> dict:
     """Return `cfg` with the machine's beam, removals and edits applied.
 

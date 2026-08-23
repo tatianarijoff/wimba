@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayou
 from .. import materials
 from ..core.beam import MODES, PARTICLES, Beam
 from .model import (METHODS, QLABEL, QUANTITIES, QUNITS, GElement, GGroup,
+                    summarize_elements,
                     GMachine, GModel, method_needs_file, new_element,
                     optics_completeness)
 
@@ -1210,9 +1211,85 @@ class InspectorPanel(QWidget):
             f.addRow("kind:", QLabel(kind))
             f.addRow("name:", QLabel(getattr(obj, "name", "\u2014")))
             if kind == "group":
-                f.addRow("elements:", QLabel(str(len(obj.elements))))
+                self._summary(f, obj.elements)
+            elif kind == "machine":
+                groups = getattr(obj, "groups", [])
+                f.addRow("groups:", QLabel(str(len(groups))))
+                beam = getattr(obj, "beam", None)
+                f.addRow("beam:", QLabel(beam.label() if beam else
+                                         "\u2014 not stated"))
+                self._summary(f, [e for _g, e in obj.all_elements()])
             self._lay.addWidget(form)
         self._lay.addStretch(1)
+
+    def _summary(self, f, elements):
+        """The aggregates for a set of elements.
+
+        A group carries nothing but a name and its members, so what is worth
+        knowing about one -- where it sits, how much ring it covers, what it is
+        made of, whether the optics reached it -- has to be summed up from them.
+        """
+        pipes = [e for e in elements
+                 if getattr(e, "category", "") == "default_pipe"]
+        if pipes and len(pipes) == len(elements):
+            return self._pipe_summary(f, pipes[0])
+
+        s = summarize_elements(elements)
+        count = str(s["n"] - s["n_pipe"])
+        if s["n_pipe"]:
+            count += "   (plus the default pipe, summarized on its own)"
+        f.addRow("elements:", QLabel(count))
+
+        if s["span"]:
+            lo, hi = s["span"]
+            f.addRow("extent:", QLabel(f"{lo:.6g} \u2192 {hi:.6g} m"))
+        if s["length"] is not None:
+            f.addRow("modelled length:", QLabel(f"{s['length']:.6g} m"))
+        if s["methods"]:
+            f.addRow("made of:", QLabel(", ".join(
+                f"{n} {name}" for name, n in sorted(s["methods"].items()))))
+
+        if s["beta_of"]:
+            line = f"{s['beta_have']} of {s['beta_of']}"
+            if s["beta_range"]:
+                lo, hi = s["beta_range"]
+                line += f"   (\u03b2 {lo:.4g} \u2013 {hi:.4g} m)"
+            f.addRow("with \u03b2x and \u03b2y:", QLabel(line))
+
+        if s["quantities"]:
+            names = ", ".join(QLABEL[q].split()[0] for q in s["quantities"])
+            if s["mixed"]:
+                names += "   (mixed: not every element has the same set)"
+            f.addRow("quantities on:", QLabel(names))
+
+        if s["attention"]:
+            first = "; ".join(f"{n} \u2014 {why}" for n, why in s["attention"][:2])
+            more = len(s["attention"]) - 2
+            f.addRow("worth checking:", QLabel(
+                first + (f"; and {more} more" if more > 0 else "")))
+
+    def _pipe_summary(self, f, pipe):
+        """The default pipe is one rule, not a list of elements.
+
+        Averaging it with anything would mean nothing -- it has no position, no
+        length and no beta, because it stands for every lattice row no device
+        claimed. So it gets its own reading: what it is made of, and the reason
+        the geometric rows are empty.
+        """
+        enabled = [m for m in getattr(pipe, "models", []) if m.enabled]
+        from .model import method_base
+        methods = sorted({method_base(m.method or "") for m in enabled} - {""})
+        f.addRow("chamber:", QLabel(pipe.name))
+        f.addRow("computed with:", QLabel(", ".join(methods) or "\u2014"))
+        f.addRow("layers:", QLabel(str(len(getattr(pipe, "layers", [])))))
+        on = sorted({m.q for m in enabled})
+        f.addRow("quantities on:", QLabel(
+            ", ".join(QLABEL[q].split()[0] for q in on) or "\u2014"))
+        note = QLabel("One rule over every lattice row no device claimed, so it "
+                      "has no single position, length or \u03b2. The count of "
+                      "segments it stands for is in the group's name.")
+        note.setWordWrap(True)
+        f.addRow("", note)
 
 
 def _fmt(v, unit=""):

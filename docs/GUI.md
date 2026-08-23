@@ -79,12 +79,32 @@ a double click goes to the Results Table when that tab is the one in front, and
 to the Plot Workspace otherwise.
 
 **Inspector** (bottom right) — the resolved values of whatever is selected in
-the Machine Explorer, on a single click: for an element its category, position,
-length, betas, how many layers it has and which quantities are switched on; for
-a group how many elements it holds. This is where you check what WIMBA actually
-decided, as opposed to what the config asked for. It is also the only readout
-for a group or for the machine root, since double-clicking opens a tab for an
-element and does nothing for the rest.
+the Machine Explorer, on a single click.
+
+For an **element**: its category, position, length, betas, how many layers it
+has and which quantities are switched on. This is what WIMBA actually decided,
+as opposed to what the config asked for.
+
+For a **group**, or for the machine itself, the same question answered by
+aggregation, since a group is nothing but its members: how many elements, where
+they start and end along the ring, how much length they model between them,
+what they are made of by method, how many of them have both betas and the range
+those betas span, and which quantities are on — marked *mixed* when the elements
+do not agree, which is how a group quietly produces an incomplete total. A last
+line names anything worth a second look: an element with no quantity switched
+on, one computed at beta = 1, one with no length. That is the Problems panel's
+question asked before the calculation rather than after it.
+
+The default pipe is its own group, and gets its own reading: what chamber it
+is, which engine computes it, its layers and its quantities — and a line saying
+why the geometric rows are empty. It stands for every lattice row no device
+claimed, so it has no single position, length or beta, and the number of
+segments it collects is in the group's name. In the machine's own summary it is
+counted apart from the elements for the same reason. A weighted source is not
+counted as missing its optics either — its data already includes them.
+
+The Inspector is also the only readout for a group or for the machine root,
+since double-clicking opens a tab for an element and does nothing for the rest.
 
 **Jobs / Console / Problems** (bottom, tabbed) — three panels answering three
 different questions.
