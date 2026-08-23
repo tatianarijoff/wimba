@@ -19,7 +19,6 @@ scenarios:
     kinetic: 1200000000.0
     gamma: 2.278946709965436
     beta: 0.8985851431285204
-  computed_at: '2026-08-12T15:07:56'
 - label: extraction 20 GeV/c
   slug: extraction
   config: extraction_config.yaml
@@ -30,4 +29,4 @@ scenarios:
     gamma: 21.339222409368706
     beta: 0.998901369998633
   derived_from: injection 1.2 GeV
-  computed_at: '2026-08-12T15:08:09'
+
