@@ -38,8 +38,9 @@ def gamma_seen(monkeypatch):
     land on wimba.plotting, not on a name in wimba.run."""
     seen = {}
 
-    def _fake(rows, freqs, out_dir, per_device=(), gamma=None, times=None):
+    def _fake(rows, freqs, out_dir, per_device=(), gamma=None, times=None, **kw):
         seen["gamma"] = gamma
+        seen.update(kw)                      # beta_mean, weighted
         return None, None, {"computed": 0, "skipped": 0, "geometries": 0}
 
     monkeypatch.setattr(run_mod, "compute_assignments", _fake)

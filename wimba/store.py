@@ -54,6 +54,13 @@ def materialize(scenario, out_dir):
         resume["beam"] = _Flow(beam if isinstance(beam, dict) else beam.to_dict())
     if getattr(scenario, "derived_from", None):
         resume["derived_from"] = scenario.derived_from
+    # the means the totals were weighted with: a reader summing the per-element
+    # files again has to divide by the same numbers, or it silently produces a
+    # different total from the one in total/
+    mx, my = getattr(machine, "beta_mean", (1.0, 1.0))
+    resume["beta_mean"] = _Flow({"x": float(mx), "y": float(my)})
+    if not getattr(machine, "weighted", True):
+        resume["weighted"] = False
     seen_terms = set()
 
     def dump(element, base_dir):
@@ -142,8 +149,10 @@ class ResultStore:
     def _weight(self, rec, term_id):
         if rec["optics"].get("beta_x") is None:
             return 1.0
-        return STANDARD_TERMS[term_id].beta_weight(rec["optics"]["beta_x"],
-                                                   rec["optics"]["beta_y"])
+        mean = self.resume.get("beta_mean") or {}
+        return STANDARD_TERMS[term_id].beta_weight(
+            rec["optics"]["beta_x"], rec["optics"]["beta_y"],
+            float(mean.get("x", 1.0)), float(mean.get("y", 1.0)))
 
     def _origin_ok(self, rec, want):
         if want is None:

@@ -23,6 +23,11 @@ import numpy as np
 from .builders import madx
 
 BASE_METHODS = ("pytlwall", "iw2d", "precalculated", "resonator")
+#: The one method whose data can arrive already weighted. It is a method of its
+#: own rather than a flag on another one, so "iw2d, already weighted" -- which
+#: would mean WIMBA weighting its own numbers twice -- cannot be written at all.
+WEIGHTED_METHOD = "precalculated_weighted"
+METHODS = BASE_METHODS + (WEIGHTED_METHOD,)
 DEFAULT_TOL = 1e-3   # metres
 
 
@@ -83,6 +88,11 @@ class AssemblyResult:
     collisions: list = field(default_factory=list)
     #: Assembly problems that are not collisions -- see :func:`unlocated_warnings`.
     warnings: list = field(default_factory=list)
+    #: (mean_x, mean_y) every transverse weight is divided by, and where they
+    #: came from: "smooth_beta" (stated by the user), "lattice" (averaged over
+    #: the twiss rows) or "none" (no lattice: the bare beta is used).
+    beta_mean: tuple = (1.0, 1.0)
+    beta_mean_source: str = "none"
 
 
 class _Beta:
@@ -111,8 +121,14 @@ class _Beta:
         return float(self.s[-1]) if self.ok else 0.0
 
 
-def _resolve(dev: Device, twiss: dict, beta: _Beta):
-    """Return (position, beta_x, beta_y, source) for a device."""
+def _resolve(dev: Device, twiss: dict, beta: _Beta, mean=(1.0, 1.0)):
+    """Return (position, beta_x, beta_y, source) for a device.
+
+    A device that cannot be placed is given the lattice average rather than a
+    bare 1: not knowing where something sits is not the same as knowing it sits
+    where beta is one metre, and the average makes its weight exactly 1 -- which
+    is the honest reading of "somewhere in this ring".
+    """
     if dev.beta is not None:
         pos = dev.position
         if pos is None and dev.name in twiss:
@@ -125,8 +141,8 @@ def _resolve(dev: Device, twiss: dict, beta: _Beta):
         s = float(madx.get(twiss[dev.name], "S"))
         bx, by = beta.at(s)
         return s, bx, by, "name"
-    # not found anywhere: append at end of machine, beta defaults to 1 (editable)
-    return None, 1.0, 1.0, "default-1"
+    # not found anywhere: append at end of machine, weight 1 (editable)
+    return None, float(mean[0]), float(mean[1]), "default-1"
 
 
 def unlocated_warnings(rows):
@@ -151,11 +167,89 @@ def unlocated_warnings(rows):
             continue
         out.append(
             f"device '{r.name}' was not found in the lattice (no position:, no "
-            f"beta:, and the name is not a twiss element), so beta = 1 was used "
-            f"instead of the local optics. Give it a position: or an explicit "
-            f"beta:, or set weighted: true if its data is already beta-weighted "
-            f"or is a ring total.")
+            f"beta:, and the name is not a twiss element), so it was computed at "
+            f"the average optics -- weight 1 -- instead of its own. Give it a "
+            f"position: or an explicit beta:, or set weighted: ratio if its data "
+            f"is already weighted by beta over the average, or is a ring total.")
     return out
+
+
+def mean_warnings(rows, mean, source):
+    """Say when the average is an estimate rather than the lattice's own.
+
+    ``beta_mean = 1`` can no longer reinstate the bare-beta weighting: with no
+    twiss the average falls back to the modelled elements, and it only stays 1
+    when nothing states a beta at all -- in which case every ratio is 1 and
+    there is nothing to warn about. What is worth saying is that the average
+    came from the elements, since they are not a sample of the ring.
+    """
+    if source != "elements":
+        return []
+    return [f"no optics file and no smooth_beta:, so the average beta was "
+            f"estimated from the modelled elements themselves "
+            f"({mean[0]:.4g}, {mean[1]:.4g}) m. Devices sit where beta is large, "
+            f"so this is usually an overestimate: state smooth_beta: {{x: ..., "
+            f"y: ...}} from the tunes, or give an optics file."]
+
+
+def read_method(spec: dict, name: str, default: str, source=None):
+    """(method, already_weighted) from a device's ``source:``, ``method:`` and
+    the older ``weighted:`` flag.
+
+    ``method: precalculated_weighted`` says the imported numbers already carry
+    the dimensionless beta over mean-beta weighting, so WIMBA applies nothing
+    further. Every other method is computed by WIMBA, which does the weighting
+    itself.
+
+    ``source:`` has the last word on whether a device is imported data:
+    ``source: precalculated`` forces the method whatever ``method:`` says, and
+    without this the check below would read the *default* method -- pytlwall --
+    and refuse a perfectly ordinary imported device.
+
+    ``weighted: ratio`` (and the older ``weighted: true``) still reads, as the
+    spelling that came before the method existed.
+    """
+    method = str(spec.get("method", default)).lower().strip()
+    if str(source or "").lower().strip() == "precalculated":
+        method = "precalculated"
+    flag = spec.get("weighted")
+
+    if method == WEIGHTED_METHOD:
+        if flag not in (None, True, False):
+            pass                       # harmless duplication of the same claim
+        return "precalculated", True
+
+    if flag in (None, False):
+        return method, False
+
+    if isinstance(flag, str) and flag.strip().lower() not in ("ratio", "beta", "true"):
+        raise ValueError(
+            f"device '{name}': weighted: '{flag}' is not a value WIMBA knows. "
+            f"Use method: {WEIGHTED_METHOD} when the data is already weighted by "
+            f"beta over the average beta.")
+    if method != "precalculated":
+        raise ValueError(
+            f"device '{name}': weighted: cannot apply to method '{method}'. "
+            f"WIMBA weights what it computes itself, so this would weight it "
+            f"twice. Only imported data can arrive already weighted -- "
+            f"method: {WEIGHTED_METHOD}.")
+    return "precalculated", True
+
+
+def read_smooth_beta(cfg):
+    """``smooth_beta:`` from an assembly config, or None."""
+    block = cfg.get("smooth_beta")
+    if block is None:
+        return None
+    if isinstance(block, (list, tuple)):
+        return float(block[0]), float(block[1])
+    if isinstance(block, dict):
+        if "x" not in block or "y" not in block:
+            raise ValueError("smooth_beta: needs both x: and y: -- the two "
+                             "planes have different tunes and so different "
+                             "average betas.")
+        return float(block["x"]), float(block["y"])
+    raise ValueError("smooth_beta: expects {x: ..., y: ...}")
 
 
 def _collisions(rows, tol):
@@ -175,14 +269,47 @@ def _collisions(rows, tol):
     return out
 
 
+def element_mean_beta(devices) -> tuple:
+    """The average over the devices that state a beta, weighted by their length.
+
+    The fallback when there is no lattice to average over. It is an estimate of
+    the same quantity and usually a high one -- devices tend to sit where beta is
+    large, and the elements of a model are not a sample of the ring -- so it is
+    recorded as its own source rather than passed off as the lattice average. A
+    twiss file, when there is one, wins.
+
+    Better than falling back to 1: a beta_mean of one metre against local betas
+    of a hundred reinstates the bare-beta weighting this whole change removes.
+    """
+    sx = sy = total = 0.0
+    for dev in devices:
+        if getattr(dev, "beta", None) is None:
+            continue
+        length = float(getattr(dev, "length", None) or 1.0)
+        sx += float(dev.beta[0]) * length
+        sy += float(dev.beta[1]) * length
+        total += length
+    if total <= 0.0:
+        return 1.0, 1.0
+    return sx / total, sy / total
+
+
 def assemble(twiss: dict, devices, default_pipe: Optional[DefaultPipe],
-             name="machine", tol=DEFAULT_TOL) -> AssemblyResult:
+             name="machine", tol=DEFAULT_TOL, smooth_beta=None) -> AssemblyResult:
+    if smooth_beta is not None:
+        mean, mean_src = (float(smooth_beta[0]), float(smooth_beta[1])), "smooth_beta"
+    else:
+        mean = madx.mean_beta(twiss)
+        mean_src = "lattice"
+        if mean == (1.0, 1.0):
+            mean = element_mean_beta(devices)
+            mean_src = "elements" if mean != (1.0, 1.0) else "none"
     beta = _Beta(twiss)
     rows = []
     claimed = set()
 
     for dev in devices:
-        pos, bx, by, src = _resolve(dev, twiss, beta)
+        pos, bx, by, src = _resolve(dev, twiss, beta, mean)
         sc = bool(dev.space_charge and dev.method == "pytlwall")
         if dev.name in twiss:
             claimed.add(dev.name)
@@ -212,7 +339,8 @@ def assemble(twiss: dict, devices, default_pipe: Optional[DefaultPipe],
                                    False, float(L), default_pipe.geometry, "default_pipe"))
 
     return AssemblyResult(name, rows, _collisions(rows, tol),
-                          unlocated_warnings(rows))
+                          unlocated_warnings(rows) + mean_warnings(rows, mean, mean_src),
+                          mean, mean_src)
 
 
 CSV_COLUMNS = ["position_s", "name", "kind", "method", "weighted", "space_charge",
@@ -301,8 +429,7 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     for gname, spec in (cfg.get("devices") or {}).items():
         src = spec.get("source")
         from .config import default_method as _dm
-        method = str(spec.get("method", _dm())).lower()
-        weighted = bool(spec.get("weighted", False))
+        method, weighted = read_method(spec, gname, _dm(), src)
         sc = bool(spec.get("space_charge", method == "pytlwall"))
         overlap = bool(spec.get("allow_overlap", False))
         if src == "collimators_json":
@@ -392,4 +519,5 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
             + ", ".join(sorted(set(unknown_materials)))
             + ". Define them under 'materials:' in the config (name: sigma_S_per_m) "
               "or give the layer an explicit 'sigma'.")
-    return assemble(twiss, devices, default_pipe, name=cfg.get("name", cfg_path.stem), tol=tol)
+    return assemble(twiss, devices, default_pipe, name=cfg.get("name", cfg_path.stem),
+                    tol=tol, smooth_beta=read_smooth_beta(cfg))

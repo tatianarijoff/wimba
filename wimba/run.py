@@ -66,7 +66,37 @@ def _cached(cache, geo, factory, method="pytlwall"):
     return cache[key], fresh
 
 
-def _scale(base, row, comps, long_name):
+def _mean(row, mean, weighted=True):
+    """What _scale should divide the betas by.
+
+    Returning the row's own betas makes the ratio 1, which is how an already
+    weighted row -- and an unweighted calculation -- passes through _scale
+    untouched without _scale needing to know about either.
+    """
+    if row.weighted or not weighted:
+        return row.beta_x, row.beta_y
+    return mean
+
+
+def _ratio(row, mean, weighted=True):
+    """The transverse weights for one row: beta / beta_mean, per plane.
+
+    (1, 1) when the row's data is already weighted, and when the caller asked
+    for an unweighted calculation -- in the first case because applying it again
+    would double it, in the second because that is what unweighted means.
+    """
+    if row.weighted or not weighted:
+        return 1.0, 1.0
+    return row.beta_x / mean[0], row.beta_y / mean[1]
+
+
+def _scale(base, row, comps, long_name, mean=(1.0, 1.0)):
+    """Length, then the transverse weight -- which is a ratio, not a beta.
+
+    beta / beta_mean is dimensionless, so a scaled transverse component is still
+    an impedance. Multiplying by the bare beta, as this did, left every
+    transverse result a factor of the average beta too large.
+    """
     L = row.length or 1.0
     out = {}
     for c in comps:
@@ -74,11 +104,13 @@ def _scale(base, row, comps, long_name):
             out[c] = base[c] * L
         else:
             beta = row.beta_x if c.endswith("X") else row.beta_y
-            out[c] = base[c] * L * beta
+            ref = mean[0] if c.endswith("X") else mean[1]
+            out[c] = base[c] * L * (beta / ref)
     return out
 
 
-def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=None):
+def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None,
+                        times=None, beta_mean=(1.0, 1.0), weighted=True):
     zcache, wcache = {}, {}
     ztot = {c: np.zeros(len(freqs), dtype=complex) for c in COMPONENTS}
     wtot = ({c: np.zeros(len(times)) for c in WAKE_COMPONENTS}
@@ -117,7 +149,7 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
                         f"{row.name}: test_beam_shift = "
                         f"{geo['test_beam_shift']} (from the config; only the "
                         f"space-charge terms use it)")
-            zterms = _scale(zbase, row, COMPONENTS, "ZLong")   # wall: scales with L and beta
+            zterms = _scale(zbase, row, COMPONENTS, "ZLong", _mean(row, beta_mean, weighted))
             if row.space_charge:
                 # indirect space charge: kept as separate components (ZLongISC, ...),
                 # NOT folded into the wall columns; the full impedance is wall + ISC.
@@ -135,7 +167,7 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
                                                              hor_m=g.get("hor"), ver_m=g.get("ver"),
                                                              betax=1.0, betay=1.0, gamma=gamma,
                                                              test_beam_shift=g.get("test_beam_shift")))
-                wterms = _scale(wbase, row, WAKE_COMPONENTS, "WLong")
+                wterms = _scale(wbase, row, WAKE_COMPONENTS, "WLong", _mean(row, beta_mean, weighted))
                 stats["wake_native"].add("pytlwall")
 
         elif row.method == "iw2d":
@@ -176,7 +208,7 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
                         f"are the ones this config states, not WIMBA's.")
                 for note in notes:
                     stats.setdefault("notes", []).append(f"{row.name}: {note}")
-            zterms = _scale(zbase, row, COMPONENTS, "ZLong")
+            zterms = _scale(zbase, row, COMPONENTS, "ZLong", _mean(row, beta_mean, weighted))
             # IW2D returns the wall impedance, which already contains the
             # indirect space charge: there is no separate ISC component to add,
             # and asking for one would double-count it.
@@ -206,8 +238,8 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
 
         elif row.method == "resonator":
             modes = (row.params or {}).get("modes", [])
-            bx = 1.0 if row.weighted else row.beta_x   # lumped: beta applies, length does NOT
-            by = 1.0 if row.weighted else row.beta_y
+            # lumped: the weight applies, the length does NOT
+            bx, by = _ratio(row, beta_mean, weighted)
             zterms = resonator_impedance(freqs, modes, betax=bx, betay=by)
             if times is not None:
                 wterms = resonator_wake(times, modes, betax=bx, betay=by)
@@ -222,8 +254,7 @@ def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None, times=N
                 from .io.import_map import (interp_impedance, interp_wake,
                                             load_import_map)
                 map_data = load_import_map(params["map"])
-            bx = 1.0 if row.weighted else row.beta_x   # data used as-is; beta if plain
-            by = 1.0 if row.weighted else row.beta_y
+            bx, by = _ratio(row, beta_mean, weighted)   # data used as-is if already weighted
 
             def _bw(component):
                 return bx if component.endswith("X") else (by if component.endswith("Y") else 1.0)
@@ -316,7 +347,7 @@ def _write_wake_note(out_dir, stats):
 
 
 def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True,
-        cfg=None):
+        cfg=None, weighted=True):
     """Compute a study.
 
     `config` is the file the study is named after and the path every relative
@@ -346,8 +377,21 @@ def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True,
             "(a bare 'gamma:' still works too).")
     times = np.linspace(1.0e-12, 5.0e-9, 500) if wake else None
 
+    log = get_logger(__name__)
+    mx, my = result.beta_mean
+    if weighted:
+        log.info("Transverse weight: beta / beta_mean, with beta_mean = "
+                 "(%.6g, %.6g) m from %s.", mx, my, result.beta_mean_source)
+    else:
+        log.info("Computing UNWEIGHTED: every transverse weight is 1. Already "
+                 "weighted devices are still summed as they are.")
     ztot, wtot, stats = compute_assignments(result.rows, freqs, out,
-                                            per_device=per_device, gamma=gamma, times=times)
+                                            per_device=per_device, gamma=gamma,
+                                            times=times, beta_mean=result.beta_mean,
+                                            weighted=weighted)
+    stats["beta_mean"] = (mx, my)
+    stats["beta_mean_source"] = result.beta_mean_source
+    stats["weighted"] = weighted
 
     from .plotting import plot_totals, DEFAULT_COMPONENTS
     plots = plot_totals(out / "single_elements" / "total.csv",

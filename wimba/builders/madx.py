@@ -69,6 +69,39 @@ def read_twiss(path, on_duplicate: str = "rename") -> dict:
     return table
 
 
+def mean_beta(table: dict) -> tuple:
+    """The lattice's average beta functions, length-weighted: sum(b*L)/sum(L).
+
+    Averaged over the **twiss rows**, every one of them, so the result is a
+    property of the lattice. Averaging over the modelled elements instead would
+    bias it high, since devices tend to sit where beta is large -- and the
+    answer would then change every time a device was added to the model.
+
+    Rows with no length contribute nothing, which is right: a marker occupies no
+    ring. Returns (1.0, 1.0) for a table that carries no lengths at all, so a
+    caller without optics falls back to the bare beta rather than dividing by
+    zero.
+    """
+    sx = sy = total = 0.0
+    for row in table.values():
+        length = get(row, "L", "LENGTH")
+        bx, by = get(row, "BETX", "BETA_X"), get(row, "BETY", "BETA_Y")
+        if length is None or bx is None or by is None:
+            continue
+        try:
+            length, bx, by = float(length), float(bx), float(by)
+        except (TypeError, ValueError):
+            continue
+        if length <= 0.0:
+            continue
+        sx += bx * length
+        sy += by * length
+        total += length
+    if total <= 0.0:
+        return 1.0, 1.0
+    return sx / total, sy / total
+
+
 def duplicates(path) -> dict:
     """{original name: number of occurrences} for names that repeat.
 

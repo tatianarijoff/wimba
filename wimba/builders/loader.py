@@ -242,6 +242,74 @@ def _element(el, base, twiss, beam=None):
                    provider=_provider(el, base, beam), optics=optics, meta=meta)
 
 
+def read_smooth_beta(data):
+    """``smooth_beta:`` from a config, or None.
+
+    The user's own average, typically R/Q from the tunes in smooth
+    approximation. When present it wins over anything WIMBA could compute: it is
+    stated on purpose, and a lattice average is only an estimate of the same
+    thing.
+    """
+    block = data.get("smooth_beta")
+    if block is None:
+        return None
+    if isinstance(block, (list, tuple)):
+        return float(block[0]), float(block[1])
+    if isinstance(block, dict):
+        try:
+            return float(block["x"]), float(block["y"])
+        except KeyError:
+            raise ValueError("smooth_beta: needs both x: and y: -- the two "
+                             "planes have different tunes and so different "
+                             "average betas.")
+    raise ValueError("smooth_beta: expects {x: ..., y: ...}")
+
+
+def resolve_beta_mean(data, twiss, machine=None):
+    """The averages the transverse weights divide by, and where they came from.
+
+    Returns ((mean_x, mean_y), source), in order of authority: ``smooth_beta:``
+    stated in the config, then the length-weighted average over the twiss rows,
+    then the same average over the machine's own elements, then 1.
+
+    The third step matters: falling straight to 1 would weight elements by their
+    bare beta again -- a hundred instead of about one -- which is exactly what
+    the ratio exists to prevent. Averaging the elements is an estimate, and
+    usually a high one since a model's elements are not a sample of the ring,
+    but it is the right order of magnitude. Only a machine where nothing states
+    a beta ends at 1, and there every ratio is 1 anyway.
+    """
+    stated = read_smooth_beta(data)
+    if stated is not None:
+        return stated, "smooth_beta"
+    if twiss:
+        mean = madx.mean_beta(twiss)
+        if mean != (1.0, 1.0):
+            return mean, "lattice"
+    if machine is not None:
+        mean = machine_mean_beta(machine)
+        if mean != (1.0, 1.0):
+            return mean, "elements"
+    return (1.0, 1.0), "none"
+
+
+def machine_mean_beta(machine) -> tuple:
+    """Length-weighted average over the elements that carry an explicit beta."""
+    sx = sy = total = 0.0
+    elements = [el for g in machine.groups for el in g.elements] + list(machine.additional)
+    for el in elements:
+        bx, by = el.meta.get("beta_x"), el.meta.get("beta_y")
+        if bx is None or by is None:
+            continue
+        length = float(el.length or 1.0)
+        sx += float(bx) * length
+        sy += float(by) * length
+        total += length
+    if total <= 0.0:
+        return 1.0, 1.0
+    return sx / total, sy / total
+
+
 def _build_machine(data, base, beam=None) -> Machine:
     twiss = madx.read_twiss(base / data["optics"]) if data.get("optics") else {}
     # inline twiss (name -> [bx, by]) as a fallback / simple case
@@ -258,6 +326,8 @@ def _build_machine(data, base, beam=None) -> Machine:
             group.add(_element(el, base, twiss, beam))
     for el in (data.get("additional") or []):
         machine.add_additional(_element(el, base, twiss, beam))
+    # after the elements exist: they are the last fallback for the average
+    machine.beta_mean, machine.beta_mean_source = resolve_beta_mean(data, twiss, machine)
     return machine
 
 

@@ -24,15 +24,17 @@ def test_unlocated_plain_device_is_reported():
     assert len(res.warnings) == 1
     text = res.warnings[0]
     assert "NOWHERE" in text
-    assert "beta = 1" in text
-    assert "weighted: true" in text          # the message says how to fix it
+    assert "average optics" in text and "weight 1" in text
+    assert "weighted: ratio" in text         # the message says how to fix it
 
 
 def test_unlocated_weighted_device_is_silent():
-    """A ring total has nowhere to sit; beta = 1 is the point, not a mistake."""
+    """A ring total has nowhere to sit; weight 1 is the point, not a mistake."""
     res = assemble(TWISS, [_dev("BPM", weighted=True)], None)
     assert res.warnings == []
-    assert res.rows[0].beta_x == 1.0
+    # it is given the lattice average, so beta/beta_mean is exactly one -- and
+    # being weighted already, nothing is applied to it in any case
+    assert res.rows[0].beta_x == res.beta_mean[0]
 
 
 def test_device_placed_by_position_is_silent():

@@ -20,7 +20,7 @@ def test_beta_resolution_modes():
     devices = [
         Device("TCP", method="pytlwall", space_charge=True, position=5.0),  # interp
         Device("M2", method="resonator"),                                   # by name
-        Device("CRAB", method="precalculated", weighted=True),              # end, beta 1
+        Device("CRAB", method="precalculated", weighted=True),              # end, weight 1
     ]
     res = assemble(TWISS, devices, DefaultPipe(method="iw2d"), name="Test")
 
@@ -34,7 +34,10 @@ def test_beta_resolution_modes():
 
     crab = _row(res, "CRAB")
     assert crab.beta_source == "default-1"
-    assert crab.position is None and crab.beta_x == 1.0 and crab.weighted is True
+    # unplaced: it is given the lattice average, so its ratio beta/beta_mean is
+    # exactly one -- the "somewhere in this ring" reading
+    assert crab.position is None and crab.weighted is True
+    assert crab.beta_x == res.beta_mean[0] and crab.beta_y == res.beta_mean[1]
 
 
 def test_space_charge_only_pytlwall():

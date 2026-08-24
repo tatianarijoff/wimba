@@ -43,11 +43,24 @@ class TermId:
             return "dip"
         return "quad"
 
-    def beta_weight(self, beta_x: float, beta_y: float) -> float:
-        """Weight applied to this term at a location with the given beta functions."""
+    def beta_weight(self, beta_x: float, beta_y: float,
+                    mean_x: float = 1.0, mean_y: float = 1.0) -> float:
+        """Weight applied to this term at a location with the given betas.
+
+        The weight is the **ratio** beta / mean beta, raised to the term's own
+        power, not the bare beta: it is what makes a transverse machine total an
+        impedance rather than an impedance times a length, and it is why an
+        element sitting at the average optics contributes with weight one.
+
+        A term with no transverse source or test index -- the longitudinal one --
+        has both exponents zero and so is never weighted, whatever is passed.
+
+        The means default to one so that a caller with no lattice behind it (a
+        single component on the bench, a unit test) still gets the bare beta.
+        """
         sx, sy = self.source
         tx, ty = self.test
-        return beta_x ** (sx + tx) * beta_y ** (sy + ty)
+        return ((beta_x / mean_x) ** (sx + tx)) * ((beta_y / mean_y) ** (sy + ty))
 
 
 #: The five standard machine-impedance terms, keyed by canonical id.

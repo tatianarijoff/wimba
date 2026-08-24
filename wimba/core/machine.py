@@ -41,7 +41,7 @@ def _match(term: ImpedanceTerm, plane, multipole, origin) -> bool:
 class Machine:
     """Two populations of elements:
 
-      * ``groups``    - weighted by beta via name lookup in ``twiss``;
+      * ``groups``    - weighted by beta/beta_mean via name lookup in ``twiss``;
       * ``additional`` - pre-weighted, summed as-is, kept separable.
 
     Queries (``impedance`` / ``wake``) select along two axes: which terms
@@ -51,6 +51,15 @@ class Machine:
     twiss: Optional[TwissTable] = None
     groups: List[ElementGroup] = field(default_factory=list)
     additional: List[Element] = field(default_factory=list)
+    #: The lattice's average beta functions. Every transverse weight is the
+    #: ratio beta/beta_mean, so this is what makes the weight dimensionless.
+    #: (1.0, 1.0) means "no lattice behind this machine": the bare beta is used,
+    #: which is only right when no element states a local beta either.
+    beta_mean: Tuple[float, float] = (1.0, 1.0)
+    #: False computes the same elements with every transverse weight set to one.
+    #: A second result to compare against, not a replacement -- and one that is
+    #: not comparable with a pre-weighted element, which stays as it is.
+    weighted: bool = True
 
     # --- construction ---
     def add_group(self, name: str) -> ElementGroup:
@@ -70,10 +79,11 @@ class Machine:
 
     # --- weighting ---
     def _weight(self, element: Element, term: ImpedanceTerm) -> float:
-        if element.optics.pre_weighted:
+        if element.optics.pre_weighted or not self.weighted:
             return 1.0
         bx, by = element.optics.resolve(self.twiss, element.name)
-        return term.tid.beta_weight(bx, by)
+        mx, my = self.beta_mean
+        return term.tid.beta_weight(bx, by, mx, my)
 
     def _selected_elements(self, groups, include_additional) -> Iterable[Element]:
         chosen = self.groups if groups is None else [
