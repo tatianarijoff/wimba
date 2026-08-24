@@ -21,13 +21,14 @@ class RunWorker(QThread):
     failed = pyqtSignal(str)
 
     def __init__(self, config, out_dir=None, wake=False, fill_pipe=True,
-                 overrides=None):
+                 overrides=None, weighted=True):
         super().__init__()
         self.config = str(config)
         self.out_dir = out_dir
         self.wake = wake
         self.fill_pipe = fill_pipe
         self.overrides = dict(overrides or {})
+        self.weighted = weighted
         # Values the GUI panels hold that must win over the file on disk - the
         # beam above all. The panel is what the user can see and change; a run
         # that silently used a different energy read from the file would be the
@@ -71,7 +72,8 @@ class RunWorker(QThread):
 
             self.log.emit("Computing...")
             info = run_study(self.config, cfg=cfg, out_dir=self.out_dir,
-                             wake=self.wake, fill_pipe=self.fill_pipe)
+                             wake=self.wake, fill_pipe=self.fill_pipe,
+                             weighted=self.weighted)
             st = info["stats"]
             self.log.emit(f"  computed {st['computed']}, skipped {st['skipped']}, "
                           f"{st['geometries']} distinct geometr(y/ies).")
@@ -92,11 +94,14 @@ class BuildWorker(QThread):
     done = pyqtSignal(object)      # {"info": {...}}
     failed = pyqtSignal(str)
 
-    def __init__(self, config, out_dir=None, beam=None):
+    def __init__(self, config, out_dir=None, beam=None, smooth_beta=None,
+                 weighted=True):
         super().__init__()
         self.config = str(config)
         self.out_dir = out_dir
         self.beam = beam
+        self.smooth_beta = smooth_beta
+        self.weighted = weighted
         # The panel wins over the file, exactly as it does for RunWorker. Until
         # this existed the two pipelines disagreed: an assembly config was
         # computed at the energy on screen, a machine file at the energy on
@@ -124,6 +129,18 @@ class BuildWorker(QThread):
             self.log.emit(f"Building '{name}'...")
             scenario = load_scenario(self.config)
             self._apply_beam(scenario)
+            # the panel's average and the weighting switch, like the beam: they
+            # apply to this build, and the file on disk is not rewritten
+            if self.smooth_beta:
+                scenario.machine.beta_mean = (float(self.smooth_beta[0]),
+                                              float(self.smooth_beta[1]))
+                scenario.machine.beta_mean_source = "smooth_beta"
+            scenario.machine.weighted = self.weighted
+            mx, my = scenario.machine.beta_mean
+            self.log.emit(f"  transverse weight: \u03b2 / \u03b2\u0304, with "
+                          f"\u03b2\u0304 = ({mx:.6g}, {my:.6g}) m."
+                          if self.weighted else
+                          "  UNWEIGHTED: every transverse weight is 1.")
             n_groups = len(scenario.machine.groups)
             n_el = sum(len(g.elements) for g in scenario.machine.groups)
             n_add = len(scenario.machine.additional)

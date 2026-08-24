@@ -23,11 +23,14 @@ QUANTITIES = [
 ]
 QLABEL = {q: lab for q, lab, _ in QUANTITIES}
 QUNITS = {q: u for q, _, u in QUANTITIES}
+#: What an element can be computed with. Only imported data can arrive already
+#: weighted by beta over the average beta: for everything else WIMBA does the
+#: weighting itself, so "(weighted)" there would mean weighting it twice.
 METHODS = [
-    "pytlwall", "pytlwall (weighted)",
-    "IW2D", "IW2D (weighted)",
+    "pytlwall",
+    "IW2D",
     "precalculated", "precalculated (weighted)",
-    "resonator", "resonator (weighted)",
+    "resonator",
 ]
 
 
@@ -104,6 +107,20 @@ class GMachine:
     additional: list = field(default_factory=list)
     beam: object = None                            # a core.beam.Beam, or None
     optics_path: str = ""                          # twiss loaded from the GUI
+    #: (x, y) WIMBA worked out for itself, and where from: the twiss rows, the
+    #: elements' own betas, or nothing. Shown, never edited.
+    beta_mean: tuple = (1.0, 1.0)
+    beta_mean_source: str = "none"
+    #: (x, y) stated by the user -- beta bar from the tunes in smooth
+    #: approximation. None means "use the one above". When set it wins, because
+    #: it was written on purpose and the other is only an estimate of it.
+    smooth_beta: tuple = None
+
+    def mean_in_use(self):
+        """The averages a calculation would divide by, and where they came from."""
+        if self.smooth_beta:
+            return tuple(self.smooth_beta), "smooth_beta"
+        return tuple(self.beta_mean), self.beta_mean_source
     # The machine's beam. None means "not stated yet": every calculation then
     # refuses rather than assuming an energy, which is what the old default of
     # gamma = 7000 did silently.
@@ -189,10 +206,34 @@ def from_machine_file(path) -> GMachine:
     sc = load_scenario(path)
     out = sc.output if isinstance(sc.output, str) else None
     gm = GMachine(name=sc.name, output=(out or f"output/{sc.name}/"), beam=sc.beam)
+    gm.beta_mean = tuple(getattr(sc.machine, "beta_mean", (1.0, 1.0)))
+    gm.beta_mean_source = getattr(sc.machine, "beta_mean_source", "none")
+    gm.smooth_beta = _stated_smooth_beta(path)
     for g in sc.machine.groups:
         gm.groups.append(GGroup(g.name, [_element_from(e) for e in g.elements]))
     gm.additional = [_element_from(e) for e in sc.machine.additional]
     return gm
+
+
+def _stated_smooth_beta(path):
+    """``smooth_beta:`` as written in the file, or None.
+
+    Read from the YAML rather than taken from what the loader resolved: the
+    panel has to show whether the user stated one, which is a different question
+    from which average the calculation used.
+    """
+    import yaml as _yaml
+    from pathlib import Path as _Path
+    try:
+        data = _yaml.safe_load(_Path(path).read_text()) or {}
+    except Exception:
+        return None
+    block = data.get("smooth_beta")
+    if isinstance(block, dict) and "x" in block and "y" in block:
+        return float(block["x"]), float(block["y"])
+    if isinstance(block, (list, tuple)) and len(block) == 2:
+        return float(block[0]), float(block[1])
+    return None
 
 
 def from_config(path) -> GMachine:
@@ -212,6 +253,12 @@ def from_config(path) -> GMachine:
     gm = GMachine(name=result.name,
                   output=f"{Path(path).with_suffix('')}_output/",
                   beam=read_beam(_yaml.safe_load(Path(path).read_text()) or {}))
+    gm.beta_mean = tuple(result.beta_mean)
+    gm.beta_mean_source = result.beta_mean_source
+    gm.smooth_beta = _stated_smooth_beta(path)
+    if gm.smooth_beta:
+        # the assembly already applied it; show it as the user's, not WIMBA's
+        gm.beta_mean, gm.beta_mean_source = (1.0, 1.0), "none"
 
     groups = {}
     order = []
@@ -1111,6 +1158,15 @@ def patch_config(cfg: dict, machine, optics=None) -> dict:
         if not _same_beam(cfg.get("beam"), wanted):
             _set_mapping(cfg, "beam", wanted)
             cfg.pop("gamma", None)      # one authority for the energy, not two
+
+    stated = getattr(machine, "smooth_beta", None)
+    if stated:
+        want = {"x": float(stated[0]), "y": float(stated[1])}
+        if not _same_beam(cfg.get("smooth_beta"), want):
+            _set_mapping(cfg, "smooth_beta", want)
+    elif "smooth_beta" in cfg:
+        # cleared in the panel: the machine's own average takes over again
+        del cfg["smooth_beta"]
     if optics:
         cfg["optics"] = str(optics)
 

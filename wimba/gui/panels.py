@@ -8,7 +8,8 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayout,
-                             QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                             QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+                             QLineEdit,
                              QListWidget, QListWidgetItem, QProgressBar,
                              QPushButton, QTableWidget, QTableWidgetItem,
                              QTabWidget, QTreeWidget, QTreeWidgetItem,
@@ -874,6 +875,7 @@ class OpticsPanel(QWidget):
         msg = ("All elements have \u03b2 and position." if have == need
                else "Some elements are missing \u03b2. Load optics or enter values below.")
         v.addWidget(_note(msg))
+        v.addWidget(self._mean_box())
 
         rows = [e for _, e in machine.all_elements()]
         t = QTableWidget(len(rows), 5)
@@ -891,6 +893,84 @@ class OpticsPanel(QWidget):
         t.cellChanged.connect(self._edit)
         self.table = t
         v.addWidget(t)
+
+    # ---- the average the transverse weights are divided by ------------------
+
+    #: How each source of the average reads in the panel.
+    _MEAN_SOURCE = {
+        "smooth_beta": "stated below",
+        "lattice": "averaged over the optics file",
+        "elements": "estimated from the elements themselves",
+        "none": "no optics and none stated",
+    }
+
+    def _mean_box(self):
+        """Show the average beta, and let the user state one of their own.
+
+        Every transverse weight is beta over this, so it belongs beside the
+        optics rather than beside the beam: it is a property of the lattice. The
+        computed value is shown and never edited -- it is derived, and typing
+        over it would only mean it was no longer what it says it is. Stating a
+        value is a separate act, in the two fields below it.
+        """
+        box = QGroupBox("Average \u03b2  \u2014  every transverse weight is \u03b2 / \u03b2\u0304")
+        f = QFormLayout(box)
+        computed = self.gm.beta_mean
+        lab = QLabel(f"{computed[0]:.6g}, {computed[1]:.6g} m   "
+                     f"({self._MEAN_SOURCE.get(self.gm.beta_mean_source, '')})")
+        lab.setEnabled(False)                      # derived: readable, not editable
+        f.addRow("WIMBA's own:", lab)
+
+        row = QHBoxLayout()
+        self.sb_x, self.sb_y = QLineEdit(), QLineEdit()
+        for w, i in ((self.sb_x, 0), (self.sb_y, 1)):
+            w.setPlaceholderText("\u2014")
+            # a beta is a positive length: no letters, no sign, no zero. The
+            # validator refuses them as they are typed, so the panel never holds
+            # a value the calculation would have to reject later.
+            v = QDoubleValidator()
+            v.setBottom(0.0)
+            v.setNotation(QDoubleValidator.Notation.ScientificNotation)
+            w.setValidator(v)
+            if self.gm.smooth_beta:
+                w.setText(f"{self.gm.smooth_beta[i]:.6g}")
+            w.editingFinished.connect(self._smooth_edited)
+            row.addWidget(w)
+        holder = QWidget(); holder.setLayout(row)
+        f.addRow("\u03b2\u0304x, \u03b2\u0304y (yours, used when set):", holder)
+        return box
+
+    def _smooth_edited(self):
+        """Both fields, or neither: one plane alone is not an average.
+
+        What the calculation ends up dividing by is said on the Console, not
+        here: the two values are already on screen a line above, and repeating
+        them under the fields only says the same thing a third time.
+        """
+        import logging
+
+        log = logging.getLogger("wimba.gui")
+        x, y = _num(self.sb_x.text()), _num(self.sb_y.text())
+        for value, plane in ((x, "\u03b2\u0304x"), (y, "\u03b2\u0304y")):
+            if value is not None and float(value) <= 0.0:
+                log.warning("%s must be a positive length; ignoring %s.", plane, value)
+                return
+        if x is None and y is None:
+            if self.gm.smooth_beta is None:
+                return
+            self.gm.smooth_beta = None
+            log.info("Average \u03b2 cleared: computing with WIMBA's own, "
+                     "%.6g, %.6g m (%s).", self.gm.beta_mean[0],
+                     self.gm.beta_mean[1], self.gm.beta_mean_source)
+        elif x is None or y is None:
+            log.warning("Both \u03b2\u0304x and \u03b2\u0304y are needed: the two planes "
+                        "have different tunes, so different averages.")
+            return
+        else:
+            self.gm.smooth_beta = (float(x), float(y))
+            log.info("Average \u03b2 set: computing with \u03b2\u0304 = %.6g, %.6g m "
+                     "(yours).", float(x), float(y))
+        self.on_change()
 
     def _edit(self, r, c):
         if c == 0 or r >= len(self._rows):

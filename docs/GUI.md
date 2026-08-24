@@ -47,8 +47,9 @@ per segment.
 
 **Optics / Beam** (bottom left, tabbed) — the optics table lists the elements
 with their position, length and beta functions, and reports how many of them
-have both. The Beam tab defines the particle and the energy; see
-[The beam](#the-beam) below.
+have both. Above it sits the **average beta**, because every transverse weight
+is β/β̄ — see [The average beta](#the-average-beta). The Beam tab defines the
+particle and the energy; see [The beam](#the-beam) below.
 
 **Centre** — the workspace. `Plot Workspace` and `Results Table` are always
 there; opening an element adds a tab for it, with `Geometry`, `Layers`,
@@ -60,6 +61,10 @@ In the `Geometry` tab the aperture follows the shape: one radius for a
 CIRCULAR chamber, a horizontal and a vertical semi-axis for an ELLIPTICAL or
 RECTANGULAR one, both in metres. The fields the shape does not use are not
 shown, so a radius cannot travel with a rectangle that ignores it.
+
+Only imported data can arrive already weighted, so `precalculated (weighted)`
+is the one weighted method offered: for pytlwall, IW2D and the resonator WIMBA
+does the weighting itself, and claiming it was done already would do it twice.
 
 In the `Layers` tab each row is a layer, inside → out. The type is chosen from
 a list: `CW` followed by a material name, `CW (custom)` when you want to type
@@ -185,6 +190,40 @@ collapsed into one synthetic entry. That entry has no position, no length and
 no beta, because it stands for thousands of rows and there is no single value
 to show. An almost-empty Optics table on a config whose only content is a
 default pipe is the interface being accurate, not failing.
+
+## The average beta
+
+Every transverse weight is the ratio β/β̄: the element's own beta over the
+machine's average. That is what makes the weight dimensionless, so a transverse
+total is an impedance rather than an impedance times a length, and an element
+sitting at the average optics contributes with weight one. The longitudinal
+term is never weighted.
+
+The box above the optics table shows two things. **WIMBA's own** is derived and
+not editable: the length-weighted average over the twiss rows when an optics
+file is loaded, otherwise the same average over the modelled elements' own
+betas, otherwise 1. The panel says which of the three it is, because an average
+estimated from the elements is usually high — devices sit where beta is large,
+and a model's elements are not a sample of the ring.
+
+**Yours** is the pair of fields underneath: β̄x and β̄y as you obtain them from
+the tunes in smooth approximation, R/Q. They take positive lengths only —
+letters, signs and zero are refused as you type. State both or neither: the two
+planes have different tunes and so different averages. When they are filled they
+win; clear them and the machine's own average takes over again. Either way the
+Console says which average the next calculation will divide by. Saving writes
+the pair to the config as `smooth_beta:`, and clearing them removes that key
+rather than writing a 1.
+
+Inside a project this belongs to the scenario, since the optics changes with the
+energy.
+
+`Calculate ▸ Whole Machine (not weighted)` computes the same elements with every
+transverse weight set to one. It is a second result, labelled apart in the tree
+so the two can be plotted together — not a replacement. One caution, and
+Problems says it too: a source that carries its own weighting keeps it whatever
+you ask, so an unweighted run over a model containing one adds weighted and
+unweighted terms, and its machine total is not a quantity. Read it per element.
 
 ## The beam
 

@@ -420,6 +420,8 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self._act(m, "Calculate Whole Machine", self._calc_machine)
         self._act(m, "Calculate Whole Machine Wake", lambda: self._calc_machine(wake=True))
+        self._act(m, "Calculate Whole Machine (not weighted)",
+                  lambda: self._calc_machine(weighted=False))
 
         m = mb.addMenu("&Results")
         for label in ("Add Selection to Comparison", "Send Basket to Plot",
@@ -1807,7 +1809,13 @@ class MainWindow(QMainWindow):
         self.log.info("Results loaded from %s (%d source(s)).", path,
                       len(self.results_model.sources))
 
-    def _calc_machine(self, wake=False):
+    def _calc_machine(self, wake=False, weighted=True):
+        """Compute the whole machine.
+
+        weighted=False sets every transverse weight to one. It is a second
+        result, not a replacement: it lands in the tree under its own name so
+        the two can be plotted against each other.
+        """
         out_dir = None
         sc = self.project.scenario if self.project else None
         if sc is not None:
@@ -1816,11 +1824,11 @@ class MainWindow(QMainWindow):
             path = self._project_dir() / sc.config
             out_dir = str(self._project_dir() / sc.slug / "output")
             if self._dialect(path) == "machine":
-                return self._build_machine(path, out_dir)
+                return self._build_machine(path, out_dir, weighted=weighted)
             self.config_path = str(path)
         elif getattr(self, "machine_path", None) and not self.config_path:
             # a machine loaded outside a project: build it where it lives
-            return self._build_machine(self.machine_path, None)
+            return self._build_machine(self.machine_path, None, weighted=weighted)
         if not self.config_path:
             self._open_config()
         if not self.config_path:
@@ -1834,13 +1842,23 @@ class MainWindow(QMainWindow):
         if wake:
             self.log.info("Wake requested: computed natively from each geometry "
                           "(impedance recomputed alongside).")
+        if not weighted:
+            self.log.info("Computing UNWEIGHTED: every transverse weight is 1. "
+                          "Already weighted sources are still summed as they are.")
+            self._job_item.setText(f"{self._job_label} (not weighted) \u2014 running\u2026")
         self._run_kind = "machine"
+        self._run_weighted = weighted
         beam = getattr(self.machine, "beam", None) if self.machine else None
         overrides = ({"beam": beam.to_dict(), "gamma": beam.gamma}
                      if beam is not None else None)
+        if overrides is None:
+            overrides = {}
+        stated = getattr(self.machine, "smooth_beta", None) if self.machine else None
+        if stated:
+            overrides["smooth_beta"] = {"x": float(stated[0]), "y": float(stated[1])}
         self.worker = RunWorker(self.config_path, out_dir=out_dir, wake=wake,
                                 fill_pipe=self.fill_pipe_action.isChecked(),
-                                overrides=overrides)
+                                overrides=overrides or None, weighted=weighted)
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_calc_done)
         self.worker.failed.connect(self._on_calc_failed)
@@ -1862,7 +1880,7 @@ class MainWindow(QMainWindow):
             return "unreadable"
         return "assembly" if ("devices" in cfg or "default_pipe" in cfg) else "machine"
 
-    def _build_machine(self, path, out_dir):
+    def _build_machine(self, path, out_dir, weighted=True):
         """Calculate for a machine file: the build pipeline, same panels."""
         path = Path(path)
         if self._dialect(path) == "unreadable":
@@ -1873,9 +1891,16 @@ class MainWindow(QMainWindow):
         self._job_item = QListWidgetItem(f"{self._job_label} \u2014 building\u2026")
         self._dock_list("jobs").addItem(self._job_item)
         self._run_kind = "build"
+        self._run_weighted = weighted
+        if not weighted:
+            self.log.info("Building UNWEIGHTED: every transverse weight is 1.")
+            self._job_item.setText(f"{self._job_label} (not weighted) \u2014 building\u2026")
         self.worker = BuildWorker(path, out_dir=out_dir,
                                   beam=getattr(self.machine, "beam", None)
-                                  if self.machine else None)
+                                  if self.machine else None,
+                                  smooth_beta=getattr(self.machine, "smooth_beta", None)
+                                  if self.machine else None,
+                                  weighted=weighted)
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_build_done)
         self.worker.failed.connect(self._on_calc_failed)
@@ -1892,7 +1917,11 @@ class MainWindow(QMainWindow):
         """
         sc = self.project.scenario if self.project else None
         if sc is not None and self._machine_of == sc.slug:
-            self.results_model.add_scenario(out_dir, sc.label)
+            # an unweighted run is a second result, not a replacement: it is
+            # labelled apart so both can sit in the tree and on one figure
+            label = sc.label if getattr(self, "_run_weighted", True) \
+                else f"{sc.label} (not weighted)"
+            self.results_model.add_scenario(out_dir, label)
             loaded = self.results_model.scenarios()
             self.log.info("Results now hold %d scenario(s): %s",
                           len(loaded), ", ".join(loaded))
@@ -1959,6 +1988,10 @@ class MainWindow(QMainWindow):
         prob = self._dock_text("problems"); prob.clear()
         prob.appendPlainText(f"{len(result.rows)} assignments \u2014 "
                              f"computed {st['computed']}, skipped {st['skipped']}.")
+        for line in self._weighting_problems(result, st):
+            prob.appendPlainText(line)
+            self.log.warning(line.replace("WARNING  ", ""))
+            self.docks["problems"].raise_()
         for note in st.get("notes", []):
             prob.appendPlainText(f"  {note}")
             self.log.warning(note)
@@ -1977,6 +2010,37 @@ class MainWindow(QMainWindow):
             prob.appendPlainText("No collisions.")
         self.statusBar().showMessage(
             f"Done \u2192 {info['out']} \u2014 pick quantities from the Results tree", 6000)
+
+    def _weighting_problems(self, result, stats):
+        """What the transverse weighting is, and when not to trust the total.
+
+        The dangerous case is an unweighted calculation over a model that also
+        contains already-weighted data: those sources keep their own weighting
+        whatever is asked, so the total mixes weighted and unweighted terms and
+        is not a quantity at all. Nothing fails, and the numbers look ordinary.
+        """
+        out = []
+        mx, my = stats.get("beta_mean", (1.0, 1.0))
+        src = stats.get("beta_mean_source", "none")
+        if stats.get("weighted", True):
+            out.append(f"Transverse weight: \u03b2 / \u03b2\u0304, with \u03b2\u0304 = "
+                       f"({mx:.6g}, {my:.6g}) m \u2014 {src}.")
+            if src == "elements":
+                out.append("WARNING  \u03b2\u0304 was estimated from the modelled "
+                           "elements, not from a lattice. Devices sit where \u03b2 "
+                           "is large, so it is usually high.")
+            return out
+
+        out.append("Computed UNWEIGHTED: every transverse weight is 1.")
+        pre = [r.name for r in result.rows if getattr(r, "weighted", False)]
+        if pre:
+            shown = ", ".join(pre[:3]) + (f" and {len(pre) - 3} more"
+                                          if len(pre) > 3 else "")
+            out.append(f"WARNING  {len(pre)} source(s) carry their own weighting "
+                       f"and keep it: {shown}. The transverse total therefore adds "
+                       f"weighted and unweighted terms and is not comparable with "
+                       f"either. Use it per element, not as a machine total.")
+        return out
 
     def _on_calc_failed(self, tb):
         if self._job_item:

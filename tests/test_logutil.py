@@ -61,11 +61,15 @@ def test_from_config_populates_machine(tmp_path):
 def test_method_helpers():
     from wimba.gui.model import (METHODS, method_base, method_label,
                                  method_needs_file, method_weighted)
-    assert "pytlwall" in METHODS and "pytlwall (weighted)" in METHODS
-    assert len(METHODS) == 8
-    assert method_base("IW2D (weighted)") == "IW2D" and method_weighted("IW2D (weighted)")
+    # only imported data can arrive already weighted: for everything else WIMBA
+    # does the weighting itself, so offering "(weighted)" would offer to do it twice
+    assert "pytlwall" in METHODS and "pytlwall (weighted)" not in METHODS
+    assert "precalculated (weighted)" in METHODS
+    assert len(METHODS) == 5
+    assert method_base("precalculated (weighted)") == "precalculated"
+    assert method_weighted("precalculated (weighted)")
     assert not method_weighted("resonator")
-    assert method_label("pytlwall", True) == "pytlwall (weighted)"
+    assert method_label("precalculated", True) == "precalculated (weighted)"
     assert method_needs_file("precalculated") and not method_needs_file("pytlwall")
 
 
