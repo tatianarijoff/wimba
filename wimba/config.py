@@ -34,12 +34,14 @@ from typing import Optional
 
 import yaml
 
+from .errors import WimbaError
 
-class ToolNotConfigured(RuntimeError):
+
+class ToolNotConfigured(WimbaError, RuntimeError):
     """Raised when a required external tool cannot be located."""
 
 
-class DataFileNotFound(FileNotFoundError):
+class DataFileNotFound(WimbaError, FileNotFoundError):
     """Raised when a data file referenced by a study config cannot be located."""
 
 

@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from . import config as cfg
+from .errors import WimbaError
 
 
 def _auto_iw2d():
@@ -226,6 +227,8 @@ def cmd_docs(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="wimba",
                                      description="WIMBA command-line interface")
+    parser.add_argument("--traceback", action="store_true",
+                        help="show the full stack instead of a one-line error")
     sub = parser.add_subparsers(dest="command")
 
     sp = sub.add_parser("docs", help="render the documentation as HTML")
@@ -284,7 +287,16 @@ def main(argv=None):
     if not getattr(args, "func", None):
         parser.print_help()
         return 0
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (WimbaError, FileNotFoundError) as exc:
+        # Not a crash: a file that is not there, an engine that is not
+        # installed, a config that says something WIMBA cannot act on. The
+        # message is the answer; the stack is noise. --traceback brings it back.
+        if args.traceback:
+            raise
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

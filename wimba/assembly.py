@@ -380,10 +380,12 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     import yaml
     from .io.json_io import read_collimators, read_resonators
 
+    from .errors import read_config_text
+
     cfg_path = Path(path)
     base = cfg_path.parent
     if cfg is None:
-        cfg = yaml.safe_load(cfg_path.read_text()) or {}
+        cfg = yaml.safe_load(read_config_text(cfg_path, "assembly config")) or {}
 
     from .config import resolve_data_path
 

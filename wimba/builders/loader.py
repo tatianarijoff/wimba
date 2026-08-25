@@ -29,6 +29,7 @@ from typing import Optional
 import numpy as np
 import yaml
 
+from ..errors import read_config_text
 from ..core.beam import Beam
 from ..core.element import Element
 from ..core.machine import Machine, TwissTable
@@ -348,7 +349,7 @@ def load_scenario(path, project: Optional[Project] = None) -> Scenario:
     scenario has the grids it needs; the project is reachable as `scenario.project`.
     """
     cfg_path = Path(path)
-    data = yaml.safe_load(cfg_path.read_text()) or {}
+    data = yaml.safe_load(read_config_text(cfg_path, "machine config")) or {}
     name = data.get("name", cfg_path.stem)
     beam = read_beam(data)
     scenario = Scenario(name=name, beam=beam,

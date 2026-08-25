@@ -14,6 +14,7 @@ import numpy as np
 import yaml
 
 from .assembly import load_assembly
+from .errors import read_config_text
 from .logutil import get_logger
 from .builders.loader import read_beam
 from .naming import safe
@@ -357,7 +358,7 @@ def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True,
     user's back. The file itself is never written.
     """
     if cfg is None:
-        cfg = yaml.safe_load(Path(config).read_text()) or {}
+        cfg = yaml.safe_load(read_config_text(config, "assembly config")) or {}
     if not fill_pipe:                      # GUI toggle: compute only the listed devices
         cfg = dict(cfg)
         cfg.pop("default_pipe", None)
