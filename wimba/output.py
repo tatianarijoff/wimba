@@ -32,6 +32,34 @@ def _write(path: Path, freqs, terms) -> Path:
     return path
 
 
+def clear_single_elements(out_dir) -> list:
+    """Drop the results of a previous calculation before writing new ones.
+
+    Calculate always recomputes, and the totals are always rewritten -- but the
+    per-device files are written one per device, so a device removed from the
+    config since the last run left its CSV behind. Nothing errored: the Results
+    panel lists whatever it finds under single_elements/, so the stale curve
+    reappeared next to a total that no longer contains it.
+
+    Only the files this module writes are removed (.csv, and the WAKE_NOTES.txt
+    written beside them), and only under single_elements/. Anything else a user
+    may keep in the output folder is left alone, and a group directory is
+    removed only once it is empty. Returns the paths removed, for logging.
+    """
+    se = Path(out_dir) / "single_elements"
+    if not se.is_dir():
+        return []
+    removed = []
+    for path in sorted(se.rglob("*")):
+        if path.is_file() and path.suffix in (".csv", ".txt"):
+            path.unlink()
+            removed.append(path)
+    for path in sorted((p for p in se.rglob("*") if p.is_dir()), reverse=True):
+        if not any(path.iterdir()):
+            path.rmdir()
+    return removed
+
+
 def write_single_element(out_dir, group, name, freqs, terms) -> Path:
     return _write(Path(out_dir) / "single_elements" / safe(group) / f"{safe(name)}.csv",
                   freqs, terms)

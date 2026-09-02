@@ -19,7 +19,8 @@ from .logutil import get_logger
 from .builders.loader import read_beam
 from .naming import safe
 from .io.pytlwall_cfg import write_chamber_cfg
-from .output import write_single_element, write_totals, write_wake_totals
+from .output import (clear_single_elements, write_single_element, write_totals,
+                     write_wake_totals)
 from .sources.pytlwall_bridge import (COMPONENTS, WAKE_COMPONENTS, chamber_wake,
                                       compute_chamber)
 from .sources.iw2d_bridge import compute_iw2d
@@ -113,6 +114,14 @@ def _scale(base, row, comps, long_name, mean=(1.0, 1.0)):
 def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None,
                         times=None, beta_mean=(1.0, 1.0), weighted=True):
     zcache, wcache = {}, {}
+    # this calculation replaces the previous one: clear its per-device files
+    # first, so the folder describes one run and not the union of every run
+    # ever written into it
+    stale = clear_single_elements(out_dir)
+    if stale:
+        get_logger(__name__).info(
+            "Recomputing: removed %d file(s) from the previous calculation in "
+            "%s.", len(stale), Path(out_dir) / "single_elements")
     ztot = {c: np.zeros(len(freqs), dtype=complex) for c in COMPONENTS}
     wtot = ({c: np.zeros(len(times)) for c in WAKE_COMPONENTS}
             if times is not None else None)
