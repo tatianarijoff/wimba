@@ -17,9 +17,10 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFormLayou
 
 from .. import materials
 from ..core.beam import MODES, PARTICLES, Beam
-from .model import (METHODS, QLABEL, QUANTITIES, QUNITS, GElement, GGroup,
+from .model import (METHODS, MODE_COMPONENTS, MODE_UNITS, QLABEL, QUANTITIES,
+                    QUNITS, GElement, GGroup,
                     summarize_elements,
-                    GMachine, GModel, method_needs_file, new_element,
+                    GMachine, GMode, GModel, method_needs_file, new_element,
                     optics_completeness)
 
 ROLE = Qt.ItemDataRole.UserRole
@@ -104,6 +105,22 @@ class MachineTree(QTreeWidget):
 
 
 # ============================================================== element panel
+def _num_text(value) -> str:
+    """A number as a field shows it, whatever it is at the moment.
+
+    A cell edited by the user holds the text they typed, not a float: the panel
+    stores it as typed so a half-written "1e" is not silently turned into
+    something else. So this has to survive both, or reopening an element after
+    an edit raises on the format string.
+    """
+    if value is None or value == "":
+        return ""
+    try:
+        return f"{float(value):g}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def _note(text):
     """A wrapping explanatory label.
 
@@ -180,11 +197,19 @@ class ElementPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
 
         tabs = QTabWidget()
-        tabs.addTab(self._geometry_tab(), "Geometry")
-        tabs.addTab(self._layers_tab(), "Layers")
+        self.tabs = tabs
+        self._wall_tabs = []          # indices that describe a wall, so the
+                                      # Models tab can close them for a method
+                                      # that has no wall to describe
+        self._wall_tabs.append(tabs.addTab(self._geometry_tab(), "Geometry"))
+        self._wall_tabs.append(tabs.addTab(self._layers_tab(), "Layers"))
         tabs.addTab(self._beam_tab(), "Beam & Optics")
         tabs.addTab(self._models_tab(), "Models")
         outer.addWidget(tabs)
+        # the method may already be a resonator - an element read from a config,
+        # or a component saved and reopened
+        self._apply_method(self._base_model().method if self._base_model()
+                           else "pytlwall")
 
         foot = QWidget()
         fl = QHBoxLayout(foot)
@@ -697,6 +722,8 @@ class ElementPanel(QWidget):
         base.setMaximumHeight(96)
         v.addWidget(base)
 
+        v.addWidget(self._modes_box())
+
         v.addWidget(_note("<b>Additional calculations \u2014 compare</b>  "
                           "(same element, other methods: plotted side by side)"))
         self.cmp_table = QTableWidget(0, 3)
@@ -720,6 +747,150 @@ class ElementPanel(QWidget):
             "calculation compute the wake too \u2014 without a time grid a wake "
             "comparison would come out empty."))
         return w
+
+    # ---------------- resonator modes ----------------
+    #: Column order of the modes table. Rs carries the unit of its component,
+    #: so the header says the component and the cell tooltip says the unit.
+    MODE_COLS = [("q", "Component"), ("Rs", "Rs"), ("Q", "Q"), ("fr", "f_r [Hz]")]
+
+    def _modes_box(self):
+        """The editor for a resonator: what defines the element, in place of a
+        geometry.
+
+        Read-only inside a machine, for the same reason the beam is: the modes
+        came from the config the machine was loaded from, and editing them here
+        would change a number the file still states.
+        """
+        box = QGroupBox("Resonator modes")
+        v = QVBoxLayout(box)
+        self.modes_tab = QTableWidget(0, len(self.MODE_COLS))
+        self.modes_tab.setHorizontalHeaderLabels([lbl for _, lbl in self.MODE_COLS])
+        head = self.modes_tab.horizontalHeader()
+        for c in range(len(self.MODE_COLS)):
+            head.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
+        self.modes_tab.verticalHeader().setVisible(False)
+        self.modes_tab.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        for mode in self.el.modes:
+            self._mode_row(mode)
+        v.addWidget(self.modes_tab, 1)
+
+        self._mode_buttons = QWidget()
+        row = QHBoxLayout(self._mode_buttons)
+        row.setContentsMargins(0, 0, 0, 0)
+        add = QPushButton("+ Add mode"); add.clicked.connect(self._mode_add)
+        rm = QPushButton("Remove selected"); rm.clicked.connect(self._mode_rm)
+        row.addWidget(add); row.addWidget(rm); row.addStretch(1)
+        v.addWidget(self._mode_buttons)
+
+        self._mode_note = _note(
+            "One row is one resonance of one component; rows sum. Rs is an "
+            "impedance longitudinally and an impedance per metre "
+            "transversally, Q is the quality factor, f_r the resonant "
+            "frequency. Geometry and Layers are closed while the method is "
+            "resonator \u2014 nothing reads them \u2014 but they are kept, so "
+            "switching back to a wall finds the wall as you left it.")
+        v.addWidget(self._mode_note)
+        self.modes_box = box
+        return box
+
+    def _mode_row(self, mode: GMode):
+        r = self.modes_tab.rowCount()
+        self.modes_tab.insertRow(r)
+        editable = self.machine is None
+
+        comp = QComboBox(); comp.addItems(list(MODE_COMPONENTS))
+        comp.setCurrentText(mode.q if mode.q in MODE_COMPONENTS else "ZLong")
+        comp.setEnabled(editable)
+        comp.currentTextChanged.connect(
+            lambda val, m=mode: self._set_mode(m, "q", val))
+        self.modes_tab.setCellWidget(r, 0, comp)
+
+        for c, (key, _lbl) in enumerate(self.MODE_COLS[1:], start=1):
+            ed = QLineEdit(_num_text(getattr(mode, key)))
+            val = QDoubleValidator()
+            val.setNotation(QDoubleValidator.Notation.ScientificNotation)
+            if key in ("Q", "fr"):
+                val.setBottom(0.0)      # both divide: zero is not a value
+            ed.setValidator(val)
+            ed.setReadOnly(not editable)
+            if key == "Rs":
+                ed.setToolTip("Shunt impedance: \u03a9 for ZLong, \u03a9/m for "
+                              "the transverse components")
+            ed.textChanged.connect(
+                lambda t, m=mode, k=key: self._set_mode(m, k, t))
+            self.modes_tab.setCellWidget(r, c, ed)
+
+    def _set_mode(self, mode: GMode, key, value):
+        if key == "q":
+            mode.q = value
+            self._mode_units()
+        else:
+            setattr(mode, key, value)
+        self.el.edited.add("modes")
+        self.on_change()
+
+    def _mode_units(self):
+        """Keep the Rs tooltip honest when a row changes component."""
+        for r in range(self.modes_tab.rowCount()):
+            comp = self.modes_tab.cellWidget(r, 0)
+            ed = self.modes_tab.cellWidget(r, 1)
+            if comp is not None and ed is not None:
+                ed.setToolTip(f"Shunt impedance [{MODE_UNITS.get(comp.currentText(), '')}]")
+
+    def _mode_add(self):
+        mode = GMode()
+        self.el.modes.append(mode)
+        self._mode_row(mode)
+        self.el.edited.add("modes")
+        self.on_change()
+
+    def _mode_rm(self):
+        rows = sorted({i.row() for i in self.modes_tab.selectedIndexes()},
+                      reverse=True)
+        for r in rows:
+            if 0 <= r < len(self.el.modes):
+                del self.el.modes[r]
+            self.modes_tab.removeRow(r)
+        if rows:
+            self.el.edited.add("modes")
+            self.on_change()
+
+    def _apply_method(self, method):
+        """Show what the chosen method actually reads, and close what it does not.
+
+        The four methods are not four ways of computing one element: they are
+        four kinds of element. pytlwall and IW2D solve a wall, so they read the
+        geometry and the layers; a resonator is a mode spectrum and reads
+        neither; precalculated reads a file. Leaving all the panels open for
+        every method is how a user fills in a chamber and then wonders why the
+        numbers do not depend on it.
+        """
+        from .model import method_base
+        base = method_base(method).lower()
+        is_res = base == "resonator"
+        self.modes_box.setVisible(is_res)
+        self._mode_buttons.setVisible(is_res and self.machine is None)
+        if is_res and self.machine is not None:
+            self._mode_note.setText(
+                "These modes come from the config this machine was loaded "
+                "from, so they are shown and not edited. A resonator of your "
+                "own goes in the Component bench (Component \u25b8 New "
+                "Component).")
+        for i in self._wall_tabs:
+            self.tabs.setTabEnabled(i, not is_res)
+            self.tabs.setTabToolTip(
+                i, "A resonator has no wall: nothing here is read while the "
+                   "method is resonator." if is_res else "")
+        if is_res and self.tabs.currentIndex() in self._wall_tabs:
+            # opening an element whose method is already resonator would
+            # otherwise land the user on a tab that is greyed out and says
+            # nothing about why
+            self.tabs.setCurrentIndex(self.tabs.count() - 1)      # Models
+        if is_res and not self.el.modes and self.machine is None:
+            # an empty table says nothing about what is missing; one blank row
+            # is the shape of the answer
+            self._mode_add()
 
     @staticmethod
     def _wake_text(method):
@@ -747,6 +918,7 @@ class ElementPanel(QWidget):
             m.method = value
         self._wake_label.setText(self._wake_text(value))
         self._base_file_edit.setEnabled(method_needs_file(value))
+        self._apply_method(value)
         self.on_change()
 
     def _set_base_file(self, value):

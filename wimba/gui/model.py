@@ -34,6 +34,28 @@ METHODS = [
 ]
 
 
+#: A resonator says nothing about a wall: what defines it is a list of
+#: resonances, each belonging to one impedance component. These are the
+#: components a mode can be given for, spelled as the config spells them, and
+#: the (R, Q, f) keys each one writes - the layout pywit uses for HOMs and the
+#: one `sources/resonator.py` reads.
+MODE_COMPONENTS = ("ZLong", "ZDipX", "ZDipY", "ZQuadX", "ZQuadY")
+MODE_KEYS = {
+    "ZLong":  ("Rl", "Ql", "fl"),
+    "ZDipX":  ("Rxd", "Qxd", "fxd"),
+    "ZDipY":  ("Ryd", "Qyd", "fyd"),
+    "ZQuadX": ("Rxq", "Qxq", "fxq"),
+    "ZQuadY": ("Ryq", "Qyq", "fyq"),
+}
+#: Rs units per component, for the panel: an impedance longitudinally, an
+#: impedance per metre transversally.
+MODE_UNITS = {"ZLong": "\u03a9", "ZDipX": "\u03a9/m", "ZDipY": "\u03a9/m",
+              "ZQuadX": "\u03a9/m", "ZQuadY": "\u03a9/m"}
+#: `core.terms` ids (what a built ResonatorProvider carries) -> the above.
+TERM_COMPONENT = {"zlong": "ZLong", "zxdip": "ZDipX", "zydip": "ZDipY",
+                  "zxquad": "ZQuadX", "zyquad": "ZQuadY"}
+
+
 def method_base(method: str) -> str:
     """'pytlwall (weighted)' -> 'pytlwall'."""
     return method.replace("(weighted)", "").strip()
@@ -62,6 +84,21 @@ class GModel:
     params: dict = field(default_factory=dict)
 
 
+@dataclass
+class GMode:
+    """One resonance of a resonator element, as the panel edits it.
+
+    One row, one component: a real object's mode often speaks in several planes
+    at once, and the config can write it that way, but asking a user to fill a
+    five-plane mode in one row is how empty cells become zeros. Rows sum, so
+    two rows are the same physics as one mode carrying two triples.
+    """
+    q: str = "ZLong"                 # one of MODE_COMPONENTS
+    Rs: float = 0.0                  # shunt impedance [Ohm] or [Ohm/m]
+    Q: float = 1.0
+    fr: float = 0.0                  # resonant frequency [Hz]
+
+
 _UID = itertools.count(1)
 
 
@@ -76,6 +113,14 @@ class GElement:
     compare: list = field(default_factory=list)    # list[GModel]: additional
                                                    # calculations, q = component
                                                    # (ZLong, ...), for comparison
+    modes: list = field(default_factory=list)      # list[GMode]: what defines
+                                                   # this element when its
+                                                   # method is 'resonator'.
+                                                   # Kept beside the geometry,
+                                                   # not instead of it: a
+                                                   # method is a choice, and
+                                                   # changing it back must not
+                                                   # have thrown the wall away
     uid: int = field(default_factory=lambda: next(_UID))
     edited: set = field(default_factory=set)
     # which fields the *user* changed in the panels ("bx", "by", "l", "geometry",
@@ -184,7 +229,8 @@ def _element_from(e):
         geometry=info,
         optics={"s": m.get("position"), "l": info.get("length"),
                 "bx": m.get("beta_x"), "by": m.get("beta_y"), "pre": pre},
-        layers=[], models=_models_from_provider(e))
+        layers=[], models=_models_from_provider(e),
+        modes=_modes_from_provider(e))
 
 
 def from_machine_file(path) -> GMachine:
@@ -280,7 +326,11 @@ def from_config(path) -> GMachine:
             optics={"s": r.position, "l": r.length,
                     "bx": r.beta_x, "by": r.beta_y, "pre": r.weighted},
             layers=list(r.geometry.get("layers") or []) if r.geometry else [],
-            models=default_models(method_label(r.method, r.weighted))))
+            models=default_models(method_label(r.method, r.weighted)),
+            # a resonator row carries its modes in params: without them the
+            # Models tab would show the method and nothing that defines it
+            modes=modes_from_dicts(((r.params or {}).get("modes")
+                                    if r.method == "resonator" else None))))
     for g in order:
         gm.groups.append(GGroup(g, groups[g]))
     if pipe_count:
@@ -431,6 +481,70 @@ def _aperture(geo: dict, who: str) -> dict:
 
 
 # ---------- element -> runnable config (single-element calculation) ----------
+def modes_out(el: GElement) -> list:
+    """`el.modes` as the `modes:` list a config carries.
+
+    One row becomes one mode with one triple. Validation is deliberately NOT
+    duplicated here: the emitted list goes through `assembly.read_modes`, which
+    is the same check a hand-written config gets, so the panel and the file
+    cannot drift into disagreeing about what a valid mode is.
+    """
+    from ..assembly import read_modes
+    out = []
+    for m in (el.modes or []):
+        q = str(getattr(m, "q", "") or "ZLong")
+        if q not in MODE_KEYS:
+            raise ValueError(
+                f"resonator mode: '{q}' is not an impedance component. "
+                f"Use one of {', '.join(MODE_COMPONENTS)}.")
+        rk, qk, fk = MODE_KEYS[q]
+        row = {}
+        for key, label, value in ((rk, "Rs", m.Rs), (qk, "Q", m.Q),
+                                  (fk, "f_r", m.fr)):
+            try:
+                row[key] = float(value)
+            except (TypeError, ValueError):
+                # a half-typed field: the validator lets "1e" through while the
+                # user is still typing, and it must not reach the engine
+                raise ValueError(
+                    f"resonator mode ({q}): {label} = '{value}' is not a "
+                    f"number.") from None
+        out.append(row)
+    return read_modes(out, el.name.split("  (")[0])
+
+
+def modes_from_dicts(modes) -> list:
+    """`modes:` from a config (or a JSON HOM table) as panel rows.
+
+    A mode carrying three planes comes back as three rows: the panel edits one
+    component at a time, and rows sum to the same impedance.
+    """
+    rows = []
+    for mode in (modes or []):
+        if not isinstance(mode, dict):
+            continue
+        for q, (rk, qk, fk) in MODE_KEYS.items():
+            if mode.get(rk) is None and mode.get(fk) is None:
+                continue
+            rows.append(GMode(q=q, Rs=as_number(mode.get(rk)) or 0.0,
+                              Q=as_number(mode.get(qk)) or 1.0,
+                              fr=as_number(mode.get(fk)) or 0.0))
+    return rows
+
+
+def _modes_from_provider(el) -> list:
+    """Panel rows for an element whose provider is already built."""
+    try:
+        from ..sources.resonator import ResonatorProvider
+    except Exception:                       # numpy-less environment: no rows
+        return []
+    prov = getattr(el, "provider", None)
+    if not isinstance(prov, ResonatorProvider):
+        return []
+    return [GMode(q=TERM_COMPONENT.get(r.term, "ZLong"), Rs=r.Rs, Q=r.Q, fr=r.fr)
+            for r in prov.resonators]
+
+
 def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
                       compare_only: bool = False) -> dict:
     """Emit an assemble config that computes just this element.
@@ -443,35 +557,51 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
     opened from (base_cfg), unless the element carries its own (``own_base``),
     as one loaded from a pytlwall config does: such an element belongs to no
     machine, so its own settings win. Geometry, layers and beta come from the
-    element as edited in the GUI. Chamber methods - pytlwall and IW2D - are both
-    supported; resonator and precalculated single-element runs come with the
-    full machine->config bridge.
+    element as edited in the GUI. Wall methods - pytlwall and IW2D - and
+    resonator are supported: the first two from the geometry and layers, the
+    third from the element's modes. A precalculated single-element run comes
+    with the full machine->config bridge, since what defines it is a file and
+    an import map rather than anything editable in the panels.
     """
     model = next((m for m in el.models if m.enabled), None)
     base = (method_base(model.method) if model else "pytlwall").lower()
-    if base not in ("pytlwall", "iw2d"):
+    if base not in ("pytlwall", "iw2d", "resonator"):
         raise ValueError(
-            f"single-element calculation supports chamber methods (pytlwall, "
-            f"IW2D); this one is '{base}'.")
+            f"single-element calculation supports a wall (pytlwall, IW2D) or a "
+            f"resonator; this one is '{base}'. Imported data is computed "
+            f"through Component \u25b8 Load Precalculated, which needs the file "
+            f"and its import map.")
 
     geo = el.geometry or {}
-    aperture = _aperture(geo, f"element '{el.name}'")
     name = el.name.split("  (")[0]                     # strip '  (xN lattice segments)'
 
-    spec = {
-        "source": "chamber",
-        "name": name,
-        "method": base,
-        **aperture,
-        "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
-        "beta_x": float(el.optics.get("bx") or 1.0),
-        "beta_y": float(el.optics.get("by") or 1.0),
-        "weighted": method_weighted(model.method) if model else False,
-        "layers": [layer_out(lay) for lay in el.layers],
-        **_yokoya_out(geo),
-        **({"test_beam_shift": geo["test_beam_shift"]}
-           if geo.get("test_beam_shift") is not None else {}),
-    }
+    if base == "resonator":
+        spec = {
+            "source": "resonator",
+            "name": name,
+            "method": "resonator",
+            "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
+            "beta_x": float(el.optics.get("bx") or 1.0),
+            "beta_y": float(el.optics.get("by") or 1.0),
+            "weighted": False,
+            "modes": modes_out(el),
+        }
+    else:
+        aperture = _aperture(geo, f"element '{el.name}'")
+        spec = {
+            "source": "chamber",
+            "name": name,
+            "method": base,
+            **aperture,
+            "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
+            "beta_x": float(el.optics.get("bx") or 1.0),
+            "beta_y": float(el.optics.get("by") or 1.0),
+            "weighted": method_weighted(model.method) if model else False,
+            "layers": [layer_out(lay) for lay in el.layers],
+            **_yokoya_out(geo),
+            **({"test_beam_shift": geo["test_beam_shift"]}
+               if geo.get("test_beam_shift") is not None else {}),
+        }
     # An element that carries its own gamma/grid belongs to no machine: its
     # settings win over the config that happens to be open in the GUI.
     base_cfg = dict(base_cfg or {})
@@ -512,12 +642,33 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
                 cspec["beta_x"] = float(el.optics.get("bx") or 1.0)
                 cspec["beta_y"] = float(el.optics.get("by") or 1.0)
         elif cbase in ("pytlwall", "iw2d"):
-            cspec = dict(spec, name=cname, method=cbase,
-                         weighted=method_weighted(cmp_.method))
+            if base == "resonator":
+                # The base element is a mode spectrum, so its spec carries no
+                # aperture and no layers: a wall comparison has to be built
+                # from the geometry the element still holds. Which is exactly
+                # why switching method leaves the wall in place rather than
+                # clearing it.
+                cspec = {"source": "chamber", "name": cname, "method": cbase,
+                         **_aperture(geo, f"element '{el.name}'"),
+                         "length_m": spec["length_m"],
+                         "beta_x": spec["beta_x"], "beta_y": spec["beta_y"],
+                         "weighted": method_weighted(cmp_.method),
+                         "layers": [layer_out(lay) for lay in el.layers],
+                         **_yokoya_out(geo)}
+            else:
+                cspec = dict(spec, name=cname, method=cbase,
+                             weighted=method_weighted(cmp_.method))
             if cbase != "iw2d":
                 # the factors are IW2D's; copying the base spec dragged them
                 # into a pytlwall device, where they mean nothing
                 cspec.pop(IW2D_YOKOYA, None)
+        elif cbase == "resonator":
+            raise ValueError(
+                "a resonator comparison has nowhere to take its modes from: "
+                "it would reuse this element's, which is the same calculation "
+                "again. Build the resonator as its own component (Component "
+                "\u25b8 New Component, method resonator) and plot the two "
+                "results together.")
         else:
             raise ValueError(f"compare entry: method '{cmp_.method}' not supported.")
 
@@ -602,6 +753,18 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
         else:
             spec = {"source": "precalculated", "name": f"{name}[{label}]",
                     "files": {data_component: str(data_file)}, "weighted": True}
+    elif base == "resonator":
+        # No geometry and no layers: what the engine reads is the mode list.
+        # Length and beta still belong here - a resonance is somewhere in a
+        # ring, and its transverse weight is the same as any other element's.
+        spec = {"source": "resonator", "name": f"{name}[resonator]",
+                "method": "resonator",
+                "length_m": float(el.optics.get("l")
+                                  or (el.geometry or {}).get("length") or 1.0),
+                "beta_x": float(el.optics.get("bx") or 1.0),
+                "beta_y": float(el.optics.get("by") or 1.0),
+                "weighted": False,
+                "modes": modes_out(el)}
     elif base in ("pytlwall", "iw2d"):
         geo = el.geometry or {}
         aperture = _aperture(geo, f"component '{name}'")
@@ -617,7 +780,10 @@ def component_config(el: GElement, method: str, base_cfg: Optional[dict] = None,
                 **({"test_beam_shift": geo["test_beam_shift"]}
                    if geo.get("test_beam_shift") is not None else {})}
     else:
-        raise ValueError(f"component bench: method '{method}' not supported.")
+        raise ValueError(
+            f"component bench: method '{method}' is not one it can compute. "
+            f"Use pytlwall or IW2D for a wall, resonator for a mode spectrum, "
+            f"or Load Precalculated for imported data.")
 
     cfg = {"name": f"{name}_component",
            "grid": base_cfg.get("grid") or {

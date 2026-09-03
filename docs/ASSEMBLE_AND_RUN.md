@@ -41,6 +41,15 @@ devices:
     file: data/lhc_rf_cavities_homs.json
     method: resonator
 
+  one_cavity:                              # the same source, written inline
+    source: resonator
+    name: CAV.1
+    position: 152.3
+    length_m: 1.8
+    modes:
+      - {Rl: 1.1e+5, Ql: 420.0, fl: 6.35e+8}
+      - {Rxd: 2.4e+5, Qxd: 380.0, fxd: 7.1e+8}
+
 output: [TCP.C6L7.B1]                      # per-device CSV only for these (opt-in)
 ```
 
@@ -51,6 +60,17 @@ output: [TCP.C6L7.B1]                      # per-device CSV only for these (opt-
 | `grid.frequency` | `{min, max, n, log}` frequency grid |
 | `default_pipe` | resistive wall for lattice rows without a named device |
 | `devices` | named sources (collimator/resonator JSON, ...) with a method |
+
+A resonator device may state its modes in a JSON file (`source:
+resonators_json`, or `source: resonator` with a `file:`) or write them straight
+into the config under `modes:`. Both are read and validated the same way, and
+`source: resonator` fixes the method, so a device written without a `method:`
+line is never handed to a wall engine. A mode carries an R, a Q and an f for
+each plane it speaks in — `Rl/Ql/fl` longitudinally, `Rxd/Qxd/fxd` and
+`Ryd/Qyd/fyd` dipolar, `Rxq/Qxq/fxq` and `Ryq/Qyq/fyq` quadrupolar — and
+stating one or two of the three is refused by name rather than failing inside
+the engine. Rs is the shunt impedance of the whole object: `length_m` says how
+much lattice the device covers and does not scale it.
 | `output` | device names to also write individually (total is always written) |
 
 ## Beta resolution

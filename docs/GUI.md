@@ -74,6 +74,28 @@ may be set to infinity with the box beside the field; every other value is a
 number. The outermost layer is the boundary — marked automatically, with
 infinite thickness, because it is the half-space outside the wall.
 
+The `Models` tab is where the method is chosen, and the tab follows the choice.
+The four methods are not four ways of computing one element: they are four
+kinds of element. pytlwall and IW2D solve a **wall**, so they read the geometry
+and the layers. `precalculated` reads a **file**. A resonator is a **mode
+spectrum** and reads neither — so choosing `resonator` opens a table of modes
+and closes `Geometry` and `Layers`, which nothing would read. Closed, not
+cleared: the wall stays as you left it, and switching back finds it there.
+
+Each row of the modes table is one resonance of one component: the component
+(`ZLong`, `ZDipX`, `ZDipY`, `ZQuadX`, `ZQuadY`), its shunt impedance Rs — an
+impedance longitudinally, an impedance per metre transversally — its quality
+factor and its resonant frequency. Rows sum, so a mode that speaks in several
+planes is written as several rows; a config that carries it as one mode with
+several triples comes back split the same way. Rs is the shunt impedance of the
+whole object, not a value per metre: the length of a resonator device says how
+much lattice it covers, and does not scale its impedance. The transverse
+weighting applies as it does everywhere else, β/β̄.
+
+The modes of an element that belongs to a machine are shown and not edited, for
+the same reason the beam is: they come from the config the machine was loaded
+from. A resonator of your own is built in the Component bench.
+
 **Results** (right) — everything a calculation produced: the machine total,
 each device, the aggregated default pipe, and for chambers the wall, the
 indirect space-charge and the wall+ISC components separately. Impedance and

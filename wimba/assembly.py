@@ -192,6 +192,72 @@ def mean_warnings(rows, mean, source):
             f"y: ...}} from the tunes, or give an optics file."]
 
 
+#: The (R, Q, f) key triples a resonator mode may carry, in the layout pywit
+#: uses for HOMs: one longitudinal, two dipolar, two quadrupolar. A mode is a
+#: resonance of the object, so the same mode may speak in several planes at
+#: once; each triple it carries becomes one resonator in the compute path.
+MODE_TRIPLES = (("Rl", "Ql", "fl"), ("Rxd", "Qxd", "fxd"), ("Ryd", "Qyd", "fyd"),
+                ("Rxq", "Qxq", "fxq"), ("Ryq", "Qyq", "fyq"))
+
+
+def read_modes(modes, owner: str) -> list:
+    """Validate a resonator's modes and return them as plain dicts.
+
+    Both routes into a resonator device come through here - the JSON file and
+    the ``modes:`` written straight into the config - so a hand-written mode is
+    checked exactly like an imported one.
+
+    What is refused, and why it has to be refused here: the compute path adds a
+    resonator for every triple whose R is set, then reads that triple's Q and f
+    without looking. So ``{Rl: 5000}`` alone raises a KeyError somewhere in
+    numpy, and ``{Rl: 5000, Ql: 0, fl: 1e9}`` divides by zero inside the damped
+    frequency. Named here instead, while it is still obvious which mode of which
+    device is at fault.
+    """
+    if isinstance(modes, dict):          # a single mode written without the list
+        modes = [modes]
+    if not modes:
+        raise ValueError(
+            f"resonator '{owner}' states no modes. A resonator is a mode "
+            f"spectrum: give at least one, as Rs, Q and the resonant frequency "
+            f"(keys {', '.join(k[0] for k in MODE_TRIPLES)} and their Q/f "
+            f"partners), either under 'modes:' or in a JSON file.")
+    out = []
+    for i, mode in enumerate(modes, start=1):
+        if not isinstance(mode, dict):
+            raise ValueError(f"resonator '{owner}', mode {i}: expected a mapping "
+                             f"of R/Q/f keys, got {type(mode).__name__}.")
+        clean, planes = {}, 0
+        for rk, qk, fk in MODE_TRIPLES:
+            present = [k for k in (rk, qk, fk) if mode.get(k) is not None]
+            if not present:
+                continue
+            missing = [k for k in (rk, qk, fk) if mode.get(k) is None]
+            if missing:
+                raise ValueError(
+                    f"resonator '{owner}', mode {i}: {', '.join(present)} given "
+                    f"without {', '.join(missing)}. A resonance needs all three "
+                    f"of shunt impedance, quality factor and frequency.")
+            q, f = float(mode[qk]), float(mode[fk])
+            if q <= 0.0:
+                raise ValueError(f"resonator '{owner}', mode {i}: {qk} = {q} is "
+                                 f"not above zero.")
+            if f <= 0.0:
+                raise ValueError(f"resonator '{owner}', mode {i}: {fk} = {f} is "
+                                 f"not above zero.")
+            clean[rk], clean[qk], clean[fk] = float(mode[rk]), q, f
+            planes += 1
+        if not planes:
+            raise ValueError(
+                f"resonator '{owner}', mode {i}: no R/Q/f triple. Known keys: "
+                + "; ".join("/".join(t) for t in MODE_TRIPLES) + ".")
+        for extra in ("name", "note"):          # kept: they document the mode
+            if mode.get(extra) is not None:
+                clean[extra] = mode[extra]
+        out.append(clean)
+    return out
+
+
 def read_method(spec: dict, name: str, default: str, source=None):
     """(method, already_weighted) from a device's ``source:``, ``method:`` and
     the older ``weighted:`` flag.
@@ -212,6 +278,11 @@ def read_method(spec: dict, name: str, default: str, source=None):
     method = str(spec.get("method", default)).lower().strip()
     if str(source or "").lower().strip() == "precalculated":
         method = "precalculated"
+    if str(source or "").lower().strip() in ("resonator", "resonators_json"):
+        # same reasoning: the source says what the device *is*, so a resonator
+        # written without a method: line must not inherit the default one and
+        # be handed to a wall engine that has no geometry to solve.
+        method = "resonator"
     flag = spec.get("weighted")
 
     if method == WEIGHTED_METHOD:
@@ -443,12 +514,35 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
                 devices.append(Device(name=name, method=method, weighted=weighted,
                                       space_charge=sc, allow_overlap=overlap,
                                       length=geo.get("length"), geometry=geometry, group=gname))
-        elif src == "resonators_json":
-            r = read_resonators(_data(spec["file"], "resonator file"))
-            devices.append(Device(name=r.get("name", "resonator"), method=method,
+        elif src in ("resonator", "resonators_json"):
+            # Two ways to say the same thing: a JSON file, which is how a
+            # measured or simulated HOM table arrives, and `modes:` in the
+            # config itself, which is how a couple of resonances written by
+            # hand arrive. Both end in the same Device, so nothing downstream
+            # can tell them apart.
+            name = spec.get("name")
+            length = spec.get("length_m", spec.get("length"))
+            modes = spec.get("modes")
+            if spec.get("file"):
+                r = read_resonators(_data(spec["file"], "resonator file"))
+                if modes:
+                    raise ValueError(
+                        f"resonator '{name or gname}' states both a file and "
+                        f"its own modes:. Keep one - two mode lists for one "
+                        f"device is a comparison, and a comparison is two "
+                        f"devices.")
+                modes = r.get("modes", [])
+                name = name or r.get("name")
+                length = length if length is not None else r.get("length")
+            beta = None
+            if "beta_x" in spec and "beta_y" in spec:
+                beta = (float(spec["beta_x"]), float(spec["beta_y"]))
+            devices.append(Device(name=name or "resonator", method=method,
                                   weighted=weighted, space_charge=sc,
-                                  allow_overlap=overlap, length=r.get("length"),
-                                  group=gname, params={"modes": r.get("modes", [])}))
+                                  allow_overlap=overlap, length=length,
+                                  position=spec.get("position"), beta=beta,
+                                  group=gname,
+                                  params={"modes": read_modes(modes, name or gname)}))
         elif src == "precalculated":
             files = {c: str(_data(f, "impedance table"))
                      for c, f in (spec.get("files") or {}).items()}

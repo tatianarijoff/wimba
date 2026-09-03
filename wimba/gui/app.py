@@ -388,8 +388,11 @@ class MainWindow(QMainWindow):
         self._act(m, "Load IW2D Config\u2026", self._comp_load_iw2d_cfg)
         self._act(m, "Save Component As\u2026", self._comp_save)
         m.addSeparator()
-        self._act(m, "Calculate with pytlwall", lambda: self._comp_calc("pytlwall"))
-        self._act(m, "Calculate with IW2D", lambda: self._comp_calc("IW2D"))
+        self._act(m, "Calculate Component", self._comp_calc_chosen)
+        self._act(m, "Calculate with pytlwall",
+                  lambda: self._comp_calc("pytlwall", explicit=True))
+        self._act(m, "Calculate with IW2D",
+                  lambda: self._comp_calc("IW2D", explicit=True))
         self._act(m, "Load Precalculated\u2026", self._comp_load_precalc)
         self._act(m, "Calculate Wake (pytlwall)",
                   lambda: self._comp_calc("pytlwall", wake=True))
@@ -1462,10 +1465,48 @@ class MainWindow(QMainWindow):
             return None
         return self.component
 
-    def _comp_calc(self, method, wake=False, data_file=None, data_component="ZLong"):
+    def _comp_method(self, el):
+        """The method the Models tab has selected for this component."""
+        model = next((m for m in el.models if m.enabled), None)
+        return model.method if model else "pytlwall"
+
+    def _comp_calc_chosen(self):
+        """Compute the component the way its Models tab says.
+
+        The two entries below name an engine instead, which is what a
+        comparison wants; this one follows the choice, which is what everything
+        else wants. Without it the tab could say resonator while the only
+        available action computed a wall.
+        """
         el = self._comp_require()
         if el is None:
             return
+        from .model import method_base
+        method = self._comp_method(el)
+        if method_base(method).lower() == "precalculated":
+            self.log.info("Component '%s' is precalculated: use Component \u25b8 "
+                          "Load Precalculated, which needs the data file and "
+                          "its import map.", el.name)
+            self._comp_load_precalc()
+            return
+        self._comp_calc(method)
+
+    def _comp_calc(self, method, wake=False, data_file=None,
+                   data_component="ZLong", explicit=False):
+        el = self._comp_require()
+        if el is None:
+            return
+        if explicit:
+            from .model import method_base
+            chosen = method_base(self._comp_method(el)).lower()
+            if chosen != method_base(method).lower():
+                # not refused: computing a wall with the other engine is a
+                # legitimate comparison. But it must not look like the tab was
+                # obeyed when it was not.
+                self.log.warning(
+                    "Component '%s': the Models tab says %s, this action "
+                    "computes %s. The result is labelled with the engine that "
+                    "produced it.", el.name, chosen, method_base(method))
         if method.lower() == "iw2d":
             self.log.warning("IW2D is not wired to its binary yet: this run will "
                              "report the row as skipped (the plumbing is ready).")

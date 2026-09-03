@@ -39,6 +39,14 @@ Two ways, from the **Component** menu:
   In the **Beam & Optics** tab state the energy. There is no default: a
   component with no beam will not compute, and the config it saves says so.
   The twiss betas sit beside it and are 1 unless you say otherwise.
+
+  In the **Models** tab pick how it is computed. `pytlwall` and `IW2D` solve
+  the wall you just described. `resonator` does not: it replaces the wall with
+  a list of resonances, so choosing it opens a modes table and closes Geometry
+  and Layers — the values there are kept, not discarded, so you can switch
+  back or compare against them. One row is one resonance of one component
+  (Rs, Q, f_r); rows sum. A mode missing one of its three numbers is refused
+  by name rather than failing inside the engine.
 - **Load pytlwall Config…** — a pytlwall chamber `.cfg`, in the format of
   pytlwall's own examples. WIMBA reads geometry, layers, boundary, beta, gamma
   and the frequency grid from the file. The grid is rebuilt from
@@ -69,9 +77,16 @@ how the wake will be obtained.
 
 Still in the **Component** menu:
 
+- **Calculate Component** — computes it the way the Models tab says. This is
+  the ordinary route: it follows the method you chose, whether that is a wall
+  or a resonator.
 - **Calculate with pytlwall** — all impedance components (`ZLong`, `ZDipX`,
   `ZDipY`, `ZQuadX`, `ZQuadY`, plus the indirect-space-charge terms as separate
   quantities and the derived `Z*+ISC` sums);
+- **Calculate with IW2D** — the same wall through the other engine. These two
+  name an engine rather than following the tab, which is what a comparison
+  wants; when they disagree with the chosen method the Console says so, and the
+  result carries the name of the engine that produced it.
 - **Calculate Wake (pytlwall)** — the native wake (`WLong`, `WDipX`, `WDipY`),
   computed from the geometry: it does not need a previous impedance run.
 
@@ -94,7 +109,8 @@ your own working folder, not the WIMBA checkout; the file dialogs reopen where
 you last saved.
 
 What is written is a WIMBA config holding a single device: geometry, layers,
-beam and grid. Not a pytlwall `.cfg`, because the same WIMBA file also
+beam and grid — or, for a resonator, its modes in place of the geometry and the
+layers. Not a pytlwall `.cfg`, because the same WIMBA file also
 describes an IW2D or an imported component, and a chamber dump cannot. The
 layer carries the numbers of its material and not the name, so the file
 computes the same for someone who has never seen your material list.
