@@ -1015,6 +1015,102 @@ def grid_of(cfg: dict) -> dict:
     return out
 
 
+#: keys of a grid block, in the order a message reads them out
+_GRID_KEYS = ("min", "max", "n", "log")
+
+
+def grid_span(grid: dict, which: str = "frequency") -> str:
+    """One line describing a grid, for a message. Empty string if there is none."""
+    part = (grid or {}).get(which) or {}
+    if not part:
+        return ""
+    lo, hi = as_number(part.get("min")), as_number(part.get("max"))
+    unit = "Hz" if which == "frequency" else "s"
+    bits = " .. ".join(f"{v:g}" if isinstance(v, float) else str(v)
+                       for v in (lo, hi) if v is not None)
+    n = part.get("n")
+    scale = "log" if part.get("log") else "linear"
+    return f"{bits} {unit}, {n} points, {scale}" if n else f"{bits} {unit}"
+
+
+def grid_conflict(project_grid: dict, cfg: dict, name: str = "the config"):
+    """What to say when a scenario's config asks for a grid of its own.
+
+    The grid belongs to the project: two curves are comparable only if they were
+    sampled at the same frequencies, so it is defined once and every scenario
+    inherits it. A config that states a different one is not an error - configs
+    are also run on their own by `wimba run`, where their grid is the only one
+    there is - but inside a project it does not win, and saying nothing would
+    leave the user reading one span on screen and computing another.
+
+    Returns the message, or None when there is nothing to say: no project grid,
+    no grid in the config, or the two agree.
+    """
+    mine = grid_of({"grid": project_grid or {}})
+    theirs = grid_of(cfg or {})
+    if not mine or not theirs or mine == theirs:
+        return None
+    parts = []
+    for which in ("frequency", "time"):
+        here, there = mine.get(which), theirs.get(which)
+        if here and there and here != there:
+            parts.append(f"{which}: project.yaml says {grid_span(mine, which)}, "
+                         f"{name} says {grid_span(theirs, which)}")
+        elif there and not here:
+            parts.append(f"{which}: {name} states one and project.yaml does not")
+    if not parts:
+        return None
+    return ("the project's grid wins, and the file on disk is unchanged \u2014 "
+            + "; ".join(parts))
+
+
+#: points wanted across a resonance's full width at half maximum before it is
+#: called resolved. Three is generous, ten is comfortable; five is the number
+#: below which a peak starts depending on where the grid happens to land.
+POINTS_ACROSS_A_PEAK = 5
+
+
+def grid_advice(grid: dict, which: str = "frequency") -> str:
+    """One line about what this sampling can and cannot see.
+
+    The spacing is easy to get wrong by orders of magnitude and hard to notice
+    afterwards: a resonance of quality factor Q is `f/Q` wide, so a log grid of
+    200 points over six decades - a perfectly ordinary choice - steps by 7% and
+    walks straight past anything sharper than Q of about 3. The curve that comes
+    out is not wrong at any point; it is simply not asking about the peak. Which
+    is why this sentence sits next to the fields rather than in a document.
+    """
+    part = (grid or {}).get(which) or {}
+    lo, hi, n = (as_number(part.get("min")), as_number(part.get("max")),
+                 part.get("n"))
+    try:
+        lo, hi, n = float(lo), float(hi), int(n)
+    except (TypeError, ValueError):
+        return ""
+    if n < 2 or hi <= lo or lo <= 0:
+        return ""
+    if part.get("log"):
+        ratio = (hi / lo) ** (1.0 / (n - 1))
+        rel = ratio - 1.0
+        step_top = hi * rel
+        detail = f"{rel * 100:.2f}% per point, {_hz(step_top)} at the top"
+    else:
+        step = (hi - lo) / (n - 1)
+        rel = step / hi
+        detail = f"{_hz(step)} per point, evenly"
+    q = 1.0 / (POINTS_ACROSS_A_PEAK * rel) if rel > 0 else float("inf")
+    return (f"{detail}. Resolves a resonance up to about Q = {q:.0f} "
+            f"({POINTS_ACROSS_A_PEAK} points across its width); a sharper one "
+            f"is stepped over, and its peak reads low.")
+
+
+def _hz(value: float) -> str:
+    for scale, unit in ((1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz")):
+        if abs(value) >= scale:
+            return f"{value / scale:.4g} {unit}"
+    return f"{value:.4g} Hz"
+
+
 # keys whose string values are file references, relative to the config's folder
 PATH_KEYS = {"optics", "file", "map", "path"}
 PATH_DICT_KEYS = {"files", "wake_files"}

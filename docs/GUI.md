@@ -38,7 +38,23 @@ is the default.
 **Scenarios** (top left) — only meaningful inside a project. Lists the
 scenarios with their beam and their provenance, and carries Duplicate, Rename
 and Remove. The line underneath states the shared grid, which is the thing that
-makes two scenarios comparable.
+makes two scenarios comparable: it is the one in `project.yaml`, it is what every
+scenario is computed on, and a config asking for another one is reported in the
+Console rather than obeyed.
+
+The grid itself is edited in **Calculate → Frequency & Time Grid…**: minimum,
+maximum, number of points and log or linear, plus the time grid a wake needs.
+Where it is written depends on what is open, and the dialog says so: a project
+owns the grid its scenarios share, a component of the bench carries its own. A
+machine opened from a config alone has neither, and takes the grid from that
+file — WIMBA does not rewrite a config unasked.
+
+Under the fields sits one line stating what the sampling can see: the step, and
+the sharpest resonance it resolves. It is worth reading before a run rather than
+after one. A log grid of 200 points from 10 kHz to 10 GHz steps by 7%, which
+resolves nothing sharper than a quality factor of about 3 — a cavity mode at
+Q = 420 computed on it is not wrong at any point, it is simply never asked
+about, and its peak reads low by orders of magnitude.
 
 **Machine Explorer** (left) — the tree of what is loaded: groups, then
 elements. The default resistive wall appears as a single entry with the number

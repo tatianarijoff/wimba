@@ -18,15 +18,16 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import (QAction, QActionGroup, QColor, QIcon, QKeySequence,
                          QPainter, QPixmap)
-from PyQt6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QHBoxLayout,
-                             QInputDialog, QLabel, QListWidget, QListWidgetItem,
-                             QMainWindow, QMessageBox, QPlainTextEdit, QScrollArea,
-                             QTabBar, QTabWidget, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QFileDialog,
+                             QHBoxLayout, QInputDialog, QLabel, QListWidget,
+                             QListWidgetItem, QMainWindow, QMessageBox,
+                             QPlainTextEdit, QScrollArea, QTabBar, QTabWidget,
+                             QVBoxLayout, QWidget)
 
 from .theme import THEMES, build_style
 from .model import (GGroup, GProject, GScenario, freeze_config, from_config,
-                    from_machine_file, grid_of, new_element, new_machine,
-                    slugify, write_config)
+                    from_machine_file, grid_conflict, grid_of, new_element,
+                    new_machine, slugify, write_config)
 from .panels import (BeamPanel, ElementPanel, InspectorPanel, MachineTree,
                      OpticsPanel, ScenarioPanel)
 from .runner import BuildWorker, RunWorker
@@ -409,6 +410,8 @@ class MainWindow(QMainWindow):
         self._act(m, "Clear Optics", self._todo)
 
         m = mb.addMenu("&Calculate")
+        self._act(m, "Frequency & Time Grid\u2026", self._edit_grid)
+        m.addSeparator()
         self.fill_pipe_action = QAction("Fill unmodelled lattice with resistive wall",
                                         self, checkable=True)
         self.fill_pipe_action.setChecked(True)
@@ -678,11 +681,14 @@ class MainWindow(QMainWindow):
         src = Path(source)
         cfg = yaml.safe_load(src.read_text()) or {}
         grid = grid_of(cfg)
-        if self.project.scenarios and grid and self.project.grid and grid != self.project.grid:
-            raise ValueError(
-                "this config asks for a different frequency/time grid than the "
-                "project's. Scenarios of one project share a grid - that is what "
-                "makes their curves comparable.")
+        if self.project.scenarios and grid and self.project.grid:
+            message = grid_conflict(self.project.grid, cfg, src.name)
+            if message:
+                # not a refusal any more: the project's grid is imposed on every
+                # scenario at run time, so a config that asks for another one is
+                # adopted and computed on the project's. Silence here would be
+                # the old bug in a new place.
+                self.log.warning("Grid: %s", message)
         label = self.project.unique_label(label or cfg.get("name") or src.stem)
         slug = slugify(label)
         dest = self._project_dir() / f"{slug}_config.yaml"
@@ -828,6 +834,7 @@ class MainWindow(QMainWindow):
             return
         if sc.beam is not None:
             self.machine.beam = sc.beam            # the scenario's beam wins
+        self._project_grid(path, cfg)              # says so if the file disagrees
         self._machine_of = sc.slug
         self.selected = None
         self.inspector.set_ref(None)
@@ -836,6 +843,67 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Scenario: {sc.label}{beam}", 5000)
 
     # ---- project files ----
+    def _grid_note(self, path=None, cfg=None):
+        """What to say about this scenario's grid, or None when there is
+        nothing to say. One sentence, used on opening and after a run."""
+        grid = (self.project.grid if self.project else None) or {}
+        if not grid:
+            return None
+        if path is None:
+            sc = self.project.scenario
+            if sc is None:
+                return None
+            path = self._project_dir() / sc.config
+        if cfg is None:
+            try:
+                import yaml
+                cfg = yaml.safe_load(Path(path).read_text()) or {}
+            except Exception:
+                return None
+        return grid_conflict(grid, cfg, Path(path).name)
+
+    def _project_grid(self, path=None, cfg=None, announce=True):
+        """The grid this run must use, and a word about it if the file disagrees.
+
+        Inside a project the grid is the project's: it is what makes two
+        scenarios comparable, and `project.yaml` is where it is stated. A
+        scenario config keeps its own `grid:` because it is also a config in its
+        own right - `wimba run injection_config.yaml` has nothing else to go on -
+        but inside the project that copy does not win. It used to, silently,
+        which left the Scenarios panel stating one span and the calculation using
+        another.
+
+        Returns the project's grid block, or None when there is no project grid
+        to impose.
+        """
+        grid = (self.project.grid if self.project else None) or {}
+        if not grid:
+            return None
+        # coerced: PyYAML follows YAML 1.1, where `6e8` is a string and only
+        # `6.0e+8` is a float. A grid typed by hand into project.yaml must not
+        # reach the engine as text.
+        grid = grid_of({"grid": grid})
+        if not grid:
+            return None
+        if cfg is None and path is not None:
+            try:
+                import yaml
+                cfg = yaml.safe_load(Path(path).read_text()) or {}
+            except Exception:
+                cfg = {}
+        if announce:
+            message = grid_conflict(grid, cfg or {},
+                                    Path(path).name if path else "the config")
+            if message:
+                self.log.warning("Grid: %s", message)
+                # the Console is not raised when a project is opened, and the
+                # bottom docks are tabbed: a warning written there on open is a
+                # warning nobody reads. Problems is the panel for exactly this.
+                prob = self._dock_text("problems")
+                prob.appendPlainText(f"WARNING  grid: {message}")
+                self.docks["problems"].raise_()
+        return grid
+
     def _save_project(self, quiet=False):
         if self.project is None:
             if not quiet:
@@ -1897,6 +1965,9 @@ class MainWindow(QMainWindow):
         stated = getattr(self.machine, "smooth_beta", None) if self.machine else None
         if stated:
             overrides["smooth_beta"] = {"x": float(stated[0]), "y": float(stated[1])}
+        grid = self._project_grid(self.config_path, announce=False)
+        if grid:
+            overrides["grid"] = grid
         self.worker = RunWorker(self.config_path, out_dir=out_dir, wake=wake,
                                 fill_pipe=self.fill_pipe_action.isChecked(),
                                 overrides=overrides or None, weighted=weighted)
@@ -1905,6 +1976,73 @@ class MainWindow(QMainWindow):
         self.worker.failed.connect(self._on_calc_failed)
         self.statusBar().showMessage("Calculating\u2026")
         self.worker.start()
+
+    def _grid_target(self):
+        """Where an edited grid goes, and the sentence that says so.
+
+        Two owners, and which one is open decides: a project owns the grid its
+        scenarios share, and a component of the bench carries its own because it
+        belongs to no project. A machine opened from a config on its own has
+        neither - its grid is in that file, and WIMBA does not rewrite a user's
+        config without being asked.
+        """
+        if self.project is not None:
+            return "project", (
+                f"This project's grid, shared by every scenario \u2014 written "
+                f"to project.yaml, and imposed on each scenario config.")
+        if self.component is not None:
+            return "component", (
+                f"The grid for '{self.component.name}', which belongs to no "
+                f"project \u2014 it travels with the component and is written "
+                f"into the config it saves.")
+        return None, ""
+
+    def _current_grid(self) -> dict:
+        owner, _ = self._grid_target()
+        if owner == "project":
+            return self.project.grid or {}
+        if owner == "component":
+            own = (self.component.own_base or {}).get("grid")
+            if own:
+                return own
+            return self._base_cfg().get("grid") or {}
+        return {}
+
+    def _edit_grid(self):
+        """Choose the frequencies (and times) a calculation is sampled at."""
+        from .grid_dialog import GridDialog
+        from .model import grid_advice
+
+        owner, where = self._grid_target()
+        if owner is None:
+            QMessageBox.information(
+                self, "Frequency & Time Grid",
+                "There is nothing to write a grid to yet.\n\nOpen a project, "
+                "whose scenarios share one grid, or create a component, which "
+                "carries its own. A machine opened from a config alone takes "
+                "the grid from that file: WIMBA does not rewrite it unasked.")
+            return
+        dialog = GridDialog(self._current_grid(), where, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        grid = dialog.values()
+        if not grid:
+            return
+        if owner == "project":
+            self.project.grid = grid
+            self._save_project(quiet=True)     # project.yaml is WIMBA's own file
+            self._refresh_scenarios_panel()
+            # the scenario configs keep their own; say it again here rather than
+            # only at the next open
+            sc = self.project.scenario
+            if sc is not None:
+                self._project_grid(self._project_dir() / sc.config)
+        else:
+            self.component.own_base = dict(self.component.own_base or {})
+            self.component.own_base["grid"] = grid
+            self.component.edited.add("grid")
+        self.log.info("Grid: %s", grid_advice(grid))
+        self.statusBar().showMessage("Grid set", 4000)
 
     def _dialect(self, path) -> str:
         """"assembly" (devices/default_pipe rules) or "machine" (listed groups).
@@ -1941,7 +2079,8 @@ class MainWindow(QMainWindow):
                                   if self.machine else None,
                                   smooth_beta=getattr(self.machine, "smooth_beta", None)
                                   if self.machine else None,
-                                  weighted=weighted)
+                                  weighted=weighted,
+                                  grid=self._project_grid(path, announce=False))
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_build_done)
         self.worker.failed.connect(self._on_calc_failed)
@@ -2027,6 +2166,11 @@ class MainWindow(QMainWindow):
             self.results_tree.set_model(self.results_model)
             self.docks["results"].raise_()
         prob = self._dock_text("problems"); prob.clear()
+        note = self._grid_note()
+        if note:
+            # prob.clear() above wipes what was written when the scenario was
+            # opened, and this is exactly the run it applied to
+            prob.appendPlainText(f"WARNING  grid: {note}")
         prob.appendPlainText(f"{len(result.rows)} assignments \u2014 "
                              f"computed {st['computed']}, skipped {st['skipped']}.")
         for line in self._weighting_problems(result, st):

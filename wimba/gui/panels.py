@@ -1207,8 +1207,10 @@ class ScenarioPanel(QWidget):
                 span = " .. ".join(f"{v:g}" if isinstance(v, float) else str(v)
                                    for v in (grid.get("min"), grid.get("max")))
                 lab = QLabel(f"Shared grid: {span} Hz, {grid.get('n')} points "
-                             f"\u2014 the same for every scenario, which is what "
-                             f"makes them comparable.")
+                             f"\u2014 stated in project.yaml and used for every "
+                             f"scenario, which is what makes them comparable. "
+                             f"A config that asks for another one is computed "
+                             f"on this, and says so in the Console.")
                 lab.setObjectName("EmptyText"); lab.setWordWrap(True)
                 v.addWidget(lab)
         return

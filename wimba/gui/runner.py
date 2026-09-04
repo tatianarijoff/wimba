@@ -15,6 +15,13 @@ from ..assembly import load_assembly
 from ..run import run as run_study
 
 
+def _same(a, b) -> bool:
+    """Two grids, compared without importing numpy for one comparison."""
+    if a is None or b is None:
+        return a is b
+    return len(a) == len(b) and bool((a == b).all())
+
+
 class RunWorker(QThread):
     log = pyqtSignal(str)
     done = pyqtSignal(object)      # {"result": AssemblyResult, "info": dict}
@@ -41,6 +48,7 @@ class RunWorker(QThread):
         cfg = dict(cfg)
         had = cfg.get("beam") or (
             {"gamma": cfg["gamma"]} if cfg.get("gamma") is not None else None)
+        had_grid = cfg.get("grid")
         cfg.update(self.overrides)
         now = cfg.get("beam") or {"gamma": cfg.get("gamma")}
         if had is None:
@@ -50,6 +58,13 @@ class RunWorker(QThread):
             self.log.emit(f"  WARNING: the Beam panel says {now}, "
                           f"{Path(self.config).name} says {had}. Computing with "
                           f"the panel; the file on disk is unchanged.")
+        if "grid" in self.overrides and had_grid != self.overrides["grid"]:
+            from .model import grid_conflict
+            detail = grid_conflict(self.overrides["grid"], {"grid": had_grid},
+                                   Path(self.config).name)
+            self.log.emit(f"  WARNING: {detail}" if detail else
+                          f"  grid from project.yaml: scenarios of one project "
+                          f"share a grid, which is what makes them comparable.")
         return cfg
 
     def run(self):
@@ -95,17 +110,46 @@ class BuildWorker(QThread):
     failed = pyqtSignal(str)
 
     def __init__(self, config, out_dir=None, beam=None, smooth_beta=None,
-                 weighted=True):
+                 weighted=True, grid=None):
         super().__init__()
         self.config = str(config)
         self.out_dir = out_dir
         self.beam = beam
         self.smooth_beta = smooth_beta
         self.weighted = weighted
+        self.grid = grid or None
         # The panel wins over the file, exactly as it does for RunWorker. Until
         # this existed the two pipelines disagreed: an assembly config was
         # computed at the energy on screen, a machine file at the energy on
         # disk. The file is not rewritten -- an override applies to this run.
+
+    def _apply_grid(self, scenario):
+        """Impose the project's grid, which is the one the panels state.
+
+        A machine file carries its own grid so that it can be built on its own.
+        Inside a project it is the project that owns the grid, so the sampling
+        is replaced here rather than in the file.
+        """
+        if not self.grid:
+            return
+        from ..builders.loader import _grid
+        project = getattr(scenario, "project", None)
+        if project is None:
+            return
+        freqs = _grid(self.grid.get("frequency") or self.grid.get("freq"))
+        times = _grid(self.grid.get("time"))
+        changed = []
+        if freqs is not None and not _same(project.freqs, freqs):
+            project.freqs = freqs
+            changed.append("frequency")
+        if times is not None and not _same(project.times, times):
+            project.times = times
+            changed.append("time")
+        if changed:
+            self.log.emit(f"  WARNING: the {' and '.join(changed)} grid comes "
+                          f"from project.yaml, not from {Path(self.config).name}: "
+                          f"scenarios of one project share a grid, and the file "
+                          f"on disk is unchanged.")
 
     def _apply_beam(self, scenario):
         if self.beam is None:
@@ -129,6 +173,7 @@ class BuildWorker(QThread):
             self.log.emit(f"Building '{name}'...")
             scenario = load_scenario(self.config)
             self._apply_beam(scenario)
+            self._apply_grid(scenario)
             # the panel's average and the weighting switch, like the beam: they
             # apply to this build, and the file on disk is not rewritten
             if self.smooth_beta:

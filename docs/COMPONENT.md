@@ -69,6 +69,12 @@ Two ways, from the **Component** menu:
   Note that WIMBA does not compute through these files: it drives IW2D's Python
   API. The format is how an IW2D case is written down and passed around.
 
+The frequencies it is computed at come from **Calculate → Frequency & Time
+Grid…**, which for a component with no project writes the grid into the
+component itself: it travels with it and is written into the config it saves.
+Worth setting before the first run when the component is a resonator, since a
+sharp mode falls between the points of a coarse grid.
+
 The **Models** tab shows how the component will be computed: one base method
 for the impedance (all components at once) and a Wakefield line that *declares*
 how the wake will be obtained.

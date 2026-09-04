@@ -21,6 +21,16 @@ frequencies. So the grid is a property of the **project**, not of a scenario: it
 is defined once and every scenario inherits it. Nothing has to remember to keep
 them in step, because there is only one.
 
+Each scenario config still carries a `grid:` of its own, because it is also a
+config in its own right: `wimba run injection_config.yaml` has nothing else to
+go on. Inside a project that copy does not win. The grid in `project.yaml` is
+imposed on every run, and when a config asks for a different one it is reported
+in **Problems** as the scenario opens — naming both spans, and saying that the
+file on disk is untouched — and again in the Console when it is computed. So
+the way to change the sampling of a whole project is **Calculate → Frequency &
+Time Grid…**, which writes `project.yaml`; editing that file by hand does the
+same thing, and the effect is visible the moment the scenario is opened.
+
 The same reasoning drives the other rule.
 
 ## Scenarios are created only by duplication
@@ -45,7 +55,7 @@ say what a curve is a variation *of*.
 | the optics | *Load Optics…* on the duplicate |
 | which elements are present | delete an element in the Machine Explorer |
 | element parameters | edit them in the element panel |
-| the grid | **no** — it is the project's, and shared |
+| the grid | **no** — it is the project's, and shared. A config that states its own is computed on the project's, with a line in the Console |
 
 ## On disk
 
