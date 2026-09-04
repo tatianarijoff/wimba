@@ -2,7 +2,7 @@ name: CHIMERA (invented ring)
 grid:
   frequency:
     min: 10000.0
-    max: 10000000000.0
+    max: 600000000.0
     n: 200
     log: true
   time:
@@ -19,6 +19,7 @@ scenarios:
     kinetic: 1200000000.0
     gamma: 2.278946709965436
     beta: 0.8985851431285204
+  computed_at: '2026-09-04T20:34:55'
 - label: extraction 20 GeV/c
   slug: extraction
   config: extraction_config.yaml
@@ -29,4 +30,4 @@ scenarios:
     gamma: 21.339222409368706
     beta: 0.998901369998633
   derived_from: injection 1.2 GeV
-
+  computed_at: '2026-09-04T20:22:00'

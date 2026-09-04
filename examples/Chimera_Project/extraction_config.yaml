@@ -3,7 +3,7 @@ optics: chimera.tfs
 grid:
   frequency:
     min: 10000.0
-    max: 10000000000.0
+    max: 600000000.0
     n: 200
     log: true
   time:
