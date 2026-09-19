@@ -867,6 +867,201 @@ def component_config_text(cfg: dict, method: str = "") -> str:
     return "\n".join(header) + _yaml.safe_dump(cfg, sort_keys=False)
 
 
+# ============================================ machine -> machine-dialect config
+# The counterpart of patch_config, for a machine that has no file behind it.
+#
+# Two ways of writing a machine out, and the difference is not a preference:
+#
+#   * a machine that came from a file is PATCHED (patch_config): only the values
+#     the user edited are touched, so the comments and the shape of a file
+#     someone maintains by hand survive the round trip;
+#   * a machine with no file is WRITTEN IN FULL, here, because there is nothing
+#     to preserve and the view-model is the whole truth.
+#
+# This function emits the MACHINE dialect - `groups:` of elements - and only
+# that. An assembly config (`devices:` / `default_pipe:`) is never written from
+# the view-model: from_config shows the RESOLVED result of those rules, so
+# dumping it would replace a rule covering a ring with thousands of rows that
+# compute the same thing and say nothing.
+#
+# Note the dialect's own spelling, which is not the assembly one:
+# `source: pytlwall` (not `chamber`), `length` (not `length_m`), and resonances
+# as `resonators: [{term, Rs, Q, fr}]`.
+
+DEFAULT_MACHINE_GRID = {
+    "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 200, "log": True},
+    "time": {"min": 1.0e-12, "max": 5.0e-9, "n": 200},
+}
+
+
+def _machine_beta(el: GElement) -> tuple:
+    """The betas to write, never omitted.
+
+    An element with no `beta_x` whose name is not in the twiss is read back by
+    the loader as PRE-WEIGHTED - its data taken as already carrying beta, and
+    multiplied by 1. That is right for an imported ring total and wrong for a
+    wall WIMBA computes, and the two are indistinguishable once the key is
+    missing. So a beta is always written: 1.0 when nothing is known, which is
+    the unweighted reading and says so.
+    """
+    bx, by = el.optics.get("bx"), el.optics.get("by")
+    try:
+        bx = float(bx) if bx not in (None, "") else 1.0
+    except (TypeError, ValueError):
+        bx = 1.0
+    try:
+        by = float(by) if by not in (None, "") else float(bx)
+    except (TypeError, ValueError):
+        by = float(bx)
+    return bx, by
+
+
+def _machine_element(el: GElement) -> dict:
+    """One element as the machine dialect states it."""
+    model = next((m for m in el.models if m.enabled), None)
+    method = model.method if model else "pytlwall"
+    base = method_base(method)
+    name = el.name.split("  (")[0]              # strip '  (xN lattice segments)'
+    geo = el.geometry or {}
+    spec = {"name": name}
+
+    if base == "resonator":
+        rows = [{"term": str(getattr(m, "q", "") or "ZLong"),
+                 "Rs": float(m.Rs), "Q": float(m.Q), "fr": float(m.fr)}
+                for m in (el.modes or [])]
+        if not rows:
+            raise ValueError(
+                f"element '{name}' is a resonator with no modes: there is "
+                f"nothing to write. Add at least one resonance in the Models "
+                f"tab, or give the element another method.")
+        spec["source"] = "resonator"
+        spec["resonators"] = rows
+    elif base == "precalculated":
+        if not (model and model.file):
+            raise ValueError(
+                f"element '{name}' is precalculated but names no file, so the "
+                f"saved machine could not be read back. Load its data first.")
+        spec["source"] = "table"
+        spec["file"] = str(model.file)
+        spec["term"] = str(model.q or "ZLong")
+        if model.origin:
+            spec["origin"] = str(model.origin)
+    elif base in ("pytlwall", "iw2d"):
+        spec["source"] = base
+        spec.update(_aperture(geo, f"element '{name}'"))
+        if el.layers:
+            spec["layers"] = [layer_out(lay) for lay in el.layers]
+        if geo.get("space_charge"):
+            spec["space_charge"] = True
+        if base == "pytlwall" and geo.get("test_beam_shift") is not None:
+            spec["test_beam_shift"] = float(geo["test_beam_shift"])
+        if base == "iw2d" and geo.get(IW2D_YOKOYA):
+            spec[IW2D_YOKOYA] = geo[IW2D_YOKOYA]
+    else:
+        raise ValueError(
+            f"element '{name}' uses method '{method}', which has no spelling in "
+            f"a machine file.")
+
+    spec["length"] = float(el.optics.get("l") or geo.get("length") or 1.0)
+    if method_weighted(method) or el.optics.get("pre"):
+        # the data already carries beta: say so, rather than writing a beta the
+        # compute path would then apply a second time
+        spec["pre_weighted"] = True
+    else:
+        spec["beta_x"], spec["beta_y"] = _machine_beta(el)
+    if el.category and el.category not in ("element", "component"):
+        spec["category"] = el.category
+    return spec
+
+
+def machine_config(gm: GMachine, optics=None, grid=None) -> dict:
+    """The whole machine as a machine-dialect config.
+
+    Used when there is no file to patch: a machine assembled in the window, or
+    one being saved somewhere new. The grid travels with it because a machine
+    file read on its own is where the project grid comes from.
+    """
+    cfg = {"name": gm.name or "machine"}
+    beam = getattr(gm, "beam", None)
+    if beam is not None:
+        cfg["beam"] = beam_out(beam)
+    cfg["grid"] = _deepcopy(grid) if grid else _deepcopy(DEFAULT_MACHINE_GRID)
+    optics = optics if optics is not None else getattr(gm, "optics_path", "")
+    if optics:
+        cfg["optics"] = str(optics)
+    if getattr(gm, "smooth_beta", None):
+        cfg["smooth_beta"] = [float(v) for v in gm.smooth_beta]
+    if getattr(gm, "output", ""):
+        cfg["output"] = str(gm.output)
+
+    groups = {}
+    for g in gm.groups:
+        rows = []
+        for el in g.elements:
+            if el.category == "default_pipe":
+                # synthetic: it stands for a rule in an assembly config, and a
+                # rule has no place in a list of elements
+                continue
+            rows.append(_machine_element(el))
+        groups[g.name] = rows
+    cfg["groups"] = groups
+    if getattr(gm, "additional", None):
+        cfg["additional"] = [_machine_element(el) for el in gm.additional]
+    return cfg
+
+
+def machine_config_text(cfg: dict) -> str:
+    """A machine config as text, with a header saying what the file is.
+
+    The header is where the unweighted case is declared: a file with no optics
+    computes an exact longitudinal impedance and an UNWEIGHTED transverse one,
+    and that distinction is invisible in the numbers themselves.
+    """
+    import yaml as _yaml
+
+    name = cfg.get("name", "machine")
+    header = [
+        f"# WIMBA machine: {name}",
+        "#",
+        "# Written by the GUI. Reopen it with File > Load Machine, or compute",
+        "# it with:",
+        "#",
+        f"#     wimba build {name}.yaml",
+        "#",
+    ]
+    if not cfg.get("optics"):
+        header += [
+            "# NO OPTICS FILE: every element states beta = 1, so the transverse",
+            "# results are UNWEIGHTED sums rather than this machine's transverse",
+            "# impedance. The longitudinal results are unaffected - beta does not",
+            "# enter them. Add an `optics:` line, or per-element beta_x/beta_y,",
+            "# to weight them.",
+            "#",
+        ]
+    if cfg.get("beam") is None:
+        header += [
+            "# NOTE: no beam - this file states no energy, so a calculation from",
+            "# it will refuse to run until one is added.",
+            "#",
+        ]
+    header.append("")
+    return "\n".join(header) + _yaml.safe_dump(cfg, sort_keys=False)
+
+
+def is_unweighted(gm: GMachine) -> bool:
+    """True when nothing weights this machine: no optics file and no element
+    carrying a beta of its own. The transverse totals are then plain sums."""
+    if getattr(gm, "optics_path", ""):
+        return False
+    for _, el in gm.all_elements():
+        if el.optics.get("pre"):
+            continue
+        bx = el.optics.get("bx")
+        if bx not in (None, "") and float(bx) != 1.0:
+            return False
+    return True
+
+
 # ====================================================================== project
 # A project is the container the GUI works in: one grid, one output root, and the
 # scenarios being compared. A scenario is a machine plus the beam it is computed

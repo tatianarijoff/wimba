@@ -145,7 +145,7 @@ def _resolve(dev: Device, twiss: dict, beta: _Beta, mean=(1.0, 1.0)):
     return None, float(mean[0]), float(mean[1]), "default-1"
 
 
-def unlocated_warnings(rows):
+def unlocated_warnings(rows, has_lattice: bool = True):
     """Flag devices that were never located in the lattice AND need a beta.
 
     ``_resolve`` falls back to beta = 1 for a device it cannot place: no
@@ -162,6 +162,21 @@ def unlocated_warnings(rows):
     notice.
     """
     out = []
+    if not has_lattice:
+        # No optics at all: a legitimate way to work, not a list of mistakes.
+        # Saying it once is information; saying it per device buries the
+        # warnings that matter. With a lattice present, an unlocated device IS
+        # a mistake and keeps its own line below.
+        unlocated = [r for r in rows
+                     if r.kind != "default_pipe" and r.beta_source == "default-1"
+                     and not r.weighted]
+        if not unlocated:
+            return out
+        return [f"no optics: all {len(unlocated)} devices were computed at "
+                f"beta = 1, so the transverse results are unweighted sums "
+                f"rather than this machine's transverse impedance. The "
+                f"longitudinal results are unaffected. Add an optics file, or "
+                f"a beta: on each device, to weight them."]
     for r in rows:
         if r.kind == "default_pipe" or r.beta_source != "default-1" or r.weighted:
             continue
@@ -410,7 +425,7 @@ def assemble(twiss: dict, devices, default_pipe: Optional[DefaultPipe],
                                    False, float(L), default_pipe.geometry, "default_pipe"))
 
     return AssemblyResult(name, rows, _collisions(rows, tol),
-                          unlocated_warnings(rows) + mean_warnings(rows, mean, mean_src),
+                          unlocated_warnings(rows, beta.ok) + mean_warnings(rows, mean, mean_src),
                           mean, mean_src)
 
 

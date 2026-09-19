@@ -59,6 +59,13 @@ def materialize(scenario, out_dir):
     # different total from the one in total/
     mx, my = getattr(machine, "beta_mean", (1.0, 1.0))
     resume["beta_mean"] = _Flow({"x": float(mx), "y": float(my)})
+    # where that average came from, and - when it came from nowhere - what the
+    # transverse totals therefore are. A curve does not look unweighted, so the
+    # qualification has to travel with the data rather than with whoever
+    # remembers how the window was set up.
+    source = getattr(machine, "beta_mean_source", None)
+    if source:
+        resume["beta_mean_source"] = str(source)
     if not getattr(machine, "weighted", True):
         resume["weighted"] = False
     seen_terms = set()
@@ -111,6 +118,15 @@ def materialize(scenario, out_dir):
             total[naming.component(tid, "W")] = f"total/{fn}"
     resume["total"] = total
     resume["components"] = sorted(naming.component(t, "Z") for t in seen_terms)
+
+    # Written last, once every element is in: when no element carries a beta of
+    # its own, every transverse weight was 1 and the totals are plain sums. A
+    # curve does not look unweighted, so the qualification travels with the
+    # data instead of with whoever remembers how the run was set up.
+    if not any(rec["optics"].get("beta_x") not in (None, 1.0)
+               for elems in list(resume["groups"].values()) + [resume["additional"]]
+               for rec in elems):
+        resume["transverse"] = "unweighted: no optics, beta = 1 everywhere"
 
     resume_path = out / f"{naming.safe(scenario.name)}_resume.yaml"
     with open(resume_path, "w") as fh:

@@ -249,7 +249,8 @@ class MainWindow(QMainWindow):
             "machine": ("\u25c8", "Machine is empty",
                         "File \u2192 Load Machine, or start a new one."),
             "optics":  ("\u25cb", "No optics yet",
-                        "Load a machine, then load or enter the optics."),
+                        "Load a machine. Optics are optional: without them "
+                        "\u03b2 = 1 and the transverse results are unweighted."),
             "beam":    ("\u2192", "No beam yet",
                         "Load a machine, then set the particle and its energy."),
             "results": ("\u2211", "No results yet",
@@ -329,6 +330,9 @@ class MainWindow(QMainWindow):
         self._act(m, "Close Machine", self._close_machine,
                   QKeySequence.StandardKey.Close)
         m.addSeparator()
+        self._act(m, "Save Machine", self._save_machine)
+        self._act(m, "Save Machine As\u2026", self._save_machine_as)
+        m.addSeparator()
         self._act(m, "Save Project", self._save_project, QKeySequence.StandardKey.Save)
         self._act(m, "Save Project As\u2026", self._save_project_as,
                   QKeySequence.StandardKey.SaveAs)
@@ -385,6 +389,7 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&Component")
         self._act(m, "Use Selected Element as Component", self._comp_use_selected)
         self._act(m, "New Component\u2026", self._comp_new)
+        self._act(m, "Open Component\u2026", self._comp_open)
         self._act(m, "Load pytlwall Config\u2026", self._comp_load_pytlwall_cfg)
         self._act(m, "Load IW2D Config\u2026", self._comp_load_iw2d_cfg)
         self._act(m, "Save Component As\u2026", self._comp_save)
@@ -568,7 +573,8 @@ class MainWindow(QMainWindow):
     def _refresh_optics_panel(self):
         if not self.machine:
             self.docks["optics"].setWidget(empty_state("\u25cb", "No optics yet",
-                "Load a machine, then load or enter the optics."))
+                "Load a machine. Optics are optional: without them \u03b2 = 1 "
+                "and the transverse results are unweighted."))
             return
         self.docks["optics"].setWidget(OpticsPanel(self.machine, self._after_edit, self._load_optics))
 
@@ -780,6 +786,127 @@ class MainWindow(QMainWindow):
         self._capture_scenario()
         self.project.current = row
         self._activate_scenario()
+
+    # ---- saving a machine outside a project ----
+
+    def _save_machine(self):
+        """Write the open machine to disk. Four cases, one entry.
+
+        Inside a project the machine IS the current scenario, so its config is
+        what gets written, and project.yaml follows quietly because it is
+        WIMBA's own bookkeeping rather than the user's file. Outside one, a
+        machine that came from a file is patched in place; a machine with no
+        file behind it is written in full, which needs a name, so it goes to
+        Save As.
+        """
+        if self.machine is None:
+            self.statusBar().showMessage("No machine is open.", 3000)
+            return
+        if self.project is not None:
+            sc = self.project.scenario
+            self._capture_scenario(write=True)
+            self._save_project(quiet=True)   # project.yaml: not the user's file
+            self.statusBar().showMessage(f"Saved {sc.config}", 4000)
+            return
+        source = self._source_config()
+        if source and Path(source).exists():
+            self._write_machine_to(Path(source), "Save Machine")
+            return
+        self._save_machine_as()
+
+    def _save_machine_as(self):
+        """Copy the config the machine came from, then patch the copy.
+
+        Save As cannot serialise the view-model from nothing either: the copy is
+        what makes the patch possible, and it is also what keeps the original
+        untouched.
+        """
+        if self.machine is None:
+            self.statusBar().showMessage("No machine is open.", 3000)
+            return
+        import shutil
+        from .model import slugify
+        source = self._source_config()
+        source = Path(source) if source and Path(source).exists() else None
+        if source is not None:
+            suggested = source.with_name(f"{source.stem}_edited{source.suffix}")
+        else:
+            suggested = Path(self._dir_hint(
+                f"{slugify(self.machine.name or 'machine')}.yaml"))
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "Save Machine As", str(suggested), "YAML (*.yaml *.yml)")
+        if not dest:
+            return
+        dest = Path(dest)
+        if source is None:
+            # nothing to patch: write the machine out in full
+            if not self._dump_machine_to(dest):
+                return
+        else:
+            try:
+                if dest.resolve() != source.resolve():
+                    shutil.copyfile(source, dest)
+            except Exception as exc:
+                self.log.error("Could not copy %s to %s: %s", source, dest, exc)
+                QMessageBox.warning(self, "Save Machine As", str(exc))
+                return
+            if not self._write_machine_to(dest, "Save Machine As"):
+                return
+        # from now on that file is the one being edited, as every editor does
+        if self.config_path:
+            self.config_path = str(dest)
+        else:
+            self.machine_path = str(dest)
+        self._last_dir = str(dest.parent)
+
+    def _dump_machine_to(self, path: Path) -> bool:
+        """Write a machine that has no file behind it, in full.
+
+        Only ever the machine dialect. A machine opened from an assembly config
+        always has that file to patch, so it never reaches here - which is what
+        keeps a set of rules from being written back as thousands of rows.
+        """
+        from .model import machine_config, machine_config_text
+        try:
+            cfg = machine_config(self.machine)
+            path.write_text(machine_config_text(cfg))
+        except Exception as exc:
+            self.log.error("Could not write %s: %s", path, exc)
+            QMessageBox.warning(self, "Save Machine As",
+                                f"Could not write {path.name}:\n{exc}")
+            return False
+        self.machine_path = str(path)
+        self.config_path = None
+        self._config_dirty = False
+        if not getattr(self.machine, "optics_path", ""):
+            self.log.info(
+                "No optics file: every element was written with beta = 1, so "
+                "transverse results from this machine are unweighted sums. The "
+                "longitudinal ones are unaffected.")
+        self.log.info("Machine written in full to %s", path)
+        self.statusBar().showMessage(f"Saved {path.name}", 4000)
+        return True
+
+    def _unsaved_target(self) -> str:
+        """The file Save Machine would write, named for a dialog."""
+        if self.project is not None and self.project.scenarios:
+            return self.project.scenario.config
+        source = self._source_config()
+        return Path(source).name if source else "a file yet to be chosen"
+
+    def _write_machine_to(self, path: Path, title: str) -> bool:
+        """The one place a machine is written outside a project."""
+        try:
+            write_config(path, self.machine,
+                         optics=getattr(self.machine, "optics_path", None))
+        except Exception as exc:                 # never lose the session over a save
+            self.log.error("Could not write %s: %s", path, exc)
+            QMessageBox.warning(self, title, f"Could not write {path.name}:\n{exc}")
+            return False
+        self._config_dirty = False
+        self.log.info("Machine written to %s", path)
+        self.statusBar().showMessage(f"Saved {path.name}", 4000)
+        return True
 
     def _capture_scenario(self, write: bool = False):
         """Take what the panels hold into the current scenario.
@@ -1098,11 +1225,21 @@ class MainWindow(QMainWindow):
                 "close the machine.")
             return False
 
-        if confirm and (self.machine is not None or self.results_model.sources):
+        if (confirm and self._config_dirty and self.machine is not None
+                and (self.project is not None or self._source_config())):
             ans = QMessageBox.question(self, "Close Machine",
-                "Close the machine and clear every result?\n\n"
-                "Saving a machine is not implemented yet, so any edit you made "
-                "here cannot be recovered.",
+                "The panels hold edits that have not been written to "
+                f"{self._unsaved_target()}.\n\nSave them before closing?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save)
+            if ans == QMessageBox.StandardButton.Cancel:
+                return False
+            if ans == QMessageBox.StandardButton.Save:
+                self._save_machine()
+        elif confirm and (self.machine is not None or self.results_model.sources):
+            ans = QMessageBox.question(self, "Close Machine",
+                "Close the machine and clear every result?",
                 QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel)
             if ans != QMessageBox.StandardButton.Ok:
@@ -1286,6 +1423,61 @@ class MainWindow(QMainWindow):
         self.component = ref["obj"]
         self._open_element(self.component)
         self.log.info("Component bench: using '%s'.", self.component.name)
+
+    def _comp_open(self):
+        """Read a saved component back into the bench.
+
+        The counterpart of Save Component As. Such a file is an ordinary WIMBA
+        config that happens to hold one device, so any single-device config
+        opens here; the grid and beam it states travel with the element in
+        `own_base`, because a component belongs to no machine and its own
+        settings are the ones that win.
+        """
+        import yaml
+
+        from .model import from_config
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Component", self._dir_hint(),
+            "WIMBA config (*.yaml *.yml);;All files (*)")
+        if not path:
+            return
+        self._remember_dir(path)
+        try:
+            gm = from_config(path)
+            data = yaml.safe_load(Path(path).read_text()) or {}
+        except Exception as exc:
+            self.log.error("Could not read %s: %s", path, exc)
+            QMessageBox.critical(self, "Open Component", str(exc))
+            return
+
+        elements = [el for _, el in gm.all_elements()
+                    if el.category != "default_pipe"]
+        if len(elements) != 1:
+            # opening the first of several would be the kind of silence that is
+            # noticed three hours later
+            QMessageBox.information(
+                self, "Open Component",
+                f"{Path(path).name} describes {len(elements)} devices, and the "
+                f"bench holds one.\n\nOpen it with File \u25b8 Open Config to "
+                f"work on it as a machine, then Component \u25b8 Use Selected "
+                f"Element as Component for one of them.")
+            return
+
+        el = elements[0]
+        el.category = "component"
+        own = {}
+        if data.get("grid"):
+            own["grid"] = data["grid"]
+        if isinstance(data.get("beam"), dict):
+            own["beam"] = data["beam"]
+        if data.get("gamma") is not None:
+            own["gamma"] = data["gamma"]
+        el.own_base = own
+        self.component = el
+        self._component_base = own
+        self._open_element(el)
+        self.log.info("Component '%s' opened from %s", el.name, path)
+        self._log_run_settings(el, source=Path(path).name)
 
     def _comp_new(self):
         name, ok = QInputDialog.getText(self, "New Component", "Component name:",

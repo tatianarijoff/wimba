@@ -1044,8 +1044,20 @@ class OpticsPanel(QWidget):
         btn = QPushButton("Load Optics\u2026"); btn.clicked.connect(on_load)
         top.addWidget(btn)
         v.addLayout(top)
-        msg = ("All elements have \u03b2 and position." if have == need
-               else "Some elements are missing \u03b2. Load optics or enter values below.")
+        # No optics at all is a legitimate way to work - a group that keeps its
+        # optics elsewhere applies its own weights afterwards - so the panel
+        # states the consequence instead of reporting something missing. A
+        # machine that HAS optics and still misses betas is a different thing,
+        # and keeps its warning.
+        if have == need:
+            msg = "All elements have \u03b2 and position."
+        elif have == 0:
+            msg = ("No optics: \u03b2 = 1 everywhere. The calculation runs, the "
+                   "longitudinal results are unaffected, and the transverse "
+                   "ones are unweighted sums. Load optics, or enter \u03b2 below, "
+                   "to weight them.")
+        else:
+            msg = "Some elements are missing \u03b2. Load optics or enter values below."
         v.addWidget(_note(msg))
         v.addWidget(self._mean_box())
 
@@ -1073,7 +1085,7 @@ class OpticsPanel(QWidget):
         "smooth_beta": "stated below",
         "lattice": "averaged over the optics file",
         "elements": "estimated from the elements themselves",
-        "none": "no optics and none stated",
+        "none": "no optics and none stated \u2014 transverse sums are unweighted",
     }
 
     def _mean_box(self):
