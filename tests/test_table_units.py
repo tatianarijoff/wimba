@@ -77,6 +77,9 @@ def test_headerless_hz_file_still_reads(tmp_path):
 
 
 def test_named_columns_carry_the_unit(tmp_path):
+    # a header row over named columns is the one table layout numpy cannot
+    # parse, so this case - and only this case - goes through pandas
+    pytest.importorskip("pandas")
     p = tmp_path / "multi.csv"
     p.write_text("Freq(GHz),Re(ZLong),Im(ZLong)\n0,1,1\n1,2,2\n")
     table = read_impedance_table(p)

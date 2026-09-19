@@ -176,13 +176,26 @@ def _dists_for(module: str) -> set:
     return set(packages_distributions().get(module, []))
 
 
+def _declared_names(spec: str) -> set:
+    """Every import name a requirement can legitimately appear under.
+
+    A namespace distribution is imported by its first component alone:
+    `ruamel.yaml` is `import ruamel`. The installed metadata says so, but only
+    when that distribution is installed - and the case worth catching is
+    precisely a checkout without the extra, where these two tests used to fail
+    in opposite directions over the same requirement.
+    """
+    dist = _dist(spec)
+    return {dist, dist.split(".")[0]}
+
+
 def _import_names(dist: str) -> set:
-    """The import names a distribution provides. Falls back to its own name when
-    the distribution is not installed here."""
+    """The import names a distribution provides. Falls back to the names its own
+    name implies when the distribution is not installed here."""
     from importlib.metadata import packages_distributions
     names = {m.lower() for m, ds in packages_distributions().items()
              if dist in {d.lower() for d in ds}}
-    return names or {dist}
+    return names or {dist, dist.split(".")[0]}
 
 
 
@@ -200,7 +213,7 @@ def test_every_third_party_import_is_declared(tmp_path):
     declared = {"wimba"}
     for spec in (project["dependencies"]
                  + [d for v in project["optional-dependencies"].values() for d in v]):
-        declared.add(_dist(spec))
+        declared |= _declared_names(spec)
     # engines WIMBA locates itself rather than depending on
     declared |= {"pytlwall", "iw2d"}
 

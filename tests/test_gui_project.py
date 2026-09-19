@@ -107,6 +107,10 @@ def test_results_read_the_build_layout(tmp_path):
     under single_elements/. The Results panel has to read both, or a machine
     computed from the GUI produces files nothing can plot."""
     import numpy as np
+    # ResultsModel is Qt-free, but the module it lives in imports PyQt6 at the
+    # bottom, so reaching it needs Qt installed. Everything else in this file
+    # goes through wimba.gui.model, which does not.
+    pytest.importorskip("PyQt6.QtWidgets")
     from wimba import Element, Explicit, Machine, Project, Resonator
     from wimba import ResonatorProvider, Scenario, materialize
     from wimba.gui.results import ResultsModel
