@@ -225,17 +225,42 @@ def _models_from_provider(el):
     return models
 
 
+# What an element carries is wider than what the Geometry tab should offer. The
+# tab builds a row per key it finds, so anything left in `geometry` becomes an
+# editable field: the layers appeared BOTH as a string there and, correctly, in
+# the Layers tab, and an option nobody set got a blank box that looks like
+# something you forgot to fill in.
+_NOT_GEOMETRY = {"name", "source", "method", "term", "file", "files",
+                 "wake_files", "map", "origin", "quantity", "weighted"}
+
+
+def _panel_geometry(raw, length=None) -> dict:
+    """What the Geometry tab should show for an element read from a config.
+
+    The layers are left out because the Layers tab owns them - both paths that
+    build an element from a config already put them there, and keeping a copy
+    here is what showed them twice.
+    """
+    geo = {k: v for k, v in (raw or {}).items()
+           if k != "layers" and k not in _NOT_GEOMETRY and v is not None}
+    if geo.get("length") is None and length:
+        geo["length"] = float(length)            # the panel reads it here
+    return geo
+
+
 def _element_from(e):
     m = e.meta or {}
     info = dict(m.get("info", {}))
     pre = bool(info.get("pre_weighted", False))
+    geo = _panel_geometry(info, getattr(e, "length", None))
+
     return GElement(
         name=e.name, category=getattr(e, "category", "element"),
-        geometry=info,
-        optics={"s": m.get("position"), "l": info.get("length"),
+        geometry=geo,
+        optics={"s": m.get("position"), "l": geo.get("length"),
                 "bx": m.get("beta_x"), "by": m.get("beta_y"), "pre": pre},
-        layers=[], models=_models_from_provider(e),
-        modes=_modes_from_provider(e))
+        layers=[dict(lay) for lay in (info.get("layers") or [])],
+        models=_models_from_provider(e), modes=_modes_from_provider(e))
 
 
 def from_machine_file(path) -> GMachine:
@@ -327,10 +352,11 @@ def from_config(path) -> GMachine:
             order.append(g)
         groups[g].append(GElement(
             name=r.name, category=r.method,
-            geometry=dict(r.geometry or {}),
+            geometry=_panel_geometry(r.geometry, r.length),
             optics={"s": r.position, "l": r.length,
                     "bx": r.beta_x, "by": r.beta_y, "pre": r.weighted},
-            layers=list(r.geometry.get("layers") or []) if r.geometry else [],
+            layers=[dict(lay) for lay in
+                    ((r.geometry or {}).get("layers") or [])],
             models=default_models(method_label(r.method, r.weighted)),
             # a resonator row carries its modes in params: without them the
             # Models tab would show the method and nothing that defines it

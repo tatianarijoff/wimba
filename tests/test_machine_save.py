@@ -450,3 +450,78 @@ def test_a_config_that_states_a_beam_needs_no_per_element_energy():
            "groups": {"g": [{"name": "OLD", "source": "pytlwall"}]}}
     out = patch_config(cfg, _with_added(beam=_Beam(7461.0)))
     assert "gamma" not in out["groups"]["g"][1]
+
+
+# --------------------------------------------- an element read back from a config
+
+class _CoreElement:
+    """A core Element as the assembler hands it to the GUI layer."""
+    def __init__(self, info, length=1.4):
+        self.name, self.category, self.length = "My Component", "element", length
+        self.meta = {"position": None, "beta_x": 1.0, "beta_y": 1.0, "info": info}
+
+
+LAYERS = [{"type": "CW", "sigma": 3.81e7, "thickness": "inf", "boundary": False},
+          {"type": "CW", "sigma": 1.4e6, "thickness": "inf", "boundary": True}]
+
+
+def test_layers_are_in_the_layers_tab_and_nowhere_else(monkeypatch):
+    """They used to be in both places: correctly in the Layers tab, and again as
+    a Python repr inside an editable Geometry field."""
+    from wimba.gui import model as m
+
+    monkeypatch.setattr(m, "_models_from_provider", lambda e: m.default_models("pytlwall"))
+    monkeypatch.setattr(m, "_modes_from_provider", lambda e: [])
+    el = m._element_from(_CoreElement(
+        {"shape": "CIRCULAR", "radius": 0.02, "layers": LAYERS}))
+
+    assert "layers" not in el.geometry
+    assert [lay["sigma"] for lay in el.layers] == [3.81e7, 1.4e6]
+
+
+def test_the_length_is_where_the_geometry_tab_reads_it(monkeypatch):
+    from wimba.gui import model as m
+
+    monkeypatch.setattr(m, "_models_from_provider", lambda e: m.default_models("pytlwall"))
+    monkeypatch.setattr(m, "_modes_from_provider", lambda e: [])
+    el = m._element_from(_CoreElement({"shape": "CIRCULAR", "radius": 0.02}))
+    assert el.geometry["length"] == 1.4 and el.optics["l"] == 1.4
+
+
+def test_an_option_nobody_set_gets_no_field(monkeypatch):
+    """The Geometry tab builds a row per key it finds, so a None would become a
+    blank box that looks like something the user forgot to fill in."""
+    from wimba.gui import model as m
+
+    monkeypatch.setattr(m, "_models_from_provider", lambda e: m.default_models("pytlwall"))
+    monkeypatch.setattr(m, "_modes_from_provider", lambda e: [])
+    el = m._element_from(_CoreElement(
+        {"shape": "CIRCULAR", "radius": 0.02, "iw2d_yokoya": None,
+         "test_beam_shift": None, "method": "pytlwall", "source": "chamber",
+         "name": "My Component"}))
+
+    assert sorted(el.geometry) == ["length", "radius", "shape"]
+
+
+def test_a_stated_option_keeps_its_field(monkeypatch):
+    from wimba.gui import model as m
+
+    monkeypatch.setattr(m, "_models_from_provider", lambda e: m.default_models("pytlwall"))
+    monkeypatch.setattr(m, "_modes_from_provider", lambda e: [])
+    el = m._element_from(_CoreElement(
+        {"shape": "CIRCULAR", "radius": 0.02, "test_beam_shift": 0.003}))
+    assert el.geometry["test_beam_shift"] == 0.003
+
+
+def test_the_row_path_from_config_is_normalised_the_same_way():
+    """from_config builds its elements from assembly rows, not from _element_from,
+    and that is the path Open Component takes - so it is the one that showed the
+    layers twice."""
+    from wimba.gui.model import _panel_geometry
+
+    raw = {"shape": "CIRCULAR", "radius": 0.02, "layers": LAYERS,
+           "iw2d_yokoya": None, "method": "pytlwall"}
+    geo = _panel_geometry(raw, length=1.4)
+    assert sorted(geo) == ["length", "radius", "shape"]
+    assert geo["length"] == 1.4
+    assert raw["layers"] is LAYERS          # the caller still reads them from here
