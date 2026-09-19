@@ -122,6 +122,11 @@ class GElement:
                                                    # changing it back must not
                                                    # have thrown the wall away
     uid: int = field(default_factory=lambda: next(_UID))
+    added: bool = False
+    # created in the window and not yet in any file. Set by Machine > Add
+    # Element, cleared once written. Name matching cannot stand in for this: a
+    # file-driven entry expands to names patch_config cannot see, so an element
+    # that came from one would look new and be appended a second time.
     edited: set = field(default_factory=set)
     # which fields the *user* changed in the panels ("bx", "by", "l", "geometry",
     # "layers"). Only these are written back to the config: a beta that came from
@@ -545,6 +550,50 @@ def _modes_from_provider(el) -> list:
             for r in prov.resonators]
 
 
+def device_spec(el: GElement) -> dict:
+    """One element as an assembly config states a device.
+
+    The assembly dialect's own spelling - `source: chamber`, `length_m`,
+    `modes:` - which is not the machine dialect's. Shared by the single-element
+    bridge and by patch_config, so an element added in the window is written
+    the same way it would be computed.
+    """
+    model = next((m for m in el.models if m.enabled), None)
+    base = (method_base(model.method) if model else "pytlwall").lower()
+    geo = el.geometry or {}
+    name = el.name.split("  (")[0]              # strip '  (xN lattice segments)'
+    if base == "resonator":
+        modes = modes_out(el)
+        if not modes:
+            raise ValueError(
+                f"element '{name}' is a resonator with no modes: there is "
+                f"nothing to write. Add a resonance in the Models tab, or give "
+                f"the element another method.")
+        return {"source": "resonator", "name": name, "method": "resonator",
+                "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
+                "beta_x": float(el.optics.get("bx") or 1.0),
+                "beta_y": float(el.optics.get("by") or 1.0),
+                "weighted": False, "modes": modes}
+    if base not in ("pytlwall", "iw2d"):
+        raise ValueError(
+            f"element '{name}' uses method '{model.method if model else base}', "
+            f"which a config states as a wall or a resonator. Imported data is "
+            f"described by a file and an import map, so it cannot be written "
+            f"from the panels.")
+    return {
+        "source": "chamber", "name": name, "method": base,
+        **_aperture(geo, f"element '{name}'"),
+        "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
+        "beta_x": float(el.optics.get("bx") or 1.0),
+        "beta_y": float(el.optics.get("by") or 1.0),
+        "weighted": method_weighted(model.method) if model else False,
+        "layers": [layer_out(lay) for lay in el.layers],
+        **_yokoya_out(geo),
+        **({"test_beam_shift": geo["test_beam_shift"]}
+           if geo.get("test_beam_shift") is not None else {}),
+    }
+
+
 def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
                       compare_only: bool = False) -> dict:
     """Emit an assemble config that computes just this element.
@@ -572,36 +621,11 @@ def element_to_config(el: GElement, base_cfg: Optional[dict] = None,
             f"through Component \u25b8 Load Precalculated, which needs the file "
             f"and its import map.")
 
+    spec = device_spec(el)
+    name = spec["name"]
+    # the compare branches below build a wall from the element's own geometry,
+    # even when the base element is a resonator whose spec carries none
     geo = el.geometry or {}
-    name = el.name.split("  (")[0]                     # strip '  (xN lattice segments)'
-
-    if base == "resonator":
-        spec = {
-            "source": "resonator",
-            "name": name,
-            "method": "resonator",
-            "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
-            "beta_x": float(el.optics.get("bx") or 1.0),
-            "beta_y": float(el.optics.get("by") or 1.0),
-            "weighted": False,
-            "modes": modes_out(el),
-        }
-    else:
-        aperture = _aperture(geo, f"element '{el.name}'")
-        spec = {
-            "source": "chamber",
-            "name": name,
-            "method": base,
-            **aperture,
-            "length_m": float(el.optics.get("l") or geo.get("length") or 1.0),
-            "beta_x": float(el.optics.get("bx") or 1.0),
-            "beta_y": float(el.optics.get("by") or 1.0),
-            "weighted": method_weighted(model.method) if model else False,
-            "layers": [layer_out(lay) for lay in el.layers],
-            **_yokoya_out(geo),
-            **({"test_beam_shift": geo["test_beam_shift"]}
-               if geo.get("test_beam_shift") is not None else {}),
-        }
     # An element that carries its own gamma/grid belongs to no machine: its
     # settings win over the config that happens to be open in the GUI.
     base_cfg = dict(base_cfg or {})
@@ -1311,6 +1335,50 @@ PATH_KEYS = {"optics", "file", "map", "path"}
 PATH_DICT_KEYS = {"files", "wake_files"}
 
 
+def data_dir_for_move(src, dest, cfg: dict) -> list:
+    """The `data_dir:` a config needs once it moves from `src` to `dest`.
+
+    `optics:` and every `file:` in a config are relative to the config itself,
+    so a copy saved elsewhere points at files that are not there. Rather than
+    absolutising the references - which pins the file to one machine and makes
+    it useless to a colleague - or copying possibly enormous twiss files beside
+    it, the copy states where the data actually lives. One key, the references
+    stay readable, and whoever receives the file can see what to change.
+
+    Returns the list to write, or [] when there is nothing to do: saving next
+    to the original needs no key, and neither does a config whose references
+    are already absolute.
+    """
+    src, dest = Path(src), Path(dest)
+    if src.parent.resolve() == dest.parent.resolve():
+        return []
+
+    def relative_refs(node) -> bool:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k in PATH_KEYS and isinstance(v, str) and not Path(v).is_absolute():
+                    return True
+                if k in PATH_DICT_KEYS and isinstance(v, dict):
+                    if any(isinstance(f, str) and not Path(f).is_absolute()
+                           for f in v.values()):
+                        return True
+                if relative_refs(v):
+                    return True
+        elif isinstance(node, list):
+            return any(relative_refs(v) for v in node)
+        return False
+
+    if not relative_refs(cfg):
+        return []
+    existing = cfg.get("data_dir") or []
+    if isinstance(existing, str):
+        existing = [existing]
+    # the source directory resolves what was relative to it; anything already
+    # listed keeps working and stays first, since the user put it there
+    here = str(src.parent.resolve())
+    return list(existing) + ([here] if here not in existing else [])
+
+
 def freeze_config(src, dest) -> Path:
     """Copy a config into the project, keeping its file references working.
 
@@ -1596,6 +1664,44 @@ def summarize_elements(elements) -> dict:
     return out
 
 
+def _carry_gamma(spec: dict, cfg: dict, machine, assembly: bool, el=None) -> None:
+    """Give a new element the energy it will be read back at.
+
+    A machine file may state one `beam:` for the whole machine, or let each
+    element carry its own `gamma:` - both are valid, and an element appended to
+    the second kind has neither. The loader is right to refuse a chamber at an
+    unstated energy, but the refusal would land on the next LOAD, on a file that
+    saved without complaint, which is the worst place to put it.
+
+    So the energy the window computed this element with is written beside it.
+    If there is none to write, the save stops here instead.
+    """
+    if assembly or cfg.get("beam") is not None or "gamma" in spec:
+        return
+    # Only a WALL needs an energy: its surface impedance depends on how fast the
+    # beam is going. A resonator is Rs, Q and fr; an imported table is data that
+    # was computed elsewhere. So a config full of those states no beam and is
+    # complete as it stands - and adding the first wall to it is what makes an
+    # energy necessary. Asking which kind the NEW element is, rather than what
+    # the file happens to contain, is what gets that case right.
+    if spec.get("source") not in ("pytlwall", "iw2d"):
+        return
+    own = getattr(el, "own_base", None) or {}
+    gamma = own.get("gamma")
+    if gamma is None and isinstance(own.get("beam"), dict):
+        gamma = own["beam"].get("gamma")
+    if gamma is None:
+        gamma = getattr(getattr(machine, "beam", None), "gamma", None)
+    if gamma is None:
+        raise ValueError(
+            f"element '{spec.get('name')}' is a wall, and a wall is computed at "
+            f"a relativistic gamma. This config states no 'beam:' - the "
+            f"elements already in it do not need one - and nothing here knows "
+            f"the energy. Set it in the Beam panel, or add a 'beam:' block to "
+            f"the file, and save again.")
+    spec["gamma"] = float(gamma)
+
+
 def patch_config(cfg: dict, machine, optics=None) -> dict:
     """Return `cfg` with the machine's beam, removals and edits applied.
 
@@ -1627,13 +1733,37 @@ def patch_config(cfg: dict, machine, optics=None) -> dict:
     if optics:
         cfg["optics"] = str(optics)
 
-    alive, edits = {}, {}
-    for _g, e in machine.all_elements():
+    alive, edits, added = {}, {}, []
+    for g, e in machine.all_elements():
         if getattr(e, "category", "") == "default_pipe":
             continue                        # the pipe is a rule, not an element
         alive[e.name] = e
         if e.edited:
             edits[e.name] = e
+        if getattr(e, "added", False):
+            added.append((g, e))
+
+    # An element the window created has no entry to patch, so it is appended.
+    # Anything that cannot be expressed raises here, before a line is written:
+    # a save that silently drops what you just added is worse than one that
+    # fails, because you only find out much later.
+    unwritable = []
+    specs = []
+    for g, e in added:
+        gname = getattr(g, "name", None)
+        if gname is None and g is not None:
+            gname = str(g)
+        try:
+            spec = device_spec(e) if assembly else _machine_element(e)
+            _carry_gamma(spec, cfg, machine, assembly, e)
+            specs.append((gname, e, spec))
+        except ValueError as exc:
+            unwritable.append(str(exc))
+    if unwritable:
+        raise ValueError(
+            "this machine cannot be written as it stands:\n\n  - "
+            + "\n  - ".join(unwritable)
+            + "\n\nNothing was saved. Fix these and save again.")
 
     if assembly:
         devices = _same_kind_copy(cfg.get("devices"))
@@ -1645,6 +1775,11 @@ def patch_config(cfg: dict, machine, optics=None) -> dict:
             for name in names & set(edits):
                 devices[key] = _apply_edits(_same_kind_copy(spec), edits[name],
                                             assembly=True)
+        for _gname, e, spec in specs:
+            key = slugify(spec["name"])
+            while key in devices:
+                key = f"{key}_2"
+            devices[key] = spec
         _set_mapping(cfg, "devices", devices)
     else:
         groups = {}
@@ -1658,6 +1793,8 @@ def patch_config(cfg: dict, machine, optics=None) -> dict:
                             if name in edits else spec)
             if kept:
                 groups[gname] = kept
+        for gname, e, spec in specs:
+            groups.setdefault(gname or "added", []).append(spec)
         _set_mapping(cfg, "groups", groups)
         extra = [spec for spec in (cfg.get("additional") or [])
                  if spec.get("name") is None or spec.get("name") in alive]
@@ -1705,4 +1842,37 @@ def write_config(path, machine, optics=None) -> Path:
     after = write_yaml_text(patch_config(cfg, machine, optics=optics))
     if after != before:
         path.write_text(after)
+    clear_added(machine)
     return path
+
+
+def save_config_as(src, dest, machine, optics=None) -> Path:
+    """Write the machine into a copy of `src` at `dest`, or write nothing.
+
+    The order is the whole point. Copying the file first and patching it
+    afterwards leaves a file at `dest` when the patch is refused: it looks
+    saved, it is not, and what is in it is the state before the edits. So the
+    patch happens in memory, and `dest` is touched only once everything can be
+    expressed.
+    """
+    src, dest = Path(src), Path(dest)
+    cfg = read_yaml_text(src.read_text())
+    cfg = patch_config(cfg, machine, optics=optics)      # raises before any write
+    dirs = data_dir_for_move(src, dest, cfg)
+    if dirs:
+        # the copy lands elsewhere, so it has to say where its data stayed
+        cfg["data_dir"] = dirs
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(write_yaml_text(cfg))
+    clear_added(machine)
+    return dest
+
+
+def clear_added(machine) -> None:
+    """Every element is now in a file, so none of them is new any more.
+
+    Called after a successful write. Leaving the flag set would append the same
+    element again on the next save.
+    """
+    for _g, e in machine.all_elements():
+        e.added = False

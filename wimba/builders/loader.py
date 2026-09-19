@@ -126,7 +126,11 @@ def _build_resonator(el, base, beam):
 
 
 def _build_table(el, base, beam):
-    return TableProvider(str(base / el["file"]), term=el["term"],
+    from ..config import resolve_data_path
+    return TableProvider(str(resolve_data_path(
+                             el["file"], base, what=f"data file for '{el.get('name')}'",
+                             study_dirs=el.get("data_dir"))),
+                         term=el["term"],
                          origin=el.get("origin", "imported"),
                          quantity=el.get("quantity", "impedance"))
 
@@ -312,10 +316,27 @@ def machine_mean_beta(machine) -> tuple:
 
 
 def _build_machine(data, base, beam=None) -> Machine:
-    twiss = madx.read_twiss(base / data["optics"]) if data.get("optics") else {}
+    # The same lookup the assembly path uses: next to the config, then any
+    # `data_dir:` the config states. A missing file then says where it looked
+    # and what to add, instead of surfacing a bare No such file or directory
+    # from three frames down - the two pipelines read the same kinds of file
+    # and had no business failing differently.
+    from ..config import resolve_data_path
+
+    twiss = (madx.read_twiss(resolve_data_path(
+                 data["optics"], base, what="optics table",
+                 study_dirs=data.get("data_dir")))
+             if data.get("optics") else {})
     # inline twiss (name -> [bx, by]) as a fallback / simple case
     for k, v in (data.get("twiss") or {}).items():
         twiss.setdefault(k, {"NAME": k, "BETX": float(v[0]), "BETY": float(v[1])})
+
+    # `data_dir:` is stated once for the whole config; the per-element builders
+    # see only their own spec, so it travels with each of them. A shallow copy,
+    # never a mutation: the caller's data is its own.
+    dirs = data.get("data_dir")
+    def _with_dirs(el):
+        return {**el, "data_dir": dirs} if dirs and "data_dir" not in el else el
 
     machine = Machine(twiss=TwissTable())  # optics carried per element (Explicit)
     for group_name, elements in (data.get("groups") or {}).items():
@@ -324,9 +345,9 @@ def _build_machine(data, base, beam=None) -> Machine:
         # normal thing to write while a model is being built up, and not a reason
         # to refuse the file
         for el in (elements or []):
-            group.add(_element(el, base, twiss, beam))
+            group.add(_element(_with_dirs(el), base, twiss, beam))
     for el in (data.get("additional") or []):
-        machine.add_additional(_element(el, base, twiss, beam))
+        machine.add_additional(_element(_with_dirs(el), base, twiss, beam))
     # after the elements exist: they are the last fallback for the average
     machine.beta_mean, machine.beta_mean_source = resolve_beta_mean(data, twiss, machine)
     return machine

@@ -824,12 +824,14 @@ class MainWindow(QMainWindow):
         if self.machine is None:
             self.statusBar().showMessage("No machine is open.", 3000)
             return
-        import shutil
         from .model import slugify
         source = self._source_config()
         source = Path(source) if source and Path(source).exists() else None
         if source is not None:
-            suggested = source.with_name(f"{source.stem}_edited{source.suffix}")
+            stem = source.stem
+            if not stem.endswith("_edited"):      # SubLHC_edited_edited helps nobody
+                stem = f"{stem}_edited"
+            suggested = source.with_name(f"{stem}{source.suffix}")
         else:
             suggested = Path(self._dir_hint(
                 f"{slugify(self.machine.name or 'machine')}.yaml"))
@@ -843,15 +845,20 @@ class MainWindow(QMainWindow):
             if not self._dump_machine_to(dest):
                 return
         else:
+            from .model import save_config_as
             try:
-                if dest.resolve() != source.resolve():
-                    shutil.copyfile(source, dest)
+                save_config_as(source, dest, self.machine,
+                               optics=getattr(self.machine, "optics_path", None))
             except Exception as exc:
-                self.log.error("Could not copy %s to %s: %s", source, dest, exc)
-                QMessageBox.warning(self, "Save Machine As", str(exc))
+                # nothing was written: dest is untouched, so there is no
+                # half-saved file to mistake for a good one
+                self.log.error("Could not write %s: %s", dest, exc)
+                QMessageBox.warning(self, "Save Machine As",
+                                    f"Could not write {dest.name}:\n{exc}")
                 return
-            if not self._write_machine_to(dest, "Save Machine As"):
-                return
+            self._config_dirty = False
+            self.log.info("Machine written to %s", dest)
+            self.statusBar().showMessage(f"Saved {dest.name}", 4000)
         # from now on that file is the one being edited, as every editor does
         if self.config_path:
             self.config_path = str(dest)
@@ -866,7 +873,7 @@ class MainWindow(QMainWindow):
         always has that file to patch, so it never reaches here - which is what
         keeps a set of rules from being written back as thousands of rows.
         """
-        from .model import machine_config, machine_config_text
+        from .model import clear_added, machine_config, machine_config_text
         try:
             cfg = machine_config(self.machine)
             path.write_text(machine_config_text(cfg))
@@ -875,6 +882,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Save Machine As",
                                 f"Could not write {path.name}:\n{exc}")
             return False
+        clear_added(self.machine)
         self.machine_path = str(path)
         self.config_path = None
         self._config_dirty = False
@@ -1310,8 +1318,27 @@ class MainWindow(QMainWindow):
         if g is None:
             self._add_group()
             g = self.machine.groups[-1]
-        e = new_element(f"ELEM.{len(g.elements) + 1}")
+        taken = {el.name for _g, el in self.machine.all_elements()}
+        suggested = f"ELEM.{len(g.elements) + 1}"
+        while suggested in taken:
+            suggested = f"{suggested}.1"
+        name, ok = QInputDialog.getText(self, "Add Element",
+                                        f"Element name (group '{g.name}'):",
+                                        text=suggested)
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        if name in taken:
+            QMessageBox.information(
+                self, "Add Element",
+                f"'{name}' is already the name of an element in this machine. "
+                f"Names identify an element in the config, in the results and "
+                f"in the optics file, so two of them cannot share one.")
+            return
+        e = new_element(name)
+        e.added = True          # created here: it has no entry in any file yet
         g.elements.append(e)
+        self._config_dirty = True
         self._refresh_all()
         self._open_element(e)
 

@@ -34,9 +34,19 @@ def _wall(name="TCP", bx=None, by=None, length=1.2):
     return el
 
 
-def _machine(*elements, name="TESTRING", group="devices"):
+class _Beam:
+    """Enough of wimba.core.beam.Beam for the writers under test."""
+    def __init__(self, gamma=7461.0):
+        self.gamma, self.mode = gamma, "gamma"
+
+    def to_dict(self):
+        return {"particle": "proton", "gamma": self.gamma}
+
+
+def _machine(*elements, name="TESTRING", group="devices", beam=None):
     gm = new_machine(name)
     gm.groups = [GGroup(name=group, elements=list(elements))]
+    gm.beam = beam
     return gm
 
 
@@ -177,3 +187,266 @@ def test_text_is_valid_yaml_under_a_comment_header():
     assert text.startswith("# WIMBA machine:")
     assert yaml.safe_load(text)["name"] == "TESTRING"
     assert textwrap.dedent(text) == text          # no accidental indentation
+
+
+# ----------------------------------------------------- elements added here ---
+# An element created in the window has no entry to patch. It used to vanish on
+# save without a word, which is the failure mode worth the most tests: you find
+# out about it the next time you open the file, long after the session is gone.
+
+def _added(name="NEW"):
+    el = _wall(name)
+    el.added = True
+    return el
+
+
+def test_an_added_element_reaches_a_machine_file():
+    from wimba.gui.model import patch_config
+
+    gm = _machine(_wall("OLD"), beam=_Beam(), *[_added()])
+    cfg = {"name": "M",
+           "groups": {"devices": [{"name": "OLD", "source": "pytlwall",
+                                   "length": 1.0}]}}
+    out = patch_config(cfg, gm)
+    assert [e["name"] for e in out["groups"]["devices"]] == ["OLD", "NEW"]
+    assert out["groups"]["devices"][1]["source"] == "pytlwall"
+
+
+def test_an_added_element_reaches_an_assembly_config():
+    from wimba.gui.model import patch_config
+
+    gm = _machine(_wall("OLD"), _added())
+    cfg = {"name": "M",
+           "devices": {"old": {"name": "OLD", "source": "chamber",
+                               "method": "pytlwall"}},
+           "default_pipe": {"method": "pytlwall"}}
+    out = patch_config(cfg, gm)
+    assert set(out["devices"]) == {"old", "new"}
+    spec = out["devices"]["new"]
+    assert spec["name"] == "NEW"
+    assert spec["source"] == "chamber"        # the assembly dialect's spelling
+    assert "length_m" in spec and "length" not in spec
+
+
+def test_an_element_that_cannot_be_written_stops_the_whole_save():
+    """Refusing beats dropping it quietly: the file stays as it was, and the
+    message names what is wrong."""
+    from wimba.gui.model import GMode, default_models, new_element, patch_config
+
+    bad = new_element("RF")
+    bad.added = True
+    bad.models = default_models("resonator")
+    for m in bad.models:
+        m.enabled = True                      # a resonator with no modes
+    gm = _machine(_wall("OLD"), beam=_Beam(), *[bad])
+    cfg = {"name": "M", "groups": {"devices": [{"name": "OLD"}]}}
+    with pytest.raises(ValueError, match="RF"):
+        patch_config(cfg, gm)
+
+    bad.modes = [GMode(q="ZLong", Rs=1.0e5, Q=100.0, fr=1.0e9)]
+    out = patch_config(cfg, gm)               # fixed, and now it goes in
+    assert [e["name"] for e in out["groups"]["devices"]] == ["OLD", "RF"]
+
+
+def test_saving_twice_does_not_append_the_element_twice():
+    from wimba.gui.model import clear_added, patch_config
+
+    gm = _machine(_wall("OLD"), beam=_Beam(), *[_added()])
+    cfg = {"name": "M", "groups": {"devices": [{"name": "OLD"}]}}
+    first = patch_config(cfg, gm)
+    clear_added(gm)                           # what write_config does on success
+    second = patch_config(first, gm)
+    assert [e["name"] for e in second["groups"]["devices"]] == ["OLD", "NEW"]
+
+
+def test_an_element_from_a_file_driven_entry_is_not_treated_as_new():
+    """A `file:` entry expands to names patch_config cannot see, so matching by
+    name would append a duplicate. Only the window's own flag counts."""
+    from wimba.gui.model import patch_config
+
+    gm = _machine(_wall("BPMS.1"))            # no `added` flag
+    cfg = {"name": "M",
+           "devices": {"bpms": {"source": "precalculated", "files": {}}},
+           "default_pipe": {"method": "pytlwall"}}
+    out = patch_config(cfg, gm)
+    assert set(out["devices"]) == {"bpms"}
+
+
+# ------------------------------------------- a config that moves to a new dir ---
+# `optics:` and every `file:` are relative to the config, so a copy saved
+# elsewhere points at files that are not there. The copy states where the data
+# lives rather than absolutising the references, which would pin the file to one
+# machine, or copying a twiss that may be enormous.
+
+def test_a_config_saved_elsewhere_says_where_its_data_is(tmp_path):
+    from wimba.gui.model import data_dir_for_move
+
+    src = tmp_path / "study" / "SubLHC.yaml"
+    cfg = {"optics": "SubLHC.tfs",
+           "groups": {"g": [{"name": "E", "source": "table", "file": "z.dat"}]}}
+    assert data_dir_for_move(src, tmp_path / "away" / "copy.yaml", cfg) == \
+        [str((tmp_path / "study").resolve())]
+
+
+def test_saving_beside_the_original_needs_no_data_dir(tmp_path):
+    from wimba.gui.model import data_dir_for_move
+
+    src = tmp_path / "SubLHC.yaml"
+    cfg = {"optics": "SubLHC.tfs"}
+    assert data_dir_for_move(src, tmp_path / "copy.yaml", cfg) == []
+
+
+def test_absolute_references_need_no_data_dir(tmp_path):
+    from wimba.gui.model import data_dir_for_move
+
+    cfg = {"optics": "/data/SubLHC.tfs"}
+    assert data_dir_for_move(tmp_path / "a.yaml", tmp_path / "b" / "c.yaml", cfg) == []
+
+
+def test_an_existing_data_dir_is_extended_and_kept_first(tmp_path):
+    """The user put it there; the move adds to it rather than replacing it."""
+    from wimba.gui.model import data_dir_for_move
+
+    src = tmp_path / "study" / "m.yaml"
+    cfg = {"optics": "m.tfs", "data_dir": "/opt/shared"}
+    assert data_dir_for_move(src, tmp_path / "away" / "m.yaml", cfg) == \
+        ["/opt/shared", str((tmp_path / "study").resolve())]
+
+
+def test_a_reference_nested_in_a_device_counts_too(tmp_path):
+    from wimba.gui.model import data_dir_for_move
+
+    src = tmp_path / "study" / "m.yaml"
+    cfg = {"devices": {"d": {"files": {"ZLong": "a.dat"}}}}
+    assert data_dir_for_move(src, tmp_path / "away" / "m.yaml", cfg) != []
+
+
+def test_a_refused_save_as_leaves_no_file_behind(tmp_path):
+    """Copying first and patching after left a file at the destination when the
+    patch was refused: it looked saved, and held the state before the edits."""
+    from wimba.gui.model import GGroup, new_machine, save_config_as
+
+    src = tmp_path / "study" / "m.yaml"
+    src.parent.mkdir()
+    src.write_text("name: M\ngroups:\n  g:\n    - {name: OLD, source: pytlwall}\n")
+    gm = new_machine("M")
+    gm.groups = [GGroup(name="g", elements=[_wall("OLD")])]
+    gm.beam = _Beam()
+
+    broken = _wall("MYELEM.2")
+    broken.geometry.pop("radius")               # the case she hit
+    broken.added = True
+    gm.groups[0].elements.append(broken)
+
+    dest = tmp_path / "away" / "copy.yaml"
+    with pytest.raises(ValueError, match="MYELEM.2"):
+        save_config_as(src, dest, gm)
+    assert not dest.exists()
+    assert broken.added is True                 # still new, so the retry writes it
+
+    broken.geometry["radius"] = 0.03
+    save_config_as(src, dest, gm)
+    assert "MYELEM.2" in dest.read_text()
+    assert broken.added is False
+
+
+def test_save_as_elsewhere_writes_the_data_dir_and_keeps_comments(tmp_path):
+    pytest.importorskip("ruamel.yaml")
+    from wimba.gui.model import GGroup, new_machine, save_config_as
+
+    src = tmp_path / "study" / "m.yaml"
+    src.parent.mkdir()
+    src.write_text("name: M\noptics: m.tfs   # the lattice this study uses\n"
+                   "groups:\n  g:\n    - {name: OLD, source: pytlwall}\n")
+    gm = new_machine("M")
+    gm.groups = [GGroup(name="g", elements=[_wall("OLD")])]
+
+    dest = tmp_path / "away" / "copy.yaml"
+    save_config_as(src, dest, gm)
+    text = dest.read_text()
+    assert "the lattice this study uses" in text     # a patch, not a rewrite
+    assert "optics: m.tfs" in text                   # reference left readable
+    assert str((tmp_path / "study").resolve()) in text
+
+
+# ------------------------------------------------- the energy a new element needs
+
+def _with_added(beam=None, own=None):
+    from wimba.gui.model import GGroup, new_machine
+    gm = new_machine("M")
+    new = _wall("ELEM.2")
+    new.added = True
+    if own:
+        new.own_base = own
+    gm.groups = [GGroup(name="g", elements=[_wall("OLD"), new])]
+    gm.beam = beam
+    return gm
+
+
+PER_ELEMENT = {"name": "M",
+               "groups": {"g": [{"name": "OLD", "source": "pytlwall",
+                                 "gamma": 7461.0}]}}
+
+
+def test_a_machine_beam_makes_the_config_state_one_beam_for_everyone():
+    """With an energy in the panels, patch_config writes it once at the top and
+    the new element needs none of its own."""
+    from wimba.gui.model import patch_config
+
+    out = patch_config(dict(PER_ELEMENT), _with_added(beam=_Beam(7461.0)))
+    assert out["beam"]["gamma"] == 7461.0
+    assert out["groups"]["g"][1]["name"] == "ELEM.2"
+
+
+def test_an_element_added_to_a_per_element_config_carries_its_own_energy():
+    """The case that produced a file which saved cleanly and would not load: no
+    beam anywhere at the top, an energy on every element, and none on the new
+    one."""
+    from wimba.gui.model import patch_config
+
+    out = patch_config(dict(PER_ELEMENT), _with_added(own={"gamma": 479.6}))
+    assert "beam" not in out                     # the file's own kind is kept
+    assert out["groups"]["g"][1]["gamma"] == 479.6
+
+
+def test_a_wall_with_no_energy_stops_the_save_instead_of_the_next_load():
+    """The case from the log: SubLHC needs no beam because nothing in it is a
+    wall, so the first wall added to it had no energy, saved cleanly, and failed
+    on the next load."""
+    from wimba.gui.model import patch_config
+
+    cfg = {"name": "M", "groups": {"g": [{"name": "RF", "source": "resonator"}]}}
+    with pytest.raises(ValueError, match="wall"):
+        patch_config(cfg, _with_added())
+
+
+def test_an_element_that_needs_no_energy_is_written_without_one():
+    """Only a wall is computed at a gamma. A config of resonators states no
+    beam and is complete as it stands; adding another resonator to it must not
+    start asking for an energy nobody needs."""
+    from wimba.gui.model import GMode, default_models, new_element, patch_config
+
+    res = new_element("RF.2")
+    res.added = True
+    res.models = default_models("resonator")
+    for m in res.models:
+        m.enabled = True
+    res.modes = [GMode(q="ZLong", Rs=1.0e5, Q=100.0, fr=1.0e9)]
+    gm = _machine(res)
+    cfg = {"name": "M", "groups": {"devices": [{"name": "RF.1",
+                                                "source": "resonator"}]}}
+    # RF.1 has no counterpart in this machine, so it is removed as usual; what
+    # matters here is what the appended entry does and does not carry
+    out = patch_config(cfg, gm)
+    added = out["groups"]["devices"][-1]
+    assert added["name"] == "RF.2" and "gamma" not in added
+    assert added["source"] == "resonator"
+
+
+def test_a_config_that_states_a_beam_needs_no_per_element_energy():
+    from wimba.gui.model import patch_config
+
+    cfg = {"name": "M", "beam": {"particle": "proton", "gamma": 7461.0},
+           "groups": {"g": [{"name": "OLD", "source": "pytlwall"}]}}
+    out = patch_config(cfg, _with_added(beam=_Beam(7461.0)))
+    assert "gamma" not in out["groups"]["g"][1]
