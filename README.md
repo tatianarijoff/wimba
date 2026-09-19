@@ -54,6 +54,10 @@ run them, [projects and scenarios](docs/PROJECTS.md), the
 [machine config reference](docs/CONFIG.md) and the
 [data model](docs/DATA_MODEL.md).
 
+## Video guide
+Short screencasts showing WIMBA on screen — see [VIDEOS.md](VIDEOS.md).
+
+
 ## Install
 
 Use a virtual environment (recommended on Debian/Ubuntu, where the system Python

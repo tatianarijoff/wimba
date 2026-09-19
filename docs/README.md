@@ -9,6 +9,7 @@
 - [Setup & quick start](SETUP.md) — install, locating IW2D / pytlwall.
 - [Settings](SETTINGS.md) — `wimba.yaml`: engine paths, data directory, logging.
   Not to be confused with a machine config.
+- [Video guide](../VIDEOS.md) — screencasts showing WIMBA on screen.
 
 **The interface**
 

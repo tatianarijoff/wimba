@@ -1,0 +1,106 @@
+<p align="center">
+  <img src="img/wimba_logo.png" alt="WIMBA" width="260">
+</p>
+
+# Video guide
+
+Short screencasts that show WIMBA on screen: what to type, what to click and what
+comes out. Each video is self-contained — watch the section you need, in any order.
+The written documentation stays the reference; the videos are the quickest way in.
+
+Videos are grouped by subject, not numbered: **Installation**, then
+**The interface**, then **Build a component**.
+
+---
+
+## Installation
+
+Everything needed to go from an empty folder to a working WIMBA, on Linux or macOS
+(on Windows only the virtual-environment activation line differs).
+
+### ▶ [WIMBA — Installation](https://youtu.be/1fZkL5RX1Ps)
+
+What it covers:
+
+- what the acronym means and what WIMBA computes (impedance **and** wake);
+- what you install yourself (Python 3.10+, git), what `pip` brings in for you,
+  and what stays separate — the two resistive-wall engines, **pytlwall** and
+  **IW2D**, which are two independent implementations of the same physics;
+- cloning the repository and installing it in a virtual environment;
+- the settings file: what actually belongs in it, and why an engine installed
+  with `pip` needs no entry at all;
+- the right first test, so you know the install is sound before trusting a result.
+
+Read alongside: [`docs/SETUP.md`](docs/SETUP.md) ·
+[`docs/SETTINGS.md`](docs/SETTINGS.md) · [`docs/IW2D.md`](docs/IW2D.md)
+
+---
+
+## The interface
+
+Two videos on the graphical interface: the first opens the window and gets one
+curve on the plot, the second stays inside the results.
+
+### ▶ [WIMBA GUI — Introduction](https://youtu.be/n21qZ52sYlw)
+
+What it covers:
+
+- the same engine seen from the front — the window is the library, not a second
+  program;
+- the four regions of the window and the question each one answers;
+- the Inspector and the element tabs, and when you need one rather than the other;
+- launching a calculation and following it;
+- the Results tree, and the first curve on the plot;
+- the documentation available inside the window (`F1`).
+
+### ▶ [WIMBA GUI — Results](https://youtu.be/X-ragYy_qts)
+
+What it covers:
+
+- the plot: adding and removing curves, comparing what has been computed;
+- the three scales, and why a symmetric-log scale exists at all;
+- the Results table;
+- exporting what is on screen;
+- the bottom row — Console, Jobs and Problems — and what Problems actually reports.
+
+Read alongside: [`docs/GUI.md`](docs/GUI.md) · [`docs/PROJECTS.md`](docs/PROJECTS.md)
+
+---
+
+## Build a component
+
+The Component bench: one element on its own, described, computed and compared —
+no lattice, no project. This is the shortest route to a number you can check.
+
+### ▶ [Build a component — Introduction](https://youtu.be/lbzsTEVwnts)
+
+What it covers:
+
+- creating a new component and naming it, and where it lives while you work on it;
+- shape and aperture;
+- the boundary rule — where the chamber ends and the outside world begins;
+- layers and materials, including the custom, vacuum and perfect-conductor cases.
+
+### ▶ [Build a component — Beam, optics and models](https://youtu.be/WzIE-hC5EaQ)
+
+What it covers:
+
+- the optics: the beta functions belong to the element;
+- the beam: gamma is the canonical input, and when a beta is enough;
+- the calculation methods, seen as different kinds of element rather than as a
+  list of options;
+- saving the component, with the written configuration on screen — the same file
+  reopens in the interface and runs from the command line.
+
+### Compute and compare
+
+*In preparation.* Running the calculation, results accumulating with the method
+that produced them, comparing one element computed two ways, and where the engine
+input is kept alongside the results.
+
+Read alongside: [`docs/COMPONENT.md`](docs/COMPONENT.md) ·
+[`docs/PYTLWALL_CFG.md`](docs/PYTLWALL_CFG.md)
+
+---
+
+Documentation index: [`docs/README.md`](docs/README.md)
