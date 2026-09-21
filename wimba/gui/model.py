@@ -123,6 +123,11 @@ class GElement:
                                                    # have thrown the wall away
     uid: int = field(default_factory=lambda: next(_UID))
     added: bool = False
+    # the file this element was opened from or last saved to, when it stands on
+    # its own (the Component bench). Its calculations are kept beside it, the
+    # way a machine's are kept beside its config - without a place on disk the
+    # bench's results lived in a temporary folder and were gone on reboot.
+    source_path: str = ""
     # created in the window and not yet in any file. Set by Machine > Add
     # Element, cleared once written. Name matching cannot stand in for this: a
     # file-driven entry expands to names patch_config cannot see, so an element
@@ -574,6 +579,17 @@ def _modes_from_provider(el) -> list:
         return []
     return [GMode(q=TERM_COMPONENT.get(r.term, "ZLong"), Rs=r.Rs, Q=r.Q, fr=r.fr)
             for r in prov.resonators]
+
+
+def component_output_dir(el) -> Optional[Path]:
+    """Where a component's calculations are kept: `<file>_output/` beside the
+    file it was opened from or saved to - the same place a machine's results
+    go - or None when it has no file yet and so nowhere lasting to put them."""
+    src = getattr(el, "source_path", "") if el is not None else ""
+    if not src:
+        return None
+    src = Path(src)
+    return src.parent / f"{src.stem}_output"
 
 
 def device_spec(el: GElement) -> dict:

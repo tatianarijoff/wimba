@@ -1503,7 +1503,9 @@ class MainWindow(QMainWindow):
         self.component = el
         self._component_base = own
         self._open_element(el)
+        el.source_path = str(Path(path).resolve())
         self.log.info("Component '%s' opened from %s", el.name, path)
+        self._load_component_results(el)
         self._log_run_settings(el, source=Path(path).name)
 
     def _comp_new(self):
@@ -1695,7 +1697,10 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Save Component As", str(exc))
             return
         self._remember_dir(path)
+        el.source_path = str(Path(path).resolve())
         self.log.info("Component '%s' saved to %s", el.name, path)
+        self.log.info("  its calculations will be kept in %s",
+                      self._component_output_dir(el))
         if cfg.get("gamma") is None:
             self.log.warning("  the file states no beam: set gamma before "
                              "computing from it.")
@@ -1794,9 +1799,6 @@ class MainWindow(QMainWindow):
                     "Component '%s': the Models tab says %s, this action "
                     "computes %s. The result is labelled with the engine that "
                     "produced it.", el.name, chosen, method_base(method))
-        if method.lower() == "iw2d":
-            self.log.warning("IW2D is not wired to its binary yet: this run will "
-                             "report the row as skipped (the plumbing is ready).")
         import tempfile
 
         import yaml as _yaml
@@ -1812,7 +1814,20 @@ class MainWindow(QMainWindow):
             self.log.error("Component bench: %s", exc)
             QMessageBox.warning(self, "Component", str(exc))
             return
-        run_dir = Path(tempfile.mkdtemp(prefix="wimba_component_"))
+        home = self._component_output_dir(el)
+        if home is not None:
+            # one folder per result, named like its entry in the Results tree:
+            # a pytlwall run and an IW2D run sit side by side, and rerunning
+            # the same engine replaces its own folder and nothing else
+            run_dir = home / safe(cfg["output"][0])
+            run_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            run_dir = Path(tempfile.mkdtemp(prefix="wimba_component_"))
+            self.log.warning(
+                "Component '%s' has no file yet, so this calculation goes to a "
+                "temporary folder that will not survive a reboot. Save the "
+                "component (Component \u25b8 Save Component As) to keep its "
+                "results beside it.", el.name)
         cfg_path = run_dir / f"{safe(cfg['name'])}.yaml"
         cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False))
         self.log.info("Component config emitted: %s", cfg_path)
@@ -1824,12 +1839,47 @@ class MainWindow(QMainWindow):
         self._job_item = QListWidgetItem(f"{self._job_label} \u2014 running\u2026")
         self._dock_list("jobs").addItem(self._job_item)
         self._run_kind = "component"
-        self.worker = RunWorker(str(cfg_path), wake=wake, fill_pipe=False)
+        # results straight into run_dir, beside the input the engine was given
+        self.worker = RunWorker(str(cfg_path), out_dir=str(run_dir), wake=wake,
+                                fill_pipe=False)
         self.worker.log.connect(con.appendPlainText)
         self.worker.done.connect(self._on_calc_done)
         self.worker.failed.connect(self._on_calc_failed)
         self.statusBar().showMessage(f"Calculating {self._job_label}\u2026")
         self.worker.start()
+
+    def _load_component_results(self, el):
+        """Put back on the bench what was computed for this component before.
+
+        Each engine's run sits in its own folder under `<file>_output/`, named
+        like its entry in the Results tree, so opening the component yesterday's
+        work was done on brings that work back with it - which is the point of
+        keeping it on disk at all.
+        """
+        from .results import ResultsModel
+        home = self._component_output_dir(el)
+        if home is None or not home.is_dir():
+            return
+        found = []
+        for run in sorted(p for p in home.iterdir() if p.is_dir()):
+            try:
+                fresh = ResultsModel().load(run)
+            except Exception as exc:              # a half-written folder: skip it
+                self.log.debug("Skipping %s: %s", run, exc)
+                continue
+            if not fresh.sources:
+                continue
+            fresh.adopt_total_wake(run.name)
+            self.results_model.sources.update(fresh.sources)
+            found.append(run.name)
+        if found:
+            self.results_tree.set_model(self.results_model)
+            self.log.info("Loaded %d earlier result(s) for '%s' from %s: %s",
+                          len(found), el.name, home, ", ".join(found))
+
+    def _component_output_dir(self, el):
+        from .model import component_output_dir
+        return component_output_dir(el)
 
     def _comp_load_precalc(self):
         el = self._comp_require()
