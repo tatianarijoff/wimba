@@ -92,11 +92,21 @@ What it covers:
 - saving the component, with the written configuration on screen — the same file
   reopens in the interface and runs from the command line.
 
-### Compute and compare
+### ▶ [Build a component — Compute and compare](https://youtu.be/XXXXXXXXXXX)
 
-*In preparation.* Running the calculation, results accumulating with the method
-that produced them, comparing one element computed two ways, and where the engine
-input is kept alongside the results.
+What it covers:
+
+- picking up a saved component again with Component ▸ Open Component;
+- computing it the way the Models tab says, and naming an engine instead when
+  the point is a comparison;
+- results that accumulate, each labelled with the engine that produced it, so two
+  answers to the same question sit side by side;
+- additional calculations on the same element, and what a comparison can and
+  cannot hold;
+- the wake: where it comes from for each method, and why that matters when you
+  compare them;
+- where everything is kept — beside the component, one folder per engine, with
+  the exact input each engine was given — and how to take a curve elsewhere.
 
 Read alongside: [`docs/COMPONENT.md`](docs/COMPONENT.md) ·
 [`docs/PYTLWALL_CFG.md`](docs/PYTLWALL_CFG.md)
