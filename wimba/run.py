@@ -30,6 +30,26 @@ from .sources.precalculated_bridge import precalculated_impedance, precalculated
 COMPUTED_METHODS = ("pytlwall", "iw2d", "resonator", "precalculated")
 
 
+# The time grid a wake is sampled on when the config states none. The same
+# numbers the GUI announces as "WIMBA's default", so the Console and the run
+# agree - they did not, when this lived as a literal inside run().
+DEFAULT_TIME_GRID = {"min": 1.0e-12, "max": 5.0e-9, "n": 200}
+
+
+def _time_grid(cfg):
+    """The times a wake is computed at: the config's own, or the default.
+
+    This used to be a fixed 500-point grid regardless of what the config said,
+    while the GUI logged the config's grid as the one in use - so the run
+    quietly sampled something other than what it reported.
+    """
+    g = (cfg.get("grid") or {}).get("time") or DEFAULT_TIME_GRID
+    lo = float(g.get("min", DEFAULT_TIME_GRID["min"]))
+    hi = float(g.get("max", DEFAULT_TIME_GRID["max"]))
+    n = int(g.get("n", DEFAULT_TIME_GRID["n"]))
+    return np.linspace(lo, hi, n)
+
+
 def _grid(cfg):
     g = (cfg.get("grid") or {}).get("frequency") or {}
     lo, hi, n = float(g.get("min", 1e5)), float(g.get("max", 1e10)), int(g.get("n", 50))
@@ -385,7 +405,7 @@ def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True,
             f"'{Path(config).name}' does not say at which energy to compute. Add a "
             "beam, e.g.\n  beam: {particle: proton, gamma: 7461}\n"
             "(a bare 'gamma:' still works too).")
-    times = np.linspace(1.0e-12, 5.0e-9, 500) if wake else None
+    times = _time_grid(cfg) if wake else None
 
     log = get_logger(__name__)
     mx, my = result.beta_mean

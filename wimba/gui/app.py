@@ -1436,7 +1436,7 @@ class MainWindow(QMainWindow):
         if key in self._elem_tabs:
             self.center.setCurrentWidget(self._elem_tabs[key])
             return
-        panel = ElementPanel(el, self._after_edit, self._calc_element,
+        panel = ElementPanel(el, self._after_edit, self._panel_calc,
                              machine=self._machine_of_element(el))
         self._elem_tabs[key] = panel
         self.center.setCurrentIndex(self.center.addTab(panel, el.name))
@@ -1992,6 +1992,26 @@ class MainWindow(QMainWindow):
             cfg["gamma"] = beam.gamma
             cfg["beam"] = beam.to_dict()
         return cfg
+
+    def _panel_calc(self, el, wake=False):
+        """The panel's Calculate buttons, routed by where the element lives.
+
+        On the bench, results accumulate so one element can be compared across
+        engines, and every entry is labelled with the engine that produced it.
+        The machine-tree path does neither: it replaces the Results tree and
+        names the entry after the element alone. So the same two buttons, used
+        on the bench, used to wipe a pytlwall/IW2D comparison in order to add a
+        wake to it. On the bench they now take the bench's own route.
+        """
+        if el is not None and el is getattr(self, "component", None):
+            from .model import method_base
+            method = self._comp_method(el)
+            if method_base(method).lower() == "precalculated":
+                self._comp_calc_chosen()         # it knows what to say
+                return
+            self._comp_calc(method, wake=wake)
+            return
+        self._calc_element(el, wake=wake)
 
     def _calc_element(self, el, wake=False, compare_only=False):
         import tempfile

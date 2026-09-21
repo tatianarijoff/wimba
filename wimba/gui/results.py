@@ -54,19 +54,32 @@ class ResultsModel:
     def adopt_total_wake(self, target_name: str) -> None:
         """Single-element/bench runs: the run's total IS the element, and the
         wake lives only there - move it onto the element's source, then drop
-        the misleading 'Total'."""
+        the misleading 'Total'.
+
+        The run writes its files under names passed through naming.safe, so
+        "My Component" comes back as "My_Component": both sides are compared in
+        that form. And if nothing matches, 'Total' is KEPT. It used to be
+        dropped regardless, which threw away a wake that had been computed -
+        for any element whose name had a space in it - with nothing but a
+        debug line to say so.
+        """
         import logging
+
+        from ..naming import safe
         tot = self.sources.get("Total") or {}
-        if "wake" in tot:
-            for key, kinds in self.sources.items():
-                if key != "Total" and key.split("/", 1)[-1] == target_name:
-                    kinds["wake"] = tot["wake"]
-                    break
-            else:
-                logging.getLogger("wimba.gui").debug(
-                    "adopt_total_wake: no source matches '%s' (sources: %s)",
-                    target_name, sorted(self.sources))
-        self.sources.pop("Total", None)
+        if "wake" not in tot:
+            self.sources.pop("Total", None)      # nothing of its own to keep
+            return
+        want = safe(target_name)
+        for key, kinds in self.sources.items():
+            if key != "Total" and safe(key.split("/", 1)[-1]) == want:
+                kinds["wake"] = tot["wake"]
+                self.sources.pop("Total", None)
+                return
+        logging.getLogger("wimba.gui").warning(
+            "The wake was computed but could not be attached to '%s' (results "
+            "hold: %s). It is kept under 'Total' rather than discarded.",
+            target_name, ", ".join(sorted(self.sources)))
 
     def merge(self, out_dir) -> "ResultsModel":
         """Load WITHOUT clearing: new sources are added, same-name replaced.
