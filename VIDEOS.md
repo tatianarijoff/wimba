@@ -132,6 +132,21 @@ What it covers:
 - the tree after loading: your own file in one case, a resolved result in the
   other.
 
+### ▶ [Machines — Reading it, and changing it](https://youtu.be/U6IyhQTOUSc)
+
+What it covers:
+
+- the tree and the Inspector: what WIMBA resolved from your rules, device by
+  device, and where each value came from;
+- editing a value — WIMBA never writes to your file unless you ask, and
+  File ▸ Save Machine writes back only what you changed, comments intact;
+- adding a device, and why an element is born in the file;
+- position is optional: with one, the beta comes from the optics at that point;
+  without one, WIMBA looks the name up in the optics, and falls back to β = 1,
+  saying so, when the name is not there either;
+- the cell-boundary trap — the same device a few centimetres apart can see two
+  very different betas.
+
 Read alongside: [`docs/GUI.md`](docs/GUI.md) ·
 [`docs/CONFIG.md`](docs/CONFIG.md) ·
 [`docs/ASSEMBLE_AND_RUN.md`](docs/ASSEMBLE_AND_RUN.md)
