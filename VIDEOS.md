@@ -9,7 +9,7 @@ comes out. Each video is self-contained — watch the section you need, in any o
 The written documentation stays the reference; the videos are the quickest way in.
 
 Videos are grouped by subject, not numbered: **Installation**, then
-**The interface**, then **Build a component**.
+**The interface**, then **Build a component**, then **Machines**.
 
 ---
 
@@ -92,7 +92,7 @@ What it covers:
 - saving the component, with the written configuration on screen — the same file
   reopens in the interface and runs from the command line.
 
-### ▶ [Build a component — Compute and compare](https://youtu.be/XXXXXXXXXXX)
+### ▶ [Build a component — Compute and compare](https://youtu.be/iE6CPjF7VIw)
 
 What it covers:
 
@@ -110,6 +110,31 @@ What it covers:
 
 Read alongside: [`docs/COMPONENT.md`](docs/COMPONENT.md) ·
 [`docs/PYTLWALL_CFG.md`](docs/PYTLWALL_CFG.md)
+
+---
+
+## Machines
+
+A whole machine rather than one element: many devices, an optics, a beam, and a
+total that adds them up.
+
+### ▶ [Machines — Two files, two menus](https://youtu.be/sJJVVdWg0B8)
+
+What it covers:
+
+- the two kinds of file WIMBA reads a machine from: a **machine file**, which
+  lists the elements, and a **config file**, which states rules — an optics file,
+  named devices and where they sit, and what to do with the rest of the ring;
+- telling them apart from the keys inside them — you never declare which kind
+  you have;
+- the two entries in the File menu, Load Machine and Open Config, and why WIMBA
+  refuses a file opened through the wrong one;
+- the tree after loading: your own file in one case, a resolved result in the
+  other.
+
+Read alongside: [`docs/GUI.md`](docs/GUI.md) ·
+[`docs/CONFIG.md`](docs/CONFIG.md) ·
+[`docs/ASSEMBLE_AND_RUN.md`](docs/ASSEMBLE_AND_RUN.md)
 
 ---
 
