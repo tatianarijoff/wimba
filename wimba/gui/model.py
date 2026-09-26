@@ -1918,3 +1918,34 @@ def clear_added(machine) -> None:
     """
     for _g, e in machine.all_elements():
         e.added = False
+
+
+def existing_output_dirs(path, dialect):
+    """Output folders already on disk for a machine opened outside a project,
+    most likely first.
+
+    For an assembly config ("assembly") that is where `run` writes by default.
+    A machine file ("machine") has two defaults, because the GUI and the CLI
+    name the folder differently: the GUI build writes `<file stem>_output`,
+    `wimba build` writes `<name>_output` (or the folder the file states under
+    `output:`). Only folders that exist are returned.
+    """
+    import yaml
+
+    path = Path(path)
+    if dialect == "assembly":
+        from ..run import default_output_dir
+        candidates = [default_output_dir(path)]
+    else:
+        data = yaml.safe_load(path.read_text()) or {}
+        stated = data.get("output")
+        candidates = [path.with_name(f"{path.stem}_output"),
+                      path.parent / f"{data.get('name', path.stem)}_output"]
+        if isinstance(stated, str) and stated:
+            candidates.insert(0, (path.parent / stated) if not Path(stated).is_absolute()
+                              else Path(stated))
+    out = []
+    for c in candidates:
+        if c.is_dir() and c not in out:
+            out.append(c)
+    return out

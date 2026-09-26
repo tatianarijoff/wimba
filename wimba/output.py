@@ -1,9 +1,16 @@
 """Write computed/interpolated per-device impedance and machine totals as CSV,
 and read the totals back for plotting.
 
-Layout:
+Layout of an output folder:
+  total.csv                            # the machine total: sum over all devices
+  total_wake.csv                       # the total wake, when computed
+  WAKE_NOTES.txt                       # where each wake came from, when computed
   single_elements/<group>/<name>.csv   # one device (computed or interpolated)
-  single_elements/total.csv            # sum over all devices
+
+The totals sit at the top of the folder because they are the result of the
+machine, not one element among the others. Folders written before this layout
+kept them under single_elements/; `find_totals` still finds them there, so an
+old output opens without being recomputed.
 
 Each CSV: freq, then Re_<comp>, Im_<comp> for every component present.
 """
@@ -15,6 +22,24 @@ from pathlib import Path
 import numpy as np
 
 from .naming import safe
+
+TOTALS = "total.csv"
+WAKE_TOTALS = "total_wake.csv"
+WAKE_NOTES = "WAKE_NOTES.txt"
+
+
+def find_totals(out_dir, wake=False):
+    """Path of the totals CSV in an output folder, or None if there is none.
+
+    Looks at the top of the folder first, then under single_elements/, where
+    folders written by earlier versions kept it. Every reader goes through
+    here, so the fallback lives in one place.
+    """
+    name = WAKE_TOTALS if wake else TOTALS
+    for path in (Path(out_dir) / name, Path(out_dir) / "single_elements" / name):
+        if path.is_file():
+            return path
+    return None
 
 
 def _write(path: Path, freqs, terms) -> Path:
@@ -41,15 +66,25 @@ def clear_single_elements(out_dir) -> list:
     panel lists whatever it finds under single_elements/, so the stale curve
     reappeared next to a total that no longer contains it.
 
-    Only the files this module writes are removed (.csv, and the WAKE_NOTES.txt
-    written beside them), and only under single_elements/. Anything else a user
-    may keep in the output folder is left alone, and a group directory is
+    Only the files this module writes are removed: the .csv/.txt files under
+    single_elements/ (including totals left there by the old layout), and at
+    the top of the folder the three files named TOTALS, WAKE_TOTALS and
+    WAKE_NOTES. The total wake matters most: it is written only when the wake
+    is computed, so a run without wake would otherwise leave the previous one
+    in place, next to an impedance it no longer belongs to. Anything else a
+    user keeps in the output folder is left alone, and a group directory is
     removed only once it is empty. Returns the paths removed, for logging.
     """
-    se = Path(out_dir) / "single_elements"
-    if not se.is_dir():
-        return []
+    out = Path(out_dir)
     removed = []
+    for name in (TOTALS, WAKE_TOTALS, WAKE_NOTES):
+        path = out / name
+        if path.is_file():
+            path.unlink()
+            removed.append(path)
+    se = out / "single_elements"
+    if not se.is_dir():
+        return removed
     for path in sorted(se.rglob("*")):
         if path.is_file() and path.suffix in (".csv", ".txt"):
             path.unlink()
@@ -66,7 +101,7 @@ def write_single_element(out_dir, group, name, freqs, terms) -> Path:
 
 
 def write_totals(out_dir, freqs, totals) -> Path:
-    return _write(Path(out_dir) / "single_elements" / "total.csv", freqs, totals)
+    return _write(Path(out_dir) / TOTALS, freqs, totals)
 
 
 def read_totals(path):
@@ -87,7 +122,7 @@ def read_totals(path):
 
 def write_wake_totals(out_dir, times, wakes) -> Path:
     comps = list(wakes)
-    path = Path(out_dir) / "single_elements" / "total_wake.csv"
+    path = Path(out_dir) / WAKE_TOTALS
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="") as fh:
         w = csv.writer(fh)

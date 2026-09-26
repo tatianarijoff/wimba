@@ -32,24 +32,26 @@ def _resonator(name, rs, group="g"):
 def _sources(out):
     """What the Results panel would list: every per-device CSV, plus the total."""
     se = out / "single_elements"
-    return sorted(f"{p.parent.name}/{p.stem}" for p in se.rglob("*.csv"))
+    found = [f"{p.parent.name}/{p.stem}" for p in se.rglob("*.csv")]
+    found += [p.stem for p in out.glob("total*.csv")]
+    return sorted(found)
 
 
 def test_removed_device_does_not_survive_a_recompute(tmp_path):
     out = tmp_path / "out"
     rows = [_resonator("KEEP", 1.0e3), _resonator("GONE", 5.0e3)]
     compute_assignments(rows, F, out, per_device=["KEEP", "GONE"], gamma=GAMMA)
-    assert _sources(out) == ["g/GONE", "g/KEEP", "single_elements/total"]
+    assert _sources(out) == ["g/GONE", "g/KEEP", "total"]
 
     # the user removes one device from the config and presses Calculate again
     totals, _w, _s = compute_assignments(rows[:1], F, out,
                                          per_device=["KEEP"], gamma=GAMMA)
 
-    assert _sources(out) == ["g/KEEP", "single_elements/total"]
+    assert _sources(out) == ["g/KEEP", "total"]
 
     # and what is left agrees: the total is exactly the surviving device
     _f, kept = read_totals(out / "single_elements" / "g" / "KEEP.csv")
-    _f, tot = read_totals(out / "single_elements" / "total.csv")
+    _f, tot = read_totals(out / "total.csv")
     assert np.allclose(tot["ZLong"], kept["ZLong"])
     assert np.allclose(tot["ZLong"], totals["ZLong"])
 
@@ -84,3 +86,17 @@ def test_clear_leaves_foreign_files_alone(tmp_path):
 
 def test_clear_on_a_folder_that_was_never_computed(tmp_path):
     assert clear_single_elements(tmp_path / "nothing_here") == []
+
+
+def test_wake_from_a_previous_run_does_not_survive_a_run_without_wake(tmp_path):
+    """The total wake is written only when the wake is computed: without the
+    clear, a run without wake would leave the previous run's wake on top of the
+    folder, next to an impedance it no longer belongs to."""
+    out = tmp_path / "out"
+    rows = [_resonator("A", 1.0e3)]
+    compute_assignments(rows, F, out, gamma=GAMMA, times=np.linspace(1e-12, 5e-9, 8))
+    assert (out / "total_wake.csv").is_file()
+
+    compute_assignments(rows, F, out, gamma=GAMMA)          # no wake this time
+    assert (out / "total.csv").is_file()
+    assert not (out / "total_wake.csv").exists()

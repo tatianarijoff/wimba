@@ -84,7 +84,7 @@ def test_map_in_run(tmp_path):
     info = run_study(tmp_path / "c.yaml", out_dir=tmp_path / "out")
     assert info["stats"]["computed"] == 1
     from wimba.output import read_totals
-    _f, comps = read_totals(tmp_path / "out" / "single_elements" / "total.csv")
+    _f, comps = read_totals(tmp_path / "out" / "total.csv")
     assert np.any(np.abs(comps["ZLong"]) > 0)                      # imported, in the total
 
 
@@ -145,7 +145,7 @@ def test_load_pytlwall_cfg_roundtrip(tmp_path):
     import yaml as _y
     p.write_text(_y.safe_dump(cfg))
     run_study(p, out_dir=tmp_path / "out")
-    f, comps = read_totals(tmp_path / "out" / "single_elements" / "total.csv")
+    f, comps = read_totals(tmp_path / "out" / "total.csv")
 
     import pytlwall
     L0 = pytlwall.Layer(layer_type="CW", thick_m=5e-7, sigmaDC=1e6)

@@ -164,7 +164,7 @@ def test_the_grid_decides_whether_a_resonance_is_seen_at_all(tmp_path):
             main()
         except SystemExit:
             pass
-        out = folder / "RFCAV_component_output/single_elements/total.csv"
+        out = folder / "RFCAV_component_output/total.csv"
         rows = list(csv.DictReader(open(out)))
         return np.array([float(r["Re_ZLong"]) for r in rows]).max()
 

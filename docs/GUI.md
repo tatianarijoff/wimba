@@ -171,10 +171,10 @@ calculation and raised automatically when there is something in it. See
 
 | entry | what it does |
 |---|---|
-| **Load Machine** | opens a machine file — the `groups:` dialect, the elements you listed |
+| **Load Machine** | opens a machine file — the `groups:` dialect, the elements you listed — and shows its earlier results, if any |
 | **New Machine** | starts an empty machine, to be filled from the **Machine** menu |
-| **Open Config** | opens an assembly config — the `devices:`/`default_pipe:` dialect, rules WIMBA executes |
-| **Open Results** | reopens an output folder without recomputing anything |
+| **Open Config** | opens an assembly config — the `devices:`/`default_pipe:` dialect, rules WIMBA executes — and shows its earlier results, if any |
+| **Open Results** | reopens any output folder without recomputing anything |
 | **Close Machine** | clears the machine and its panels |
 | **New Project** | asks where results go; the first machine you load becomes scenario one |
 | **Open Project** | opens an existing `project.yaml` and reloads every scenario that already has output |
@@ -220,6 +220,15 @@ The two menu entries are not interchangeable and WIMBA will say so: pointing
 *Load Machine* at an assembly config gives an explicit error naming *Open
 Config*. If you ever wonder which you have, look for the keys: `groups:` means
 machine, `devices:` or `default_pipe:` means config.
+
+Either way, a machine opened outside a project brings back what was already
+computed for it: if its output folder is on disk, the Results tree fills
+straight away and the Console says where it came from. The folder looked in is
+the one the calculation writes to by default — `<name>_output` next to a config;
+for a machine file, the folder it states under `output:`, `<file stem>_output`
+(where the GUI builds) or `<name>_output` (where `wimba build` writes). Results
+written anywhere else are one **Open Results** away. Inside a project this is
+the project's job, and it does it for every scenario when it is opened.
 
 One consequence catches people out. Opening a config still fills the Machine
 Explorer with groups — but those groups are *derived* from the resolved

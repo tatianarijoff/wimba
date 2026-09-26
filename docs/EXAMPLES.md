@@ -42,7 +42,7 @@ source, so the whole model is one chamber with a known geometry.
 wimba run examples/RoundChamber_TLW/RoundChamber_TLW_config.yaml --wake
 ```
 
-Produces, under `RoundChamber_TLW_output/`, `single_elements/total.csv` (and the same
+Produces, under `RoundChamber_TLW_output/`, `total.csv` (and the same
 chamber under `single_elements/round_chamber/…`), the impedance plots
 `total_ZLong.png`, `total_ZDipX.png`, `total_ZDipY.png` and, with `--wake`, the
 wake plots `total_W*.png`.
@@ -113,7 +113,7 @@ wimba run examples/LHC/LHC_config.yaml --wake
 `run` resolves beta by position (interpolated) then by name, puts the default
 resistive wall on every uncovered lattice row, computes with pytlwall (one
 calculation per distinct geometry — the ~11k pipe segments share one, so it runs
-in a few seconds), and writes `LHCB1_output/single_elements/total.csv`, the one
+in a few seconds), and writes `LHCB1_output/total.csv`, the one
 device listed under `output:` in the config, and the plots.
 
 Notes:

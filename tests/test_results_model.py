@@ -151,13 +151,13 @@ def test_export_model_creates_missing_directory(tmp_path):
 
 # ------------------------------------------- results from several scenarios
 def _write_run_output(root, scale=1.0):
-    """The layout the run pipeline writes: single_elements/total.csv plus one
-    CSV per device."""
+    """The layout the run pipeline writes: total.csv on top, plus one CSV per
+    device under single_elements/."""
     import numpy as np
     se = root / "single_elements"
     (se / "grp").mkdir(parents=True)
     f = np.logspace(6, 9, 12)
-    for path in (se / "total.csv", se / "grp" / "dev.csv"):
+    for path in (root / "total.csv", se / "grp" / "dev.csv"):
         with open(path, "w") as fh:
             fh.write("freq,Re_ZLong,Im_ZLong\n")          # the layout run writes
             for fi in f:
@@ -202,3 +202,31 @@ def test_recomputing_a_scenario_replaces_it_and_leaves_the_others(tmp_path):
     assert np.max(y) == pytest.approx(7.0e9, rel=1e-6)
     _x, y_ext, _l = m.series("extraction \u00b7 Total", "impedance", "ZLong", "Re")
     assert np.max(y_ext) == pytest.approx(3.0e9, rel=1e-6)   # untouched
+
+
+def test_model_reads_an_output_written_before_the_totals_moved(tmp_path):
+    """Old folders kept total.csv and total_wake.csv under single_elements/:
+    they must still open in the Results panel without being recomputed."""
+    se = tmp_path / "single_elements"
+    (se / "grp").mkdir(parents=True)
+    f = np.logspace(6, 9, 6)
+    for path in (se / "total.csv", se / "grp" / "dev.csv"):
+        path.write_text("freq,Re_ZLong,Im_ZLong\n" +
+                        "".join(f"{x:.8e},{x:.8e},0.0\n" for x in f))
+    (se / "total_wake.csv").write_text("time,WLong\n1e-12,1.0\n2e-12,0.5\n")
+
+    m = ResultsModel().load(tmp_path)
+
+    assert set(m.sources) == {"Total", "grp/dev"}   # the total is not a device
+    assert set(m.sources["Total"]) == {"impedance", "wake"}
+    _x, y, _l = m.series("Total", "impedance", "ZLong", "Re")
+    assert np.allclose(y, f)
+
+
+def test_model_reads_a_run_with_no_per_device_files(tmp_path):
+    """With nothing listed under output:, a run now writes no single_elements/
+    at all -- only the total on top. That is a run folder, not an empty one."""
+    f = np.logspace(6, 9, 6)
+    write_totals(tmp_path, f, {"ZLong": 1 / f + 0j})
+    m = ResultsModel().load(tmp_path)
+    assert set(m.sources) == {"Total"}

@@ -1,6 +1,7 @@
 """Run a study: assemble -> compute -> write the total (+ requested per-device) -> plot.
 
-Only the machine total is written by default; a device gets its own file under
+Only the machine total is written by default, as total.csv at the top of the
+output folder; a device gets its own file under
 single_elements/<group>/<name>.csv when its name is listed under `output:`.
 Chambers sharing a geometry are computed once (unit length, beta = 1) and scaled by
 L and beta per occurrence, so the default pipe costs one calculation. With wake
@@ -19,8 +20,8 @@ from .logutil import get_logger
 from .builders.loader import read_beam
 from .naming import safe
 from .io.pytlwall_cfg import write_chamber_cfg
-from .output import (clear_single_elements, write_single_element, write_totals,
-                     write_wake_totals)
+from .output import (TOTALS, WAKE_NOTES, WAKE_TOTALS, clear_single_elements,
+                     write_single_element, write_totals, write_wake_totals)
 from .sources.pytlwall_bridge import (COMPONENTS, WAKE_COMPONENTS, chamber_wake,
                                       compute_chamber)
 from .sources.iw2d_bridge import compute_iw2d
@@ -134,14 +135,14 @@ def _scale(base, row, comps, long_name, mean=(1.0, 1.0)):
 def compute_assignments(rows, freqs, out_dir, per_device=(), gamma=None,
                         times=None, beta_mean=(1.0, 1.0), weighted=True):
     zcache, wcache = {}, {}
-    # this calculation replaces the previous one: clear its per-device files
-    # first, so the folder describes one run and not the union of every run
+    # this calculation replaces the previous one: clear its files first
+    # (totals and per-device), so the folder describes one run and not the union of every run
     # ever written into it
     stale = clear_single_elements(out_dir)
     if stale:
         get_logger(__name__).info(
             "Recomputing: removed %d file(s) from the previous calculation in "
-            "%s.", len(stale), Path(out_dir) / "single_elements")
+            "%s.", len(stale), Path(out_dir))
     ztot = {c: np.zeros(len(freqs), dtype=complex) for c in COMPONENTS}
     wtot = ({c: np.zeros(len(times)) for c in WAKE_COMPONENTS}
             if times is not None else None)
@@ -373,7 +374,19 @@ def _write_wake_note(out_dir, stats):
         "These Fourier-transform cases are meant to be replaced by native wake",
         "calculations method by method.",
     ]
-    (Path(out_dir) / "single_elements" / "WAKE_NOTES.txt").write_text("\n".join(lines) + "\n")
+    (Path(out_dir) / WAKE_NOTES).write_text("\n".join(lines) + "\n")
+
+
+def default_output_dir(config, cfg=None) -> Path:
+    """Where `run` writes when no output folder is given: `<name>_output` next
+    to the config, `name` being the config's `name:` (or its file stem).
+
+    The GUI asks the same question when a config is opened, to show what was
+    already computed; asking it here keeps the two from drifting apart.
+    """
+    if cfg is None:
+        cfg = yaml.safe_load(read_config_text(config, "assembly config")) or {}
+    return Path(config).parent / f"{cfg.get('name', Path(config).stem)}_output"
 
 
 def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True,
@@ -395,7 +408,7 @@ def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True,
     for w in result.warnings:
         get_logger(__name__).warning(w)
     freqs = _grid(cfg)
-    out = Path(out_dir) if out_dir else Path(config).parent / f"{result.name}_output"
+    out = Path(out_dir) if out_dir else default_output_dir(config, cfg)
     per_device = cfg.get("output") or []
     beam = read_beam(cfg)
     if beam is not None:
@@ -424,12 +437,12 @@ def run(config, out_dir=None, plot=None, wake=False, gamma=None, fill_pipe=True,
     stats["weighted"] = weighted
 
     from .plotting import plot_totals, DEFAULT_COMPONENTS
-    plots = plot_totals(out / "single_elements" / "total.csv",
+    plots = plot_totals(out / TOTALS,
                         components=plot or DEFAULT_COMPONENTS, out_dir=out)
     wake_plots = []
     if wake:
         from .plotting import plot_wakes
-        wake_plots = plot_wakes(out / "single_elements" / "total_wake.csv", out_dir=out)
+        wake_plots = plot_wakes(out / WAKE_TOTALS, out_dir=out)
         _write_wake_note(out, stats)
 
     return {"out": out, "stats": stats, "plots": plots, "wake_plots": wake_plots,

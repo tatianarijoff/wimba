@@ -1162,6 +1162,44 @@ class MainWindow(QMainWindow):
                           len(found), ", ".join(found))
 
 
+    def _load_existing_results(self, path, dialect):
+        """Show what was already computed for a machine opened outside a project.
+
+        A project does this for every scenario when it is opened. A config or a
+        machine file opened on its own did not, so reopening the GUI on an LHC
+        that had been computed yesterday showed an empty Results panel although
+        the files were on disk. The folder is the one the calculation writes to
+        by default; a run saved elsewhere is still reached with File > Open
+        Results. Inside a project nothing is done here: the project owns its
+        results and loads them itself. Returns the folder loaded, or None.
+        """
+        from .model import existing_output_dirs
+        from .results import ResultsModel
+        if self.project is not None:
+            return None
+        try:
+            folders = existing_output_dirs(path, dialect)
+        except Exception as exc:                  # unreadable file: say nothing more
+            self.log.debug("No earlier results looked up for %s: %s", path, exc)
+            return None
+        for out in folders:
+            try:
+                fresh = ResultsModel().load(out)
+            except Exception as exc:              # a half-written folder: try the next
+                self.log.debug("Skipping %s: %s", out, exc)
+                continue
+            if not fresh.sources:
+                continue
+            # the results of whatever was open before do not belong to this machine
+            self.results_model.clear()
+            self.results_model.sources.update(fresh.sources)
+            self.results_tree.set_model(self.results_model)
+            self.docks["results"].raise_()
+            self.log.info("Loaded earlier results from %s (%d source(s)). "
+                          "Calculate to recompute.", out, len(fresh.sources))
+            return out
+        return None
+
     def _load_allowed(self, path) -> bool:
         """Whether a machine may be loaded over what the panels currently show.
 
@@ -1218,6 +1256,7 @@ class MainWindow(QMainWindow):
         self._refresh_all()
         self.statusBar().showMessage(
             f"Loaded {self.machine.name} \u2014 root node named '{self.machine.name}'", 4000)
+        self._load_existing_results(path, "machine")
 
     def _close_machine(self, confirm=True) -> bool:
         """Put the session back to how it looks at startup.
@@ -2142,8 +2181,10 @@ class MainWindow(QMainWindow):
     def _open_config(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open Assembly Config", "",
             "YAML (*.yaml *.yml);;All files (*)")
-        if not path:
-            return
+        if path:
+            self._open_config_at(path)
+
+    def _open_config_at(self, path):
         if not self._load_allowed(path):
             return
         self.config_path = path
@@ -2169,7 +2210,12 @@ class MainWindow(QMainWindow):
         self.log.info("Opened config '%s' (%s): %d device source(s), default pipe %s.",
                       name, Path(path).name, n_dev, "on" if has_pipe else "off")
         self.log.info("Machine and Optics populated. Calculate \u2192 Whole Machine to compute.")
-        self.statusBar().showMessage(f"Config loaded: {name} \u2014 Calculate to compute", 6000)
+        if self._load_existing_results(path, "assembly"):
+            self.statusBar().showMessage(
+                f"Config loaded: {name} \u2014 earlier results shown, Calculate "
+                f"to recompute", 6000)
+        else:
+            self.statusBar().showMessage(f"Config loaded: {name} \u2014 Calculate to compute", 6000)
 
     def _dock_text(self, pid):
         w = self.docks[pid].widget()
@@ -2200,7 +2246,8 @@ class MainWindow(QMainWindow):
         self.results_model.load(path)
         if not self.results_model.sources:
             QMessageBox.warning(self, "Open Results",
-                                "No single_elements/total.csv found in that folder.")
+                                "No WIMBA results found in that folder (no "
+                                "total.csv, per-device files or build resume).")
             return
         self.results_tree.set_model(self.results_model)
         self.docks["results"].raise_()

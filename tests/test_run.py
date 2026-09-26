@@ -30,10 +30,11 @@ def test_cache_and_totals(tmp_path):
     se = tmp_path / "out" / "single_elements"
     assert (se / "g" / "a.csv").is_file()
     assert not (se / "g" / "b.csv").exists()
-    assert (se / "total.csv").is_file()
+    assert (tmp_path / "out" / "total.csv").is_file()   # the total sits on top
+    assert not (se / "total.csv").exists()
 
     # totals equal the sum of the three contributions (check ZLong)
-    _, comps = read_totals(se / "total.csv")
+    _, comps = read_totals(tmp_path / "out" / "total.csv")
     assert comps["ZLong"].shape == F.shape and np.all(np.isfinite(comps["ZLong"]))
 
 
@@ -74,7 +75,7 @@ def test_wake_totals_native(tmp_path):
     rows = [_row("a", 0.02, length=1.0), _row("b", 0.02, beta_x=2.0, length=2.0)]
     ztot, wtot, stats = compute_assignments(rows, F2, tmp_path / "out", times=T, gamma=GAMMA)
     # wake totals written and native (pytlwall)
-    assert (tmp_path / "out" / "single_elements" / "total_wake.csv").is_file()
+    assert (tmp_path / "out" / "total_wake.csv").is_file()
     assert stats["wake_native"] == {"pytlwall"} and not stats["wake_fft"]
     assert wtot["WLong"].shape == T.shape and np.all(np.isfinite(wtot["WLong"]))
 
@@ -125,7 +126,7 @@ def test_elliptical_chamber_end_to_end(tmp_path):
         "    layers:\n      - {sigma: 1.4e6, thickness: 0.002}\n")
     info = run_study(tmp_path / "c.yaml", out_dir=tmp_path / "out")
     from wimba.output import read_totals
-    f, comps = read_totals(tmp_path / "out" / "single_elements" / "total.csv")
+    f, comps = read_totals(tmp_path / "out" / "total.csv")
 
     ss = pytlwall.Layer(layer_type="CW", thick_m=0.002, sigmaDC=1.4e6)
     vac = pytlwall.Layer(layer_type="V", thick_m=np.inf, boundary=True)

@@ -107,7 +107,7 @@ def cmd_run(args):
     print(f"Ran '{args.config}': {info['n_rows']} assignment(s) -> {info['out']}/")
     print(f"  computed: {st['computed']} | skipped: {st['skipped']} "
           f"| distinct geometries: {st['geometries']}")
-    print(f"  total: {info['out']}/single_elements/total.csv")
+    print(f"  total: {info['out']}/total.csv")
     for p in info["plots"]:
         print(f"  plot:  {p}")
     for p in info["wake_plots"]:
@@ -117,10 +117,17 @@ def cmd_run(args):
 
 def cmd_plot(args):
     from pathlib import Path
+    from .output import find_totals
     from .plotting import plot_totals
 
     components = args.components.split(",") if args.components else None
-    paths = plot_totals(args.totals, components=components, out_dir=args.out)
+    source, out_dir = Path(args.totals), args.out
+    if source.is_dir():                      # an output folder: find its total
+        folder, source = source, find_totals(source)
+        if source is None:
+            raise FileNotFoundError(f"no total.csv in {folder.resolve()}")
+        out_dir = out_dir or folder
+    paths = plot_totals(source, components=components, out_dir=out_dir)
     for p in paths:
         print(f"Plotted {p}")
     return 0
@@ -268,10 +275,11 @@ def main(argv=None):
     rn.set_defaults(func=cmd_run)
 
     pl = sub.add_parser("plot", help="plot machine totals from a totals CSV")
-    pl.add_argument("totals", help="path to a single_elements/total.csv")
+    pl.add_argument("totals", help="a total.csv, or the output folder that holds it")
     pl.add_argument("--components", default=None,
                     help="comma-separated (default: ZLong,ZDipX,ZDipY)")
-    pl.add_argument("--out", default=None, help="output directory (default: next to CSV)")
+    pl.add_argument("--out", default=None,
+                    help="output directory (default: next to the CSV / in the folder)")
     pl.set_defaults(func=cmd_plot)
 
     ap = sub.add_parser("assemble", help="assemble impedance assignments from optics + device files")

@@ -26,7 +26,7 @@ lattice segment that is not a named device.
 wimba run examples/LHC/LHC_config.yaml            # impedance
 wimba run examples/LHC/LHC_config.yaml --wake     # + wakes (native pytlwall + resonator)
 wimba assemble examples/LHC/LHC_config.yaml       # only the assignment array + collisions
-wimba plot examples/LHC/LHCB1_output/single_elements/total.csv --components ZLong,ZLongISC
+wimba plot examples/LHC/LHCB1_output --components ZLong,ZLongISC
 ```
 
 ## Run from the GUI
@@ -46,10 +46,10 @@ python -m wimba.gui
 ## Outputs
 
 By default (`LHCB1_output/`):
-- `single_elements/total.csv` — the machine total: `ZLong, ZDipX, ZDipY, ZQuadX,
+- `total.csv` — the machine total: `ZLong, ZDipX, ZDipY, ZQuadX,
   ZQuadY`, their indirect-space-charge counterparts (`ZLongISC`, ...) kept as
   separate columns, plus `total_wake.csv` with `--wake`;
-- per-device CSVs for the names listed under `output:` in the config — here
+- under `single_elements/`, per-device CSVs for the names listed under `output:` in the config — here
   `collimators/TCP.C6L7.B1.csv`, `rf_homs/RF.csv`, and the special name
   `default_pipe` which writes **one aggregated CSV** summing all ~11k pipe
   segments;

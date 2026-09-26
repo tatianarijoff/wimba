@@ -86,7 +86,7 @@ Notes:
 If the map defines `wake_components` (or the device has `wake_files`), the wake
 is imported. Otherwise, when a wake is requested, WIMBA computes it as the
 **Fourier transform of the imported impedance** and records that in
-`<output>/single_elements/WAKE_NOTES.txt` — you always know where a wake came
+`<output>/WAKE_NOTES.txt` — you always know where a wake came
 from.
 
 ## Running from the shell

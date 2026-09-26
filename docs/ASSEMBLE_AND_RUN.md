@@ -8,7 +8,7 @@ machine impedance. It is driven by one YAML coordinator and three commands:
 ```bash
 wimba assemble <config.yaml>     # the assignment array (who/where/how/beta) + collisions
 wimba run      <config.yaml>     # assemble + compute + total.csv + default plots
-wimba plot     total.csv         # (re)plot components from a totals CSV
+wimba plot     <name>_output     # (re)plot components from the machine total
 ```
 
 ## The coordinator config
@@ -112,12 +112,20 @@ Assembles, computes each contribution (weighting beta), sums, and writes:
 
 ```
 <name>_output/
-  single_elements/
-    total.csv                         # the machine total (always)
-    <group>/<device>.csv              # only devices listed under output:
+  total.csv                           # the machine total (always)
+  total_wake.csv                      # with --wake
+  WAKE_NOTES.txt                      # with --wake: where each wake came from
   total_ZLong.png  total_ZDipX.png  total_ZDipY.png    # Re/Im per component
   total_WLong.png                     # with --wake
+  single_elements/
+    <group>/<device>.csv              # only devices listed under output:
 ```
+
+The totals sit at the top because they are the result of the whole machine;
+`single_elements/` holds only what was asked for device by device. Folders
+written by earlier versions kept the totals under `single_elements/`: WIMBA
+still reads them there, so an old output opens without being recomputed, and
+the next calculation into that folder moves them up.
 
 Each CSV is `freq, Re_<comp>, Im_<comp>, ...`. Default plots are one figure per
 component showing real and imaginary parts vs frequency. `--wake` adds the
@@ -127,7 +135,8 @@ longitudinal wake, obtained from the total impedance by the Fourier transform
 ## `wimba plot` — replot from a CSV
 
 ```bash
-wimba plot <name>_output/single_elements/total.csv --components ZLong,ZDipX
+wimba plot <name>_output --components ZLong,ZDipX
+wimba plot <name>_output/total.csv --components ZLong,ZDipX --out figures/
 ```
 
 From a file you say which components you want; in the GUI you choose at runtime.

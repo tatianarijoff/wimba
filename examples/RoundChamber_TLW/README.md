@@ -33,8 +33,8 @@ is a different thing.
 
 ## Outputs
 
-`RoundChamber_TLW_output/single_elements/total.csv` (and `total_wake.csv` with
-`--wake`), the same chamber under `round_chamber/…` since it is named in
+`RoundChamber_TLW_output/total.csv` (and `total_wake.csv` with
+`--wake`), the same chamber under `single_elements/round_chamber/…` since it is named in
 `output:`, the plots, and `WAKE_NOTES.txt`.
 
 Because beta = 1 and length = 1, every number equals pytlwall's

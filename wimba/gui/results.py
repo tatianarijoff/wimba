@@ -18,7 +18,7 @@ import numpy as np
 
 ASSETS = Path(__file__).parent / "assets"
 
-from ..output import read_totals, read_wake_totals
+from ..output import find_totals, read_totals, read_wake_totals
 
 MIME = "application/x-wimba-result"
 
@@ -122,21 +122,23 @@ class ResultsModel:
     def load(self, out_dir) -> "ResultsModel":
         """Read a results directory, whichever pipeline wrote it.
 
-        `run` writes single_elements/ with one CSV per device and a total.csv;
-        `build` writes one .dat per component per element plus a resume listing
-        them. Both are results, and which command produced them is not something
-        the Results panel should have an opinion about.
+        `run` writes total.csv at the top of the folder and one CSV per device
+        under single_elements/ (older folders kept the total there too; both
+        are read); `build` writes one .dat per component per element plus a
+        resume listing them. Both are results, and which command produced them
+        is not something the Results panel should have an opinion about.
         """
         self.clear()
         se = Path(out_dir) / "single_elements"
-        if not se.is_dir() and list(Path(out_dir).glob("*_resume.yaml")):
+        total = find_totals(out_dir)
+        if (total is None and not se.is_dir()
+                and list(Path(out_dir).glob("*_resume.yaml"))):
             return self._load_build(out_dir)
-        total = se / "total.csv"
-        if total.is_file():
+        if total is not None:
             self.sources.setdefault("Total", {})["impedance"] = \
                 self._with_sc_totals(read_totals(total))
-        wake = se / "total_wake.csv"
-        if wake.is_file():
+        wake = find_totals(out_dir, wake=True)
+        if wake is not None:
             self.sources.setdefault("Total", {})["wake"] = read_wake_totals(wake)
         if se.is_dir():
             for group_dir in sorted(p for p in se.iterdir() if p.is_dir()):
