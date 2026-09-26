@@ -307,6 +307,18 @@ do not choose, and the Console says which one it took.
 Inside a project the results go to `<scenario slug>/output` without asking, and
 the scenario is stamped with the time it was computed.
 
+Outside a project, a machine is computed **from its file on disk**, so Calculate
+first makes sure that file says what the window shows:
+
+- a machine built in the window with *New Machine* has no file yet: Calculate
+  says so and offers *Save Machine As…*; cancelling the save cancels the
+  calculation;
+- a machine whose panels hold edits the file does not have asks whether to save
+  first. *Calculate Without Saving* computes the file as it is, and the Console
+  says the edits were left out.
+
+Inside a project nothing is asked: the scenario's config is the file.
+
 The buttons at the bottom of an element tab — `Calculate element` and
 `Calculate wake` — compute that element alone; `Calculate ▸ Calculate Selected
 Element` (`F5`), `… Wake` (`Shift+F5`) and `… Comparisons Only` (`Ctrl+F5`) do

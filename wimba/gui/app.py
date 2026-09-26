@@ -623,7 +623,11 @@ class MainWindow(QMainWindow):
             self.lbl_sel.setText("nothing selected")
 
     def _after_edit(self):
-        self._config_dirty = self.project is not None
+        # Every panel edit is pending until a save writes it. This used to be
+        # set inside a project only, from before a machine could be saved
+        # outside one; outside a project the edits then went unnoticed by
+        # Close Machine and by Calculate, which reads the file on disk.
+        self._config_dirty = self.machine is not None
         if self.machine:
             self.tree.set_machine(self.machine)
         self._update_status()
@@ -2263,6 +2267,8 @@ class MainWindow(QMainWindow):
         """
         out_dir = None
         sc = self.project.scenario if self.project else None
+        if sc is None and not self._ready_to_calculate():
+            return
         if sc is not None:
             # inside a project there is nothing to ask: the scenario names its own
             # config, and its results belong in its own folder
@@ -2394,6 +2400,74 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Calculate", f"Could not read {path}:\n{exc}")
             return "unreadable"
         return "assembly" if ("devices" in cfg or "default_pipe" in cfg) else "machine"
+
+    def _calc_blocker(self):
+        """What stands between an open machine and its calculation, outside a
+        project: "unsaved" (built in the window, no file yet), "dirty" (a file,
+        but the panels hold edits it does not have), or None.
+
+        Outside a project a machine is computed from its file on disk. A machine
+        with no file used to send Calculate to the Open Config dialog, which
+        looks like a bug; a machine with pending edits was computed without
+        them, silently.
+        """
+        if self.project is not None or self.machine is None:
+            return None
+        source = self._source_config()
+        if not source or not Path(source).exists():
+            return "unsaved"
+        return "dirty" if self._config_dirty else None
+
+    def _ask(self, title, text, choices, default):
+        """A question with named answers; returns the key of the one chosen.
+        `choices` is [(key, button text, role)]. A separate method so a test
+        can answer it."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(title)
+        box.setText(text)
+        buttons = {}
+        for key, label, role in choices:
+            buttons[box.addButton(label, role)] = key
+            if key == default:
+                box.setDefaultButton(list(buttons)[-1])
+        box.exec()
+        return buttons.get(box.clickedButton(), "cancel")
+
+    def _ready_to_calculate(self) -> bool:
+        """Settle what _calc_blocker found, asking the user; True to go on."""
+        blocker = self._calc_blocker()
+        if blocker is None:
+            return True
+        Role = QMessageBox.ButtonRole
+        if blocker == "unsaved":
+            answer = self._ask(
+                "Calculate",
+                f"'{self.machine.name}' has not been saved yet.\n\nWIMBA computes "
+                f"a machine from its file, so save it first.",
+                [("save", "Save Machine As\u2026", Role.AcceptRole),
+                 ("cancel", "Cancel", Role.RejectRole)], "save")
+            if answer != "save":
+                return False
+            self._save_machine_as()
+            return self._calc_blocker() is None      # saved, or the dialog was left
+        source = Path(self._source_config()).name
+        answer = self._ask(
+            "Calculate",
+            f"The panels hold edits that have not been written to {source}.\n\n"
+            f"The calculation reads that file, so without saving they are not "
+            f"included. Save before calculating?",
+            [("save", "Save and Calculate", Role.AcceptRole),
+             ("go", "Calculate Without Saving", Role.DestructiveRole),
+             ("cancel", "Cancel", Role.RejectRole)], "save")
+        if answer == "cancel":
+            return False
+        if answer == "save":
+            self._save_machine()
+            return not self._config_dirty            # False if the write failed
+        self.log.info("Calculating %s as it is on disk; the edits in the panels "
+                      "are not included.", source)
+        return True
 
     def _build_machine(self, path, out_dir, weighted=True):
         """Calculate for a machine file: the build pipeline, same panels."""
