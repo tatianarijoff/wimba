@@ -189,7 +189,8 @@ document.addEventListener('DOMContentLoaded', function () {
 #: Sidebar grouping. Files not listed fall into "Other".
 SECTIONS = (
     ("Getting started", ("README", "SETUP", "SETTINGS", "EXAMPLES")),
-    ("Workflows", ("GUI", "PROJECTS", "ASSEMBLE_AND_RUN", "BUILD", "COMPONENT")),
+    ("Workflows", ("GUI", "PROJECTS", "PARAMETRIC", "ASSEMBLE_AND_RUN", "BUILD",
+                   "COMPONENT")),
     ("Engines", ("PYTLWALL_CFG", "IW2D", "RESONATOR", "PRECALCULATED",
                  "FOURIER")),
     ("Reference", ("CONFIG", "MATERIALS", "DATA_MODEL", "DATA", "docs_README")),

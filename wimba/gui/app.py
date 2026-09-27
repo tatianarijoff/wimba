@@ -322,6 +322,7 @@ class MainWindow(QMainWindow):
 
         m = mb.addMenu("&File")
         self._act(m, "New Project\u2026", self._new_project)
+        self._act(m, "New Parametric Project\u2026", self._new_parametric_project)
         self._act(m, "Open Project\u2026", self._open_project)
         self._act(m, "Close Project", self._close_project)
         m.addSeparator()
@@ -721,6 +722,13 @@ class MainWindow(QMainWindow):
     def _duplicate_scenario(self):
         """The only way to make a second scenario."""
         if self.project is None or not self.project.scenarios:
+            return
+        if self.project.parametric:
+            QMessageBox.information(
+                self, "Duplicate Scenario",
+                "The cases of a parametric project are generated from its sweep, "
+                "one per value, so that they differ in that parameter only.\n\n"
+                "To add a value, create the project again with the longer list.")
             return
         if not self.project.can_add():
             QMessageBox.information(self, "Duplicate Scenario",
@@ -1155,6 +1163,62 @@ class MainWindow(QMainWindow):
                       ", ".join(self.project.labels()) or "no scenarios yet")
         self._activate_scenario()
         self._load_computed_results()
+        notes = self._parametric_notes()
+        if notes:
+            prob = self._dock_text("problems")
+            for line in notes:
+                prob.appendPlainText(line)
+            self.docks["problems"].raise_()
+
+    def _parametric_notes(self) -> list:
+        """What Problems says about a parametric project's comparability."""
+        if self.project is None or not self.project.parametric:
+            return []
+        from ..parametric import problems
+        try:
+            notes = problems(self.project)
+        except Exception as exc:                  # never block the window on a check
+            self.log.debug("Parametric check failed: %s", exc)
+            return []
+        for line in notes:
+            self.log.warning(line.replace("WARNING  ", ""))
+        return notes
+
+    def _new_parametric_project(self):
+        """A project generated from one config: one layer parameter, N values."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "New Parametric Project \u2014 the config every case starts from",
+            self._last_dir if hasattr(self, "_last_dir") else "",
+            "WIMBA config (*.yaml *.yml);;All files (*)")
+        if not path:
+            return
+        from .sweep_dialog import SweepDialog
+        from .. import parametric
+        try:
+            dialog = SweepDialog(path, self)
+        except Exception as exc:
+            QMessageBox.critical(self, "New Parametric Project",
+                                 f"Could not read {path}:\n{exc}")
+            return
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if self.project is not None:
+            self._close_project()
+            if self.project is not None:          # the user cancelled the close
+                return
+        try:
+            project = parametric.create_project(path, dialog.directory(), dialog.sweep(),
+                                                name=dialog.project_name())
+        except Exception as exc:
+            QMessageBox.critical(self, "New Parametric Project", str(exc))
+            return
+        self.log.info("Parametric project '%s': %d case(s) from %s \u2014 %s",
+                      project.name, len(project.scenarios), Path(path).name,
+                      ", ".join(project.labels()))
+        self._open_project_at(Path(project.dir))
+        self.statusBar().showMessage(
+            f"{len(project.scenarios)} cases written \u2014 Calculate \u2192 "
+            f"Calculate Project to compute them", 8000)
 
     def _load_computed_results(self):
         """Pull back the results of every scenario that has already been computed.
@@ -2689,6 +2753,9 @@ class MainWindow(QMainWindow):
             f"{st['additional']} additional \u2014 all computed.")
         prob.appendPlainText("Element-driven build: only what the machine lists is "
                              "computed, so there is no lattice to collide on.")
+        for line in self._parametric_notes():
+            prob.appendPlainText(line)
+            self.docks["problems"].raise_()
         self.statusBar().showMessage(
             f"Done \u2192 {info['out']} \u2014 pick quantities from the Results tree",
             6000)
@@ -2752,6 +2819,10 @@ class MainWindow(QMainWindow):
                 prob.appendPlainText(f"s={c.position:.3f} m: {', '.join(c.names)}  [{tag}]")
         else:
             prob.appendPlainText("No collisions.")
+        if kind == "machine":
+            for line in self._parametric_notes():
+                prob.appendPlainText(line)
+                self.docks["problems"].raise_()
         self.statusBar().showMessage(
             f"Done \u2192 {info['out']} \u2014 pick quantities from the Results tree", 6000)
         if kind == "machine":

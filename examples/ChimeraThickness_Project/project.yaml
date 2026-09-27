@@ -1,0 +1,69 @@
+name: CHIMERA - COLL.H inner layer thickness
+kind: parametric
+sweep:
+  elements:
+  - COLL.H
+  parameter: layers[0].thickness
+  values:
+  - 1.0e-05
+  - 5.0e-05
+  - 0.0002
+  - 0.001
+  - 0.005
+base: ../Chimera_Project/injection_config.yaml
+grid:
+  frequency:
+    min: 10000.0
+    max: 600000000.0
+    n: 200
+    log: true
+  time:
+    min: 0.0
+    max: 5.0e-08
+    n: 200
+scenarios:
+- label: t = 10 µm
+  slug: 01_t_10_um
+  config: 01_t_10_um_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: t = 50 µm
+  slug: 02_t_50_um
+  config: 02_t_50_um_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: t = 200 µm
+  slug: 03_t_200_um
+  config: 03_t_200_um_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: t = 1 mm
+  slug: 04_t_1_mm
+  config: 04_t_1_mm_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: t = 5 mm
+  slug: 05_t_5_mm
+  config: 05_t_5_mm_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204

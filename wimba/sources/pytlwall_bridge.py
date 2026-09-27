@@ -25,10 +25,11 @@ def _one_layer(pytlwall, lay, boundary=False):
     thick = lay.get("thickness", lay.get("thick_m", 0.002))
     thick = np.inf if str(thick).lower() == "inf" else float(thick)
     ltype = str(lay.get("type", "CW"))
-    if lay.get("material") is not None and ltype.upper() not in ("V", "PEC", "PMC"):
-        # The config loaders resolve names before this point; a name that reaches
-        # the bridge unresolved is looked up in the shipped catalogue only, all
-        # six parameters, and an unknown one is an error - not a default.
+    if _unresolved(lay) and ltype.upper() not in ("V", "PEC", "PMC"):
+        # The config loaders resolve names before this point, from the catalogue
+        # and the config's own materials: block. A name that reaches the bridge
+        # still unresolved is looked up in the shipped catalogue only, all six
+        # parameters, and an unknown one is an error - not a default.
         lay = _named(lay)
     sigma = lay.get("sigma", lay.get("sigmaDC"))
     if sigma is not None:
@@ -63,6 +64,18 @@ def _build_layers(pytlwall, layers):
     if not has_boundary:
         built.append(pytlwall.Layer(layer_type="V", thick_m=np.inf, boundary=True))
     return built
+
+
+def _unresolved(lay: dict) -> bool:
+    """A layer that names a material and carries no conductivity yet.
+
+    One that also carries a sigma was either resolved by a loader (which fills
+    every parameter the layer does not state) or states its own value - either
+    way its numbers are the ones to use, and looking the name up again here,
+    without the config's own materials: block, would refuse a study material.
+    """
+    return (lay.get("material") is not None
+            and lay.get("sigma") is None and lay.get("sigmaDC") is None)
 
 
 def _named(lay: dict) -> dict:

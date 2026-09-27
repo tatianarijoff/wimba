@@ -1223,6 +1223,15 @@ class GProject:
     scenarios: list = field(default_factory=list)
     grid: dict = field(default_factory=dict)     # shared by every scenario
     current: int = 0
+    # "scenarios" (cases chosen one by one, by duplication) or "parametric"
+    # (cases generated from `sweep`, one per value - see wimba/parametric.py)
+    kind: str = "scenarios"
+    sweep: Optional[dict] = None
+    base: Optional[str] = None       # the config a parametric project was made from
+
+    @property
+    def parametric(self) -> bool:
+        return self.kind == "parametric"
 
     # ---- access ----
     @property
@@ -1282,13 +1291,22 @@ class GProject:
 
     # ---- serialisation ----
     def to_dict(self) -> dict:
-        return {"name": self.name, "grid": self.grid,
-                "scenarios": [s.to_dict() for s in self.scenarios]}
+        d = {"name": self.name}
+        if self.parametric:
+            d["kind"] = self.kind
+            d["sweep"] = self.sweep
+            if self.base:
+                d["base"] = self.base
+        d["grid"] = self.grid
+        d["scenarios"] = [s.to_dict() for s in self.scenarios]
+        return d
 
     @classmethod
     def from_dict(cls, data: dict, directory) -> "GProject":
         return cls(name=data.get("name", Path(directory).name), dir=str(directory),
                    grid=data.get("grid") or {},
+                   kind=data.get("kind") or "scenarios",
+                   sweep=data.get("sweep"), base=data.get("base"),
                    scenarios=[GScenario.from_dict(s) for s in data.get("scenarios") or []])
 
 
@@ -1521,7 +1539,7 @@ def data_dir_for_move(src, dest, cfg: dict) -> list:
     return list(existing) + ([here] if here not in existing else [])
 
 
-def freeze_config(src, dest) -> Path:
+def freeze_config(src, dest, relative: bool = False) -> Path:
     """Copy a config into the project, keeping its file references working.
 
     A scenario owns its config: the copy is what the user then edits per
@@ -1536,6 +1554,15 @@ def freeze_config(src, dest) -> Path:
     src, dest = Path(src), Path(dest)
     base = src.parent
     data = read_yaml_text(src.read_text())
+
+    def _ref(path: Path) -> str:
+        # relative=True writes the reference relative to the copy instead: for a
+        # project that is moved or committed together with its data
+        import os
+        path = path.resolve()
+        if relative:
+            return os.path.relpath(path, dest.parent.resolve())
+        return str(path)
 
     # Nodes are edited IN PLACE rather than rebuilt. A dict comprehension would
     # return a plain dict and drop every comment ruamel attached to that
@@ -1552,12 +1579,12 @@ def freeze_config(src, dest) -> Path:
     def _resolve(key, value, base):
         if key in PATH_KEYS and isinstance(value, str):
             here = base / value
-            return str(here.resolve()) if here.exists() else value
+            return _ref(here) if here.exists() else value
         if key in PATH_DICT_KEYS and isinstance(value, dict):
             for c in list(value):
                 f = value[c]
                 if isinstance(f, str) and (base / f).exists():
-                    value[c] = str((base / f).resolve())
+                    value[c] = _ref(base / f)
             return value
         return walk(value)
 
@@ -1588,7 +1615,24 @@ def _rt():
     y = YAML()                 # typ="rt" is the default
     y.preserve_quotes = True
     y.width = 4096             # do not re-wrap long flow sequences
+    # A float WIMBA writes must read back as a float with PyYAML too, which
+    # follows YAML 1.1: there `1e-05` is a string, `1.0e-05` a number. Numbers
+    # that came from the file keep their own spelling (ruamel reads them as its
+    # own ScalarFloat, which this does not touch).
+    y.representer.add_representer(float, _represent_float)
     return y
+
+
+def _represent_float(representer, value):
+    import math
+    if math.isnan(value):
+        text = ".nan"
+    elif math.isinf(value):
+        text = ".inf" if value > 0 else "-.inf"
+    else:
+        from ..materials import _yaml_number
+        text = _yaml_number(value)
+    return representer.represent_scalar("tag:yaml.org,2002:float", text)
 
 
 def read_yaml_text(text):

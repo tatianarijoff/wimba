@@ -98,6 +98,23 @@ def cmd_build(args):
     return 0
 
 
+def cmd_sweep(args):
+    from .parametric import create_project, parse_values, Sweep, _PARAM
+    m = _PARAM.match(args.parameter or "")
+    field = m.group(2) if m else "material"
+    values = parse_values(field, " ".join(args.values))
+    project = create_project(args.config, args.out,
+                             {"elements": args.elements, "parameter": args.parameter,
+                              "values": values},
+                             name=args.name, relative=args.relative)
+    print(f"Parametric project '{project.name}' -> {project.dir}/")
+    for sc in project.scenarios:
+        print(f"  {sc.slug:28s} {sc.label}")
+    print("Open it in the GUI and use Calculate > Calculate Project, or run each\n"
+          "case with: wimba run <case>_config.yaml --out <case>/output")
+    return 0
+
+
 def cmd_run(args):
     from .run import run
 
@@ -286,6 +303,22 @@ def main(argv=None):
     ap.add_argument("config", help="path to the assembly YAML coordinator")
     ap.add_argument("--out", default=None, help="output directory (default: next to the config)")
     ap.set_defaults(func=cmd_assemble)
+
+    sw = sub.add_parser("sweep", help="create a parametric project: one layer "
+                        "parameter, several values")
+    sw.add_argument("config", help="the config every case starts from")
+    sw.add_argument("--elements", nargs="+", required=True,
+                    help="element name(s) whose layer changes, as in the config's name:")
+    sw.add_argument("--parameter", required=True,
+                    help="layers[N].FIELD, N from 0 at the layer nearest the beam; FIELD "
+                         "one of material, thickness, sigma, epsr, tau, k_Hz, muinf_Hz, RQ")
+    sw.add_argument("--values", nargs="+", required=True,
+                    help="the values: material names, or numbers in SI units")
+    sw.add_argument("--out", required=True, help="an empty folder for the project")
+    sw.add_argument("--name", default=None, help="project name (default: '<config> sweep')")
+    sw.add_argument("--relative", action="store_true",
+                    help="keep data references relative to the project folder")
+    sw.set_defaults(func=cmd_sweep)
 
     sh = sub.add_parser("show", help="summarise a materialised results directory")
     sh.add_argument("results", help="path to a results directory")

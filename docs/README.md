@@ -24,6 +24,8 @@
 - [Projects and scenarios](PROJECTS.md) — one machine at several energies:
   the project, the scenarios under it, the beam, and how two results end up on
   one plot.
+- [Parametric projects](PARAMETRIC.md) — one layer parameter, several values:
+  the sweep, how the cases are generated, and how to read them.
 - [Machine config reference](CONFIG.md) — the YAML that describes a machine,
   field by field, including the `beam:` block.
 - [Materials](MATERIALS.md) — where a material name is looked up, and how a

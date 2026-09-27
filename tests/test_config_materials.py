@@ -154,3 +154,32 @@ def test_the_machine_dialect_reads_its_own_block(tmp_path):
     # the interface still sees the layer as the file writes it
     assert wall.provider.layers_as_written[0] == {"type": "CW", "material": "chimeranium",
                                                   "thickness": 0.002}
+
+
+# ------------------------------------------------------------ at the engine
+class _FakePytlwall:
+    """Stands in for pytlwall: records what each Layer was built with."""
+    class Layer:
+        def __init__(self, **kw):
+            self.kw = kw
+
+
+def test_a_layer_resolved_from_a_study_material_reaches_the_engine(tmp_path):
+    """The loader resolves `chimeranium` from the config's block; the bridge must
+    use those numbers, not look the name up again without the block."""
+    from wimba.sources import pytlwall_bridge
+    cfg = _assembly(tmp_path, {"type": "CW", "material": "chimeranium",
+                               "thickness": 0.025}, {"chimeranium": 3.2e6})
+    layers = next(r for r in load_assembly(cfg).rows if r.name == "A").geometry["layers"]
+    built = pytlwall_bridge._build_layers(_FakePytlwall, layers)
+    assert built[0].kw["sigmaDC"] == pytest.approx(3.2e6)
+
+
+def test_an_unresolved_name_at_the_engine_uses_the_catalogue_only():
+    from wimba.sources import pytlwall_bridge
+    built = pytlwall_bridge._build_layers(
+        _FakePytlwall, [{"type": "CW", "material": "copper", "thickness": 0.002}])
+    assert built[0].kw["sigmaDC"] == pytest.approx(5.9e7)
+    with pytest.raises(ValueError, match="chimeranium"):
+        pytlwall_bridge._build_layers(
+            _FakePytlwall, [{"type": "CW", "material": "chimeranium", "thickness": 1}])

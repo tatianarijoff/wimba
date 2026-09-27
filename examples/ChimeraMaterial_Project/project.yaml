@@ -1,0 +1,80 @@
+name: CHIMERA - collimator material
+kind: parametric
+sweep:
+  elements:
+  - COLL.H
+  - COLL.V
+  parameter: layers[0].material
+  values:
+  - copper
+  - aluminium
+  - molybdenum
+  - titanium
+  - stainless-steel-316ln
+  - graphite
+base: ../Chimera_Project/injection_config.yaml
+grid:
+  frequency:
+    min: 10000.0
+    max: 600000000.0
+    n: 200
+    log: true
+  time:
+    min: 0.0
+    max: 5.0e-08
+    n: 200
+scenarios:
+- label: copper
+  slug: 01_copper
+  config: 01_copper_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: aluminium
+  slug: 02_aluminium
+  config: 02_aluminium_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: molybdenum
+  slug: 03_molybdenum
+  config: 03_molybdenum_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: titanium
+  slug: 04_titanium
+  config: 04_titanium_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: stainless-steel-316ln
+  slug: 05_stainless-steel-316ln
+  config: 05_stainless-steel-316ln_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204
+- label: graphite
+  slug: 06_graphite
+  config: 06_graphite_config.yaml
+  beam:
+    particle: proton
+    mode: kinetic
+    kinetic: 1200000000.0
+    gamma: 2.278946709965436
+    beta: 0.8985851431285204

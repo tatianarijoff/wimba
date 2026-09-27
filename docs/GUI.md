@@ -177,6 +177,7 @@ calculation and raised automatically when there is something in it. See
 | **Open Results** | reopens any output folder without recomputing anything |
 | **Close Machine** | clears the machine and its panels |
 | **New Project** | asks where results go; the first machine you load becomes scenario one |
+| **New Parametric Project** | generates a project from one config: one layer parameter, one case per value — see [PARAMETRIC.md](PARAMETRIC.md) |
 | **Open Project** | opens an existing `project.yaml` and reloads every scenario that already has output |
 | **Save Project** / **Save Project As** | writes `project.yaml` and each scenario's config |
 | **Close Project** | saves, then clears the panels; files are untouched |

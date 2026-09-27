@@ -132,7 +132,8 @@ def _one_layer(lay, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility):
     thick = lay.get("thickness", lay.get("thick_m", 0.002))
     thick = float("inf") if str(thick).lower() == "inf" else float(thick)
 
-    if lay.get("material") is not None and ltype not in ("V", "PEC", "PMC"):
+    from .pytlwall_bridge import _unresolved
+    if _unresolved(lay) and ltype not in ("V", "PEC", "PMC"):
         # A layer can name its material instead of giving numbers. The config
         # loaders resolve that before we get here; doing it again, the same way
         # the pytlwall bridge does, keeps the two engines in agreement when this

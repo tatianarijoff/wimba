@@ -14,6 +14,10 @@ is where those cases live together.
 Scenario sits above Machine and below Project. That is the whole idea; the rest
 of this page is what follows from it.
 
+A project whose cases differ in one layer parameter — a material, a thickness —
+can be generated rather than duplicated by hand: see
+[PARAMETRIC.md](PARAMETRIC.md).
+
 ## Why the grid belongs to the project
 
 Two impedance curves can only be compared if they were sampled at the same
@@ -150,6 +154,7 @@ machine quotes its own working points.
 | menu | what it does |
 |---|---|
 | *File → New Project…* | choose the folder; name it |
+| *File → New Parametric Project…* | one base config, one layer parameter, several values: see [PARAMETRIC.md](PARAMETRIC.md) |
 | *File → Open Project…* | reopen, with the results of every computed scenario already loaded |
 | *File → Close Project* | saves first, then clears the panels; files untouched |
 | *File → Save Project* | writes `project.yaml` and each scenario's config |

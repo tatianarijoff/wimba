@@ -2,7 +2,7 @@
 
 # Examples
 
-WIMBA ships five examples, each self-contained in its own folder under
+WIMBA ships these examples, each self-contained in its own folder under
 `examples/`. They exercise the two ways of building a model:
 
 - the **assemble / run** flow — start from the optics (a MAD-X twiss) and a set of
@@ -28,6 +28,7 @@ not.
 | [SubLHC](#sublhc) | build | no | the group/element build flow end to end |
 | [resonator](#resonator) | script | no | the analytic resonator source, standalone |
 | [Chimera_Project](#chimera_project) | assemble / run | yes | a project with two scenarios; an invented machine |
+| [ChimeraMaterial_Project, ChimeraThickness_Project](#chimeramaterial_project-and-chimerathickness_project) | assemble / run | yes | parametric projects: one collimator layer, several materials or thicknesses |
 
 ---
 
@@ -189,3 +190,36 @@ boundaries. Placed on a multiple of the 12.5 m cell they would share a position
 with a quadrupole, and the beta interpolation would take the quadrupole's row: no
 error, no collision, just quietly wrong numbers. Worth knowing if you build a
 lattice by hand.
+
+---
+
+## ChimeraMaterial_Project and ChimeraThickness_Project
+
+Two [parametric projects](PARAMETRIC.md), both generated from
+`Chimera_Project/injection_config.yaml` (injection, γ = 2.279) and pointing at
+its data by relative path, so the three folders travel together. Open either
+with *File → Open Project* and run *Calculate → Calculate Project…*.
+
+| project | sweep | what to look at |
+|---|---|---|
+| `ChimeraMaterial_Project` | `layers[0].material` of COLL.H and COLL.V: copper, aluminium, molybdenum, titanium, stainless-steel-316ln, graphite | the collimators' Re ZDipX spreads by more than a factor 20 at 100 MHz — roughly the square root of the conductivity ratio — and the machine total follows by a factor 2 around 1 MHz |
+| `ChimeraThickness_Project` | `layers[0].thickness` of COLL.H alone — the chimeranium, over 3 mm of copper — 10 µm, 50 µm, 200 µm, 1 mm, 5 mm | a thin layer lets the field reach the copper; once the layer is a few skin depths thick (δ ≈ 0.28 mm at 1 MHz, 28 µm at 100 MHz) the curves meet. COLL.H changes by a factor 4 at 1 MHz; the machine's ZDipX by about 10 %, its ZDipY hardly at all |
+
+The same invented data as Chimera_Project: **do not quote a number out of them.**
+
+Regenerate them, if the base changes, with:
+
+```bash
+wimba sweep examples/Chimera_Project/injection_config.yaml --relative \
+    --elements COLL.H COLL.V --parameter "layers[0].material" \
+    --values copper aluminium molybdenum titanium stainless-steel-316ln graphite \
+    --name "CHIMERA - collimator material" --out examples/ChimeraMaterial_Project
+wimba sweep examples/Chimera_Project/injection_config.yaml --relative \
+    --elements COLL.H --parameter "layers[0].thickness" \
+    --values 1e-5 5e-5 2e-4 1e-3 5e-3 \
+    --name "CHIMERA - COLL.H inner layer thickness" --out examples/ChimeraThickness_Project
+```
+
+(each needs its folder removed first: a sweep never writes into an existing
+project).
+
