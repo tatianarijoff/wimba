@@ -11,6 +11,7 @@ Two rules are under test here, and they are the two the GUI now leans on:
 Qt is not needed: everything here is the model layer.
 """
 import textwrap
+from pathlib import Path
 
 import pytest
 
@@ -89,7 +90,8 @@ def test_resonator_uses_the_machine_dialect_spelling():
     el.modes = [GMode(q="ZLong", Rs=1.1e5, Q=420.0, fr=6.35e8)]
     spec = machine_config(_machine(el))["groups"]["devices"][0]
     assert spec["source"] == "resonator"
-    assert spec["resonators"] == [{"term": "ZLong", "Rs": 1.1e5, "Q": 420.0,
+    # the machine dialect's own term names, which the build looks up
+    assert spec["resonators"] == [{"term": "zlong", "Rs": 1.1e5, "Q": 420.0,
                                    "fr": 6.35e8}]
     assert "modes" not in spec
 
@@ -525,3 +527,102 @@ def test_the_row_path_from_config_is_normalised_the_same_way():
     assert sorted(geo) == ["length", "radius", "shape"]
     assert geo["length"] == 1.4
     assert raw["layers"] is LAYERS          # the caller still reads them from here
+
+
+# ------------------------------------------- edited resonator modes are saved
+def _resonator_copy(tmp_path):
+    import shutil
+    src = Path("examples/resonator")
+    for name in ("resonator_input.yaml", "resonator.tfs"):
+        shutil.copy(src / name, tmp_path / name)
+    return tmp_path / "resonator_input.yaml"
+
+
+def test_edited_modes_of_a_machine_file_are_written_back(tmp_path):
+    from wimba.gui.model import GMode, from_machine_file, write_config
+    path = _resonator_copy(tmp_path)
+    gm = from_machine_file(str(path))
+    el = next(e for _g, e in gm.all_elements() if e.name == "CAV.1")
+    assert el.modes_inline
+    el.modes[0].Rs = 2.5e5                           # change one value
+    el.modes.append(GMode(q="ZLong", Rs=7.0e3, Q=10.0, fr=1.2e9))   # add one
+    el.edited.add("modes")
+    write_config(path, gm)
+
+    again = from_machine_file(str(path))
+    cav = next(e for _g, e in again.all_elements() if e.name == "CAV.1")
+    assert len(cav.modes) == 3
+    assert any(abs(m.Rs - 2.5e5) < 1 for m in cav.modes)
+    assert any(abs(m.fr - 1.2e9) < 1 for m in cav.modes)
+    other = next(e for _g, e in again.all_elements() if e.name == "CAV.2")
+    assert other.modes                               # untouched neighbour kept
+    assert "# WIMBA machine input" in path.read_text()   # the header survives
+
+
+def test_a_window_resonator_stays_editable_after_it_is_saved(tmp_path):
+    """Save As writes the modes inline, so after saving they are still
+    something a later save can write back."""
+    from wimba.gui.model import (GMode, clear_added, default_models,
+                                 new_element, new_machine)
+    gm = new_machine("Ring")
+    el = new_element("CAV.1")
+    el.added = True
+    el.models = default_models("resonator")
+    el.modes = [GMode(q="ZLong", Rs=1.0e5, Q=30.0, fr=4.0e8)]
+    gm.groups[0].elements.append(el)
+    clear_added(gm)
+    assert not el.added and el.modes_inline
+
+
+def test_a_saved_window_resonator_builds(tmp_path):
+    """Written as the panel spells it (ZLong), the file loaded but the build
+    stopped with KeyError: a window-built resonator could never be computed."""
+    from wimba.builders import load_scenario
+    from wimba.core.beam import Beam
+    from wimba.gui.model import machine_config_text, new_machine
+    gm = new_machine("Ring")
+    el = new_element("CAV.1")
+    el.models = default_models("resonator")
+    el.modes = [GMode(q="ZLong", Rs=1.0e5, Q=30.0, fr=4.0e8),
+                GMode(q="ZDipX", Rs=5.0e5, Q=5.0, fr=1.0e9)]
+    gm.groups[0].elements.append(el)
+    gm.beam = Beam.from_dict({"particle": "proton", "kinetic": 1.2e9})
+    path = tmp_path / "ring.yaml"
+    path.write_text(machine_config_text(machine_config(gm)))
+    sc = load_scenario(str(path))
+    cav = next(e for g in sc.machine.groups for e in g.elements)
+    assert len(list(cav.terms())) == 2            # zlong and zxdip, no KeyError
+
+
+# --------------------------------------- a machine file's wall, in the panels
+def test_a_machine_file_wall_shows_its_aperture_and_layers(tmp_path):
+    """The loader keeps a wall's aperture and layers on its provider, not in
+    `info`: the Geometry and Layers tabs of a wall read from a machine file
+    came up empty, although the calculation used them."""
+    from wimba.gui.model import from_machine_file, write_config
+    path = tmp_path / "tiny.yaml"
+    path.write_text(textwrap.dedent("""
+        name: Tiny
+        beam: {particle: proton, kinetic: 1.2e9}
+        groups:
+          chambers:
+            - name: PIPE.1
+              source: pytlwall
+              radius_m: 0.03
+              layers:
+                - {material: copper, thickness: inf}
+              length: 10.0
+              beta_x: 15.0
+              beta_y: 15.0
+    """).lstrip())
+    before = path.read_text()
+    gm = from_machine_file(str(path))
+    el = gm.groups[0].elements[0]
+    assert el.geometry["radius"] == pytest.approx(0.03)
+    assert el.geometry["shape"] == "CIRCULAR"
+    assert el.layers == [{"material": "copper", "thickness": "inf"}]
+    write_config(path, gm)
+    # the wall was not edited, so its entry is written back exactly as it was
+    # (layout and the beam line are normalised on save, which is another matter)
+    assert yaml.safe_load(path.read_text())["groups"] == \
+        yaml.safe_load(before)["groups"]

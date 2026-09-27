@@ -123,6 +123,11 @@ class GElement:
                                                    # have thrown the wall away
     uid: int = field(default_factory=lambda: next(_UID))
     added: bool = False
+    # True when the modes are written in the config itself, as a list a save
+    # can replace: a resonator of a machine file, or one WIMBA wrote. False when
+    # they came from somewhere a save cannot reach (an assembly device reading
+    # a HOM table): then the Models tab shows them and does not edit them.
+    modes_inline: bool = False
     # the file this element was opened from or last saved to, when it stands on
     # its own (the Component bench). Its calculations are kept beside it, the
     # way a machine's are kept beside its config - without a place on disk the
@@ -258,14 +263,26 @@ def _element_from(e):
     info = dict(m.get("info", {}))
     pre = bool(info.get("pre_weighted", False))
     geo = _panel_geometry(info, getattr(e, "length", None))
+    modes = _modes_from_provider(e)
+    # A machine file's wall keeps its aperture and layers on the provider, not
+    # in `info`: read only from there, the Geometry and Layers tabs of a wall
+    # loaded from a file came up empty although the calculation used them.
+    prov = getattr(e, "provider", None)
+    for key in ("shape", "radius", "hor", "ver", "space_charge", "test_beam_shift"):
+        value = getattr(prov, key, None)
+        if value is not None and geo.get(key) is None:
+            geo[key] = value
+    layers = info.get("layers") or getattr(prov, "layers", None) or []
 
     return GElement(
         name=e.name, category=getattr(e, "category", "element"),
         geometry=geo,
         optics={"s": m.get("position"), "l": geo.get("length"),
                 "bx": m.get("beta_x"), "by": m.get("beta_y"), "pre": pre},
-        layers=[dict(lay) for lay in (info.get("layers") or [])],
-        models=_models_from_provider(e), modes=_modes_from_provider(e))
+        layers=[dict(lay) for lay in layers],
+        models=_models_from_provider(e), modes=modes,
+        # a machine file states a resonator's modes inline, under resonators:
+        modes_inline=bool(modes))
 
 
 def from_machine_file(path) -> GMachine:
@@ -982,6 +999,30 @@ def _machine_beta(el: GElement) -> tuple:
     return bx, by
 
 
+def _resonator_rows(el: GElement, name=None) -> list:
+    """A resonator's modes as the machine dialect's `resonators:` list."""
+    name = name or el.name
+    # the panel names a component (ZLong, ZDipX...), the machine dialect a term
+    # (zlong, zxdip...): written as the panel spells it, the file loads but the
+    # build stops with KeyError 'ZLong'
+    term = {comp: t for t, comp in TERM_COMPONENT.items()}
+    rows = []
+    for m in (el.modes or []):
+        q = str(getattr(m, "q", "") or "ZLong")
+        if q not in term:
+            raise ValueError(
+                f"element '{name}': '{q}' is not an impedance component. "
+                f"Use one of {', '.join(MODE_COMPONENTS)}.")
+        rows.append({"term": term[q], "Rs": float(m.Rs), "Q": float(m.Q),
+                     "fr": float(m.fr)})
+    if not rows:
+        raise ValueError(
+            f"element '{name}' is a resonator with no modes: there is "
+            f"nothing to write. Add at least one resonance in the Models "
+            f"tab, or give the element another method.")
+    return rows
+
+
 def _machine_element(el: GElement) -> dict:
     """One element as the machine dialect states it."""
     model = next((m for m in el.models if m.enabled), None)
@@ -992,16 +1033,8 @@ def _machine_element(el: GElement) -> dict:
     spec = {"name": name}
 
     if base == "resonator":
-        rows = [{"term": str(getattr(m, "q", "") or "ZLong"),
-                 "Rs": float(m.Rs), "Q": float(m.Q), "fr": float(m.fr)}
-                for m in (el.modes or [])]
-        if not rows:
-            raise ValueError(
-                f"element '{name}' is a resonator with no modes: there is "
-                f"nothing to write. Add at least one resonance in the Models "
-                f"tab, or give the element another method.")
         spec["source"] = "resonator"
-        spec["resonators"] = rows
+        spec["resonators"] = _resonator_rows(el, name)
     elif base == "precalculated":
         if not (model and model.file):
             raise ValueError(
@@ -1867,6 +1900,18 @@ def _apply_edits(spec: dict, el, assembly: bool) -> dict:
                 spec[dest] = float(geo[src])
         if geo.get("shape"):
             spec["shape"] = geo["shape"]
+    if "modes" in el.edited:
+        # the whole list is the value: rows are edited, added and removed, and
+        # a save that merged them into the old list could not express a removal
+        if assembly:
+            if not isinstance(spec.get("modes"), list):
+                raise ValueError(
+                    f"element '{el.name}': its modes are not written in this "
+                    f"config (they come from a file it points to), so the "
+                    f"edited modes cannot be saved here.")
+            spec["modes"] = modes_out(el)
+        else:
+            spec["resonators"] = _resonator_rows(el)
     if "layers" in el.edited and el.layers:
         # patch_config edits a file someone else maintains: it writes what was
         # changed and nothing more. Completing the layers here would inject five
@@ -1918,6 +1963,8 @@ def clear_added(machine) -> None:
     """
     for _g, e in machine.all_elements():
         e.added = False
+        if e.modes:
+            e.modes_inline = True      # a written element states them inline
 
 
 def existing_output_dirs(path, dialect):
