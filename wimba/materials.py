@@ -225,6 +225,158 @@ def sigma_of(material) -> float:
     return sigma_table().get(str(material).lower(), DEFAULT_SIGMA)
 
 
+# ------------------------------------------------------- reading a config
+# A config must compute the same for whoever opens it. So the names a config's
+# layers may use come from two places only, both of which travel with it: the
+# catalogue shipped with WIMBA, and the config's own `materials:` block. The
+# user's custom_materials.yaml is NOT one of them - it lives on one computer, and
+# a file that silently depended on it would compute for its author and fail, or
+# worse, compute something else, for everyone else. It serves the interface,
+# which writes numbers into a layer rather than a name. See docs/MATERIALS.md.
+
+# spellings a layer may use for the same quantity; the bridges accept both
+_ALIASES = {"sigma": ("sigma", "sigmaDC"), "k_Hz": ("k_Hz", "k"),
+            "muinf_Hz": ("muinf_Hz", "muinf")}
+
+_NO_MATERIAL = ("V", "PEC", "PMC")     # their parameters are never read
+
+
+def packaged_entries() -> dict:
+    """The catalogue exactly as shipped, with no custom file layered on it."""
+    return _read(CATALOGUE)["materials"]
+
+
+def study_materials(block) -> dict:
+    """A config's `materials:` block, as lower-cased name -> full parameters.
+
+    Two spellings, both valid:
+
+        materials:
+          moc: 1.0e6                                  # conductivity only
+          chimeranium: {sigma: 3.2e6, tau: 1.0e-12}   # any of the six
+
+    What is not written takes the neutral values (NEUTRAL). A name with no
+    conductivity, or a parameter that is not one of the six, is refused here
+    rather than discovered inside an engine.
+    """
+    out = {}
+    for name, entry in (block or {}).items():
+        if isinstance(entry, dict):
+            unknown = [k for k in entry if k not in PARAMS and k not in ("label", "note")]
+            if unknown:
+                raise ValueError(
+                    f"materials: '{name}' has {', '.join(map(repr, unknown))}, which "
+                    f"a material cannot set. Allowed: {', '.join(PARAMS)} "
+                    f"(plus label and note, which are only read by people).")
+            values = {k: _number(v) for k, v in entry.items() if k in PARAMS}
+        else:
+            values = {"sigma": _number(entry)}
+        sigma = values.get("sigma")
+        if not isinstance(sigma, (int, float)) or sigma <= 0:
+            raise ValueError(f"materials: '{name}' needs a conductivity 'sigma' "
+                             f"greater than zero (S/m).")
+        out[str(name).lower()] = {**NEUTRAL, **values}
+    return out
+
+
+def config_table(block=None) -> dict:
+    """Every name a config may use: the shipped catalogue, then its own block.
+
+    The block wins, so a study can redefine a name for itself without touching
+    anyone else's. Keys are lower-cased; values are the six parameters.
+    """
+    table = {}
+    for name, entry in packaged_entries().items():
+        if entry.get("sigma") is None:
+            continue
+        table[str(name).lower()] = {**NEUTRAL,
+                                    **{k: v for k, v in entry.items() if k in PARAMS}}
+    table.update(study_materials(block))
+    return table
+
+
+def resolve_layers(layers, table: dict, owner: str) -> list:
+    """Fill each named layer's parameters from `table`, in place.
+
+    A value the layer states itself always wins: `material: copper` with
+    `sigma: 5.0e7` is copper at 5.0e7. Returns the names that could not be
+    resolved, as (name, owner) pairs, so a caller can report all of them at once.
+    """
+    unknown = []
+    for lay in layers or []:
+        if str(lay.get("type", "CW")).upper() in _NO_MATERIAL:
+            continue
+        name = lay.get("material")
+        if name is None:
+            if all(lay.get(k) is None for k in _ALIASES["sigma"]):
+                unknown.append((None, owner))    # nothing says what it is made of
+            continue
+        entry = table.get(str(name).lower())
+        if entry is None:
+            unknown.append((str(name), owner))
+            continue
+        for key, value in entry.items():
+            if not any(lay.get(k) is not None for k in _ALIASES.get(key, (key,))):
+                lay[key] = value
+    return unknown
+
+
+def unknown_materials_error(unknown):
+    """The error for names a config uses but does not define - saying what to do.
+
+    When a name is one of the user's own materials, the message carries the
+    lines to paste into the config, ready to use: that is the case this rule
+    changes, and the fix should cost a copy and a paste.
+    """
+    by_name = {}
+    bare = sorted({owner for name, owner in unknown if name is None})
+    for name, owner in unknown:
+        if name is not None:
+            by_name.setdefault(name, []).append(owner)
+    mine = {str(n).lower(): e for n, e in custom_entries().items()}
+    lines = ["unknown material(s) in this config:"]
+    if bare:
+        lines.append(f"  - a CW layer in {', '.join(bare)} has neither a material "
+                     f"nor a sigma: nothing says what it is made of. Name a material (from "
+                     f"the catalogue or this config's materials: block) or give a sigma.")
+    paste = []
+    for name, owners in sorted(by_name.items()):
+        where = ", ".join(sorted(set(owners)))
+        entry = mine.get(name.lower())
+        if entry is not None:
+            lines.append(f"  - '{name}' (in {where}) is one of YOUR materials, in "
+                         f"custom_materials.yaml. A config does not read that file, "
+                         f"so whoever you send it to would not have it.")
+            values = {k: entry[k] for k in PARAMS if k in entry}
+            paste.append(f"  {name}: {{" + ", ".join(
+                f"{k}: {_yaml_number(v)}" for k, v in values.items()) + "}")
+        else:
+            lines.append(f"  - '{name}' (in {where}) is neither in the catalogue "
+                         f"nor in this config's materials: block.")
+    if paste:
+        lines += ["", "Copy the definition into the config, at the top level:", "",
+                  "materials:", *paste]
+    lines += ["", "Or give the layer its numbers directly (sigma, and tau, epsr, "
+                  "muinf_Hz, k_Hz, RQ if they matter). See docs/MATERIALS.md."]
+    from .errors import UnknownMaterial
+    return UnknownMaterial("\n".join(lines))
+
+
+def _yaml_number(value) -> str:
+    """A number spelt so YAML 1.1 reads it back as one (5.9e+07, not 5.9e7)."""
+    if isinstance(value, str):
+        return value
+    text = repr(float(value))
+    if "e" in text:
+        mantissa, exponent = text.split("e")
+        if "." not in mantissa:
+            mantissa += ".0"
+        if exponent[0] not in "+-":
+            exponent = "+" + exponent
+        text = f"{mantissa}e{exponent}"
+    return text
+
+
 # ------------------------------------------------------------------ writing
 def custom_entries() -> dict:
     """Just the entries that come from the user's file, name -> fields."""

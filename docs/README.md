@@ -26,6 +26,8 @@
   one plot.
 - [Machine config reference](CONFIG.md) — the YAML that describes a machine,
   field by field, including the `beam:` block.
+- [Materials](MATERIALS.md) — where a material name is looked up, and how a
+  study carries its own so a config computes the same for everyone.
 - [Assemble & run](ASSEMBLE_AND_RUN.md) — optics + devices → machine total
   (assemble/run/plot).
 - [Beam and optics: who decides](BEAM_AND_OPTICS.md) — which gamma and which

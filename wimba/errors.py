@@ -20,6 +20,15 @@ class WimbaError(Exception):
     """Base for errors meant to be read by the user of the command."""
 
 
+class UnknownMaterial(WimbaError, ValueError):
+    """A layer names a material its config does not define.
+
+    Still a ValueError, so callers that caught the old error keep working; a
+    WimbaError, so the command line prints the message - which carries the
+    lines to paste - instead of a traceback.
+    """
+
+
 class ConfigFileNotFound(WimbaError, FileNotFoundError):
     """A config named on the command line (or by the GUI) is not there.
 

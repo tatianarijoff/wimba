@@ -19,9 +19,12 @@ name is deliberately unmistakable so nobody mistakes it for one.
 | `RFCAV` | three HOM modes from JSON | the resonator source |
 | two scenarios | γ = 2.279 and γ = 21.34 | one grid, two energies |
 
-The two collimators use **invented materials** (`chimeranium`, `ferrite_x9`)
-declared in the `materials:` block, because WIMBA treats an unknown material as
-an error rather than defaulting silently — worth seeing that path work.
+`COLL.H` uses an **invented material**, `chimeranium`, declared in the config's
+own `materials:` block (in the full form; `ferrite_x9` beside it, in the short
+form, is declared but not used). That block is where a study's own materials
+belong: it travels with the file, so whoever opens it computes the same thing.
+An unknown name is an error, never a silent default. See
+[docs/MATERIALS.md](../../docs/MATERIALS.md).
 
 ## The scenarios
 

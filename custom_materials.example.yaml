@@ -11,9 +11,9 @@
 # everyone who pulls. This example file IS committed, so people know the
 # mechanism exists.
 #
-# A name used here replaces the catalogue entry of the same name - if you have
-# measured your own copper, say so once and every layer that names copper uses
-# your value. Names not in the catalogue are simply added.
+# A name used here replaces the catalogue entry of the same name IN THE
+# INTERFACE - if you have measured your own copper, the layer dropdown fills
+# layers with your values. Names not in the catalogue are simply added.
 #
 # Only put a material here if you will use it again. For a conductivity you
 # need once, for one chamber, choose CW (custom) in the layer and type the
@@ -26,11 +26,11 @@
 # file you send to a colleague computes the same on their machine even though
 # they have never seen your custom_materials.yaml.
 #
-# The one case where a name travels is a config written BY HAND that says
-# `material: something`. Then the name has to be resolvable where the file is
-# opened - from the catalogue, from that reader's own custom file, or from the
-# study's own `materials:` block, which is the place for a name that has to
-# travel with the config.
+# A config never reads this file. A config written BY HAND that says
+# `material: something` resolves the name from the catalogue shipped with WIMBA
+# or from its own top-level `materials:` block - the place for a name that has
+# to travel with the file. If it names one of the materials below, WIMBA stops
+# and prints the lines to paste into that block. See docs/MATERIALS.md.
 #
 # Fields (all optional except sigma):
 #   sigma      DC conductivity [S/m]                 infinity is not allowed

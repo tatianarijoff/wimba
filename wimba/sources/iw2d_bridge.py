@@ -132,14 +132,15 @@ def _one_layer(lay, IW2DLayer, Eps1FromResistivity, Mu1FromSusceptibility):
     thick = lay.get("thickness", lay.get("thick_m", 0.002))
     thick = float("inf") if str(thick).lower() == "inf" else float(thick)
 
+    if lay.get("material") is not None and ltype not in ("V", "PEC", "PMC"):
+        # A layer can name its material instead of giving numbers. The config
+        # loaders resolve that before we get here; doing it again, the same way
+        # the pytlwall bridge does, keeps the two engines in agreement when this
+        # bridge is called directly - all six parameters, and an error for a
+        # name nobody defined rather than a quiet 1e6.
+        from .pytlwall_bridge import _named
+        lay = _named(lay)
     sigma = lay.get("sigma", lay.get("sigmaDC"))
-    if sigma is None and lay.get("material") is not None:
-        # A layer can name its material instead of giving a number. The config
-        # loader normally resolves that before we get here; doing it again means
-        # the two engines agree even when this bridge is called directly, rather
-        # than IW2D quietly falling back to 1e6 for a wall that says copper.
-        from ..materials import sigma_of
-        sigma = sigma_of(lay["material"])
     sigma = float(sigma) if sigma is not None else None
 
     if ltype == "V":

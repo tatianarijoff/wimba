@@ -491,26 +491,14 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
     twiss = (madx.read_twiss(_data(cfg["optics"], "optics table"))
              if cfg.get("optics") else {})
 
-    # user-defined materials (name -> sigma [S/m]) extend the built-in table
-    from .materials import sigma_table
-    user_mats = {str(k).lower(): float(v) for k, v in (cfg.get("materials") or {}).items()}
-    # A study's own materials: block wins over the shipped catalogue, so a name
-    # can be redefined for one machine without touching anyone else's.
-    mat_table = {**sigma_table(), **user_mats}
+    # The names this config may use: the shipped catalogue and its own
+    # materials: block, which wins. Never the user's custom_materials.yaml - a
+    # config has to compute the same for whoever opens it (docs/MATERIALS.md).
+    from .materials import config_table, resolve_layers, unknown_materials_error
+    mat_table = config_table(cfg.get("materials"))
 
     def _resolve_layers(layers, owner):
-        unknown = []
-        for lay in (layers or []):
-            if str(lay.get("type", "")).upper() in ("V", "PEC", "PMC"):
-                continue          # vacuum / perfect conductors: no sigma needed
-            if lay.get("sigma") is None and lay.get("sigmaDC") is None:
-                mat = lay.get("material")
-                key = str(mat).lower() if mat is not None else None
-                if key in mat_table:
-                    lay["sigma"] = mat_table[key]
-                else:
-                    unknown.append(f"'{mat}' (in {owner})")
-        return unknown
+        return resolve_layers(layers, mat_table, owner)
 
     unknown_materials = []
     devices = []
@@ -625,10 +613,6 @@ def load_assembly(path, tol=DEFAULT_TOL, cfg=None) -> AssemblyResult:
                                                                  dp_method == "pytlwall")),
                                    geometry=geometry)
     if unknown_materials:
-        raise ValueError(
-            "unknown materials with no conductivity on record: "
-            + ", ".join(sorted(set(unknown_materials)))
-            + ". Define them under 'materials:' in the config (name: sigma_S_per_m) "
-              "or give the layer an explicit 'sigma'.")
+        raise unknown_materials_error(unknown_materials)
     return assemble(twiss, devices, default_pipe, name=cfg.get("name", cfg_path.stem),
                     tol=tol, smooth_beta=read_smooth_beta(cfg))

@@ -272,7 +272,9 @@ def _element_from(e):
         value = getattr(prov, key, None)
         if value is not None and geo.get(key) is None:
             geo[key] = value
-    layers = info.get("layers") or getattr(prov, "layers", None) or []
+    # as the file writes them (a material name stays a name), not as resolved
+    layers = (info.get("layers") or getattr(prov, "layers_as_written", None)
+              or getattr(prov, "layers", None) or [])
 
     return GElement(
         name=e.name, category=getattr(e, "category", "element"),

@@ -168,15 +168,19 @@ def _build_pytlwall(el, base, beam):
     # own tables and applies them itself, so handing it these would either be
     # ignored or - worse - applied twice.
     geom.pop("iw2d_yokoya", None)
-    return ChamberProvider(space_charge=bool(el.get("space_charge", False)),
+    prov = ChamberProvider(space_charge=bool(el.get("space_charge", False)),
                            **geom)
+    prov.layers_as_written = el.get("_layers_as_written")
+    return prov
 
 
 def _build_iw2d(el, base, beam):
     geom = _chamber_geom(el, base, beam)
     # the mirror of the pytlwall case: IW2D's formalism has no test-beam shift
     geom.pop("test_beam_shift", None)
-    return IW2DProvider(**geom)
+    prov = IW2DProvider(**geom)
+    prov.layers_as_written = el.get("_layers_as_written")
+    return prov
 
 
 SOURCE_BUILDERS = {
@@ -338,16 +342,40 @@ def _build_machine(data, base, beam=None) -> Machine:
     def _with_dirs(el):
         return {**el, "data_dir": dirs} if dirs and "data_dir" not in el else el
 
+    # Named materials resolve exactly as in the assembly dialect: the shipped
+    # catalogue and this file's own materials: block, nothing else. An unknown
+    # name is an error here too - it used to become sigma = 1e6 in silence.
+    from ..materials import config_table, resolve_layers, unknown_materials_error
+    mat_table = config_table(data.get("materials"))
+    unknown = []
+
+    def _prepared(el):
+        el = _with_dirs(el)
+        if el.get("layers"):
+            # a copy: the caller's data is its own, and the GUI keeps it
+            layers = [dict(lay) for lay in el["layers"]]
+            unknown.extend(resolve_layers(layers, mat_table, el.get("name", "?")))
+            # the engines get the resolved numbers; the interface shows the
+            # layers as the file writes them, names and all
+            el = {**el, "layers": layers, "_layers_as_written": el["layers"]}
+        return el
+
+    groups = [(g, [_prepared(el) for el in (elements or [])])
+              for g, elements in (data.get("groups") or {}).items()]
+    extra = [_prepared(el) for el in (data.get("additional") or [])]
+    if unknown:
+        raise unknown_materials_error(unknown)
+
     machine = Machine(twiss=TwissTable())  # optics carried per element (Explicit)
-    for group_name, elements in (data.get("groups") or {}).items():
+    for group_name, elements in groups:
         group = machine.add_group(group_name)
-        # `elements` is None for a group whose entries are all commented out - a
-        # normal thing to write while a model is being built up, and not a reason
-        # to refuse the file
-        for el in (elements or []):
-            group.add(_element(_with_dirs(el), base, twiss, beam))
-    for el in (data.get("additional") or []):
-        machine.add_additional(_element(_with_dirs(el), base, twiss, beam))
+        # `elements` is empty for a group whose entries are all commented out -
+        # a normal thing to write while a model is being built up, and not a
+        # reason to refuse the file
+        for el in elements:
+            group.add(_element(el, base, twiss, beam))
+    for el in extra:
+        machine.add_additional(_element(el, base, twiss, beam))
     # after the elements exist: they are the last fallback for the average
     machine.beta_mean, machine.beta_mean_source = resolve_beta_mean(data, twiss, machine)
     return machine

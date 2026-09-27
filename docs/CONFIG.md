@@ -127,10 +127,12 @@ layers:                       # inside -> out
 ```
 
 Layers take the full electromagnetic parameter set (`type`, `thickness`, `sigma`
-or a known `material`, `muinf_Hz`, `k_Hz`, `epsr`, `tau`, `RQ`). An unknown
-material name is an error, never a silent default; declare your own in a
-top-level `materials: {name: sigma}` block, which wins over the shipped list
-for that study.
+or a known `material`, `muinf_Hz`, `k_Hz`, `epsr`, `tau`, `RQ`). A name is
+looked up in the shipped list and in the config's own top-level `materials:`
+block, which wins for that study and accepts either `name: sigma` or the full
+parameter set — never in your `custom_materials.yaml`, which a config does not
+read. An unknown name is an error, never a silent default, in both dialects. See
+[MATERIALS.md](MATERIALS.md).
 
 The known names live in `wimba/defaults/materials.yaml` — data, not code — and
 are the same list the interface offers under Materials. Each entry carries a

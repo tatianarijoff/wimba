@@ -103,17 +103,29 @@ def test_the_names_configs_have_always_resolved_still_resolve():
 
 def test_both_engines_resolve_a_named_material_identically():
     """The list is not pytlwall's: IW2D layers name the same materials, and a
-    wall that says copper must be the same wall whichever engine computes it."""
+    wall that says copper must be the same wall whichever engine computes it.
+    The IW2D bridge resolves through the same helper, so one check covers both."""
     from wimba.sources import iw2d_bridge, pytlwall_bridge
     for name in ("copper", "stainless_steel", "graphite"):
-        assert pytlwall_bridge._sigma(name) == pytest.approx(
-            materials.sigma_of(name))
-        assert iw2d_bridge is not None      # imported without a pytlwall/IW2D install
+        lay = pytlwall_bridge._named({"material": name, "thickness": 0.002})
+        assert lay["sigma"] == pytest.approx(materials.sigma_of(name))
+        assert lay["tau"] == 0.0 and lay["epsr"] == 1.0
+    assert iw2d_bridge is not None      # imported without a pytlwall/IW2D install
 
 
-def test_an_unnamed_material_falls_back_to_the_same_number_everywhere():
+def test_a_named_magnetic_material_brings_all_its_parameters():
+    """A name used to carry sigma alone, so magnetic-example lost its mu."""
     from wimba.sources import pytlwall_bridge
-    assert pytlwall_bridge._sigma(None) == pytest.approx(materials.DEFAULT_SIGMA)
+    lay = pytlwall_bridge._named({"material": "magnetic-example", "thickness": 0.01})
+    assert lay["muinf_Hz"] == pytest.approx(500.0)
+    assert float(lay["k_Hz"]) == pytest.approx(1.0e4)
+
+
+def test_an_engine_refuses_a_name_nobody_defined():
+    from wimba.sources import pytlwall_bridge
+    with pytest.raises(ValueError, match="unobtainium"):
+        pytlwall_bridge._named({"material": "unobtainium", "thickness": 0.002})
+    # the interface's own lookup still falls back, for display only
     assert materials.sigma_of("something-nobody-defined") == pytest.approx(
         materials.DEFAULT_SIGMA)
 
@@ -136,7 +148,7 @@ def test_a_custom_file_layers_over_the_catalogue(tmp_path, monkeypatch):
         assert materials.parameters("copper")["sigma"] == pytest.approx(5.75e7)
         assert materials.origin("copper") == "custom file"
         assert materials.parameters("my-alloy")["sigma"] == pytest.approx(2.0e6)
-        # and it reaches a calculation, not just the dropdown
+        # and the interface's own table - a config does not read it (MATERIALS.md)
         assert sigma_table()["my-alloy"] == pytest.approx(2.0e6)
     finally:
         monkeypatch.delenv("WIMBA_MATERIALS", raising=False)

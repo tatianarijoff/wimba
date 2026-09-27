@@ -386,9 +386,11 @@ choice: `Save` writes it to `custom_materials.yaml` — see
 from then on. For a conductivity you need once, add nothing: pick `CW (custom)`
 in the layer and type the numbers there.
 
-A study can also carry its own names, in the config's `materials:` block; those
-win over the catalogue for that study. That is the right place for a name that
-has to travel with a file.
+`custom_materials.yaml` serves the interface only: a config that names one of
+your materials does not read it, and stops with the lines to paste into its own
+`materials:` block. That block is where a name that has to travel with a file
+belongs; it wins over the catalogue for that study. See
+[MATERIALS.md](MATERIALS.md).
 
 ## What Problems tells you
 

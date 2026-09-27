@@ -17,7 +17,13 @@ beam:
   gamma: 21.339222409368706
   beta: 0.998901369998633
 materials:
-  chimeranium: 3200000.0
+  # Materials of this study. They travel with the file, so whoever opens it
+  # computes the same thing; custom_materials.yaml is never read for a config.
+  # Short form (name: sigma) or full form; unwritten parameters take the
+  # neutral values (tau 0, epsr 1, muinf_Hz 0, k_Hz inf, RQ 0). docs/MATERIALS.md
+  chimeranium:
+    sigma: 3200000.0
+    note: invented for this example
   ferrite_x9: 0.01
 output:
 - COLL.H

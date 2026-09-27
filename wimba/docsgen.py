@@ -192,7 +192,7 @@ SECTIONS = (
     ("Workflows", ("GUI", "PROJECTS", "ASSEMBLE_AND_RUN", "BUILD", "COMPONENT")),
     ("Engines", ("PYTLWALL_CFG", "IW2D", "RESONATOR", "PRECALCULATED",
                  "FOURIER")),
-    ("Reference", ("CONFIG", "DATA_MODEL", "DATA", "docs_README")),
+    ("Reference", ("CONFIG", "MATERIALS", "DATA_MODEL", "DATA", "docs_README")),
 )
 
 _KEYWORDS = {

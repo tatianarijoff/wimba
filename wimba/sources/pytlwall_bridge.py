@@ -25,13 +25,18 @@ def _one_layer(pytlwall, lay, boundary=False):
     thick = lay.get("thickness", lay.get("thick_m", 0.002))
     thick = np.inf if str(thick).lower() == "inf" else float(thick)
     ltype = str(lay.get("type", "CW"))
+    if lay.get("material") is not None and ltype.upper() not in ("V", "PEC", "PMC"):
+        # The config loaders resolve names before this point; a name that reaches
+        # the bridge unresolved is looked up in the shipped catalogue only, all
+        # six parameters, and an unknown one is an error - not a default.
+        lay = _named(lay)
     sigma = lay.get("sigma", lay.get("sigmaDC"))
     if sigma is not None:
         sigma = float(sigma)
     elif ltype.upper() in ("V", "PEC", "PMC"):
         sigma = 1.0e6                    # vacuum / perfect conductors: value unused
     else:
-        sigma = _sigma(lay.get("material"))
+        sigma = DEFAULT_SIGMA            # a CW layer that names nothing at all
     k = lay.get("k_Hz", lay.get("k", np.inf))
     k = np.inf if str(k).lower() == "inf" else float(k)
     return pytlwall.Layer(
@@ -60,8 +65,14 @@ def _build_layers(pytlwall, layers):
     return built
 
 
-def _sigma(material):
-    return sigma_of(material)
+def _named(lay: dict) -> dict:
+    """A copy of `lay` with its named material's parameters filled in."""
+    from ..materials import config_table, resolve_layers, unknown_materials_error
+    lay = dict(lay)
+    missing = resolve_layers([lay], config_table(), "a chamber layer")
+    if missing:
+        raise unknown_materials_error(missing)
+    return lay
 
 
 def require_gamma(gamma, what="this calculation"):
