@@ -1167,6 +1167,16 @@ def is_unweighted(gm: GMachine) -> bool:
 # with; every scenario after the first is a duplicate of an earlier one, which is
 # what keeps the comparison honest - they cannot have drifted apart in ways
 # nobody chose.
+# A project compares its scenarios on one figure. Past ten, the default colour
+# cycle repeats and a legend of (Re, Im) pairs stops being readable, so the
+# comparison the project exists for is lost. Ten is the ceiling, not a target.
+MAX_SCENARIOS = 10
+TOO_MANY_SCENARIOS = (
+    f"a project holds at most {MAX_SCENARIOS} scenarios. Beyond that the curves "
+    "share colours and the comparison can no longer be read; split the study "
+    "into two projects instead.")
+
+
 @dataclass
 class GScenario:
     label: str                      # what the user types and what plots are keyed by
@@ -1174,6 +1184,7 @@ class GScenario:
     beam: object = None             # a core.beam.Beam, or None
     derived_from: Optional[str] = None
     computed_at: Optional[str] = None
+    computed_hash: Optional[str] = None   # fingerprint of what was computed
     slug: str = ""                  # folder name; derived from the label
 
     def __post_init__(self):
@@ -1187,6 +1198,8 @@ class GScenario:
             d["derived_from"] = self.derived_from
         if self.computed_at:
             d["computed_at"] = self.computed_at
+        if self.computed_hash:
+            d["computed_hash"] = self.computed_hash
         return d
 
     @classmethod
@@ -1197,6 +1210,7 @@ class GScenario:
                    beam=Beam.from_dict(beam) if beam else None,
                    derived_from=d.get("derived_from"),
                    computed_at=d.get("computed_at"),
+                   computed_hash=d.get("computed_hash"),
                    slug=d.get("slug", ""))
 
 
@@ -1229,7 +1243,12 @@ class GProject:
             n += 1
         return f"{wanted} ({n})"
 
+    def can_add(self) -> bool:
+        return len(self.scenarios) < MAX_SCENARIOS
+
     def add(self, scenario: GScenario) -> GScenario:
+        if not self.can_add():
+            raise ValueError(TOO_MANY_SCENARIOS)
         if any(s.slug == scenario.slug for s in self.scenarios):
             raise ValueError(f"a scenario folder named '{scenario.slug}' already exists")
         self.scenarios.append(scenario)
@@ -1269,6 +1288,52 @@ class GProject:
         return cls(name=data.get("name", Path(directory).name), dir=str(directory),
                    grid=data.get("grid") or {},
                    scenarios=[GScenario.from_dict(s) for s in data.get("scenarios") or []])
+
+
+def scenario_fingerprint(project: "GProject", sc: GScenario) -> Optional[str]:
+    """What a scenario's result depends on, reduced to one string.
+
+    The config file as it is on disk, the project's grid (which is imposed on
+    every scenario) and the scenario's beam (which wins over the file). If any
+    of them changes after a calculation, the result on disk no longer describes
+    the scenario. None when the config cannot be read.
+    """
+    import hashlib
+    import json
+    try:
+        text = (Path(project.dir) / sc.config).read_bytes()
+    except OSError:
+        return None
+    h = hashlib.sha256(text)
+    h.update(json.dumps(project.grid or {}, sort_keys=True, default=str).encode())
+    beam = sc.beam.to_dict() if sc.beam is not None else None
+    h.update(json.dumps(beam, sort_keys=True, default=str).encode())
+    return h.hexdigest()[:16]
+
+
+def scenario_is_stale(project: "GProject", sc: GScenario) -> bool:
+    """True when a scenario needs computing: never computed, results gone, or
+    changed since. Scenarios computed before fingerprints existed fall back to
+    comparing the config's modification time with `computed_at`."""
+    if not sc.computed_at:
+        return True
+    out = Path(project.dir) / sc.slug / "output"
+    if not out.is_dir() or not any(out.iterdir()):
+        return True
+    if sc.computed_hash:
+        return scenario_fingerprint(project, sc) != sc.computed_hash
+    from datetime import datetime
+    try:
+        stamp = datetime.fromisoformat(sc.computed_at)
+        mtime = datetime.fromtimestamp((Path(project.dir) / sc.config).stat().st_mtime)
+    except (OSError, ValueError):
+        return True
+    return mtime.replace(microsecond=0) > stamp
+
+
+def stale_scenarios(project: "GProject") -> list:
+    """The scenarios a project-wide Calculate has to run, in project order."""
+    return [sc for sc in project.scenarios if scenario_is_stale(project, sc)]
 
 
 def slugify(label: str) -> str:

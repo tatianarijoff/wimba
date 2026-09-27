@@ -15,7 +15,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QSettings, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, QSettings, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (QAction, QActionGroup, QColor, QIcon, QKeySequence,
                          QPainter, QPixmap)
 from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QFileDialog,
@@ -27,7 +27,8 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QFileDialog,
 from .theme import THEMES, build_style
 from .model import (GGroup, GProject, GScenario, freeze_config, from_config,
                     from_machine_file, grid_conflict, grid_of, new_element,
-                    new_machine, slugify, write_config)
+                    new_machine, scenario_fingerprint, slugify,
+                    stale_scenarios, write_config, TOO_MANY_SCENARIOS)
 from .panels import (BeamPanel, ElementPanel, InspectorPanel, MachineTree,
                      OpticsPanel, ScenarioPanel)
 from .runner import BuildWorker, RunWorker
@@ -179,6 +180,7 @@ class MainWindow(QMainWindow):
         self.project_path = None
         self._machine_of = None       # slug of the scenario the panels belong to
         self._config_dirty = False    # panel edits not yet written to a config
+        self._project_run = None      # Calculate Project in progress: its queue
 
         configure(self.settings.value("loglevel", None))
         self.log = get_logger("gui")
@@ -433,6 +435,8 @@ class MainWindow(QMainWindow):
         self._act(m, "Calculate Whole Machine Wake", lambda: self._calc_machine(wake=True))
         self._act(m, "Calculate Whole Machine (not weighted)",
                   lambda: self._calc_machine(weighted=False))
+        m.addSeparator()
+        self._act(m, "Calculate Project\u2026", self._calc_project)
 
         m = mb.addMenu("&Results")
         for label in ("Add Selection to Comparison", "Send Basket to Plot",
@@ -718,6 +722,10 @@ class MainWindow(QMainWindow):
         """The only way to make a second scenario."""
         if self.project is None or not self.project.scenarios:
             return
+        if not self.project.can_add():
+            QMessageBox.information(self, "Duplicate Scenario",
+                                    TOO_MANY_SCENARIOS[0].upper() + TOO_MANY_SCENARIOS[1:])
+            return
         self._capture_scenario()
         src = self.project.scenario
         label, ok = QInputDialog.getText(
@@ -786,6 +794,13 @@ class MainWindow(QMainWindow):
 
     def _pick_scenario(self, row):
         if self.project is None or row < 0 or row == self.project.current:
+            return
+        if self._project_run is not None:
+            # the queue switches scenarios itself; a click here would put the
+            # next result under the wrong label
+            self.statusBar().showMessage(
+                "Calculate Project is running \u2014 wait for it to finish.", 4000)
+            self._refresh_scenarios_panel()
             return
         self._capture_scenario()
         self.project.current = row
@@ -2319,6 +2334,137 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Calculating\u2026")
         self.worker.start()
 
+    # ---- every scenario of the project, one after the other ----
+    def _calc_project(self):
+        """Compute the scenarios of the open project in sequence.
+
+        Only the ones that need it by default: never computed, results missing,
+        or changed since (config, project grid or beam). Each run is exactly the
+        one Calculate Whole Machine would start on that scenario, so the results
+        land in the same folders under the same labels.
+        """
+        if self.project is None or not self.project.scenarios:
+            QMessageBox.information(
+                self, "Calculate Project",
+                "No project is open.\n\nFile \u2192 New Project or Open Project "
+                "first; outside a project, use Calculate Whole Machine.")
+            return
+        if self._project_run is not None:
+            self.statusBar().showMessage("Calculate Project is already running.", 4000)
+            return
+        Role = QMessageBox.ButtonRole
+        if self._config_dirty and self.machine is not None:
+            sc = self.project.scenario
+            answer = self._ask(
+                "Calculate Project",
+                f"The panels hold edits to '{sc.label}' that have not been "
+                f"written to {sc.config}.\n\nEvery scenario is computed from "
+                f"its file, so without saving they are not included.",
+                [("save", "Save and Calculate", Role.AcceptRole),
+                 ("go", "Calculate Without Saving", Role.DestructiveRole),
+                 ("cancel", "Cancel", Role.RejectRole)], "save")
+            if answer == "cancel":
+                return
+            if answer == "save":
+                self._capture_scenario(write=True)
+                if self._config_dirty:
+                    return                      # the write failed and said so
+                self._save_project(quiet=True)
+        self._capture_scenario()
+        every = list(self.project.scenarios)
+        stale = stale_scenarios(self.project)
+        n, total = len(stale), len(every)
+        if n == 0:
+            answer = self._ask(
+                "Calculate Project",
+                f"All {total} scenario(s) are up to date: nothing changed since "
+                f"they were computed.",
+                [("all", f"Recompute All {total}", Role.DestructiveRole),
+                 ("cancel", "Cancel", Role.RejectRole)], "cancel")
+            todo = every if answer == "all" else []
+        elif n == total:
+            answer = self._ask(
+                "Calculate Project",
+                f"{total} scenario(s) will be computed one after the other:\n\n"
+                + "\n".join(f"  \u2022 {s.label}" for s in every),
+                [("go", f"Calculate {total}", Role.AcceptRole),
+                 ("cancel", "Cancel", Role.RejectRole)], "go")
+            todo = every if answer == "go" else []
+        else:
+            answer = self._ask(
+                "Calculate Project",
+                f"{n} of {total} scenario(s) need computing:\n\n"
+                + "\n".join(f"  \u2022 {s.label}" for s in stale)
+                + "\n\nThe others are up to date.",
+                [("stale", f"Calculate These {n}", Role.AcceptRole),
+                 ("all", f"Recompute All {total}", Role.DestructiveRole),
+                 ("cancel", "Cancel", Role.RejectRole)], "stale")
+            todo = {"stale": stale, "all": every}.get(answer, [])
+        if not todo:
+            return
+        origin = self.project.scenario.slug
+        self._project_run = {"queue": [s.slug for s in todo], "origin": origin,
+                             "done": [], "current": None}
+        self.log.info("Calculate Project: %d scenario(s) \u2014 %s", len(todo),
+                      ", ".join(s.label for s in todo))
+        self._project_step()
+
+    def _project_step(self):
+        """Start the next scenario in the queue, or wrap up when it is empty."""
+        run = self._project_run
+        if run is None:
+            return
+        if not run["queue"]:
+            self._project_run = None
+            labels = {s.slug: s.label for s in self.project.scenarios}
+            back = next((i for i, s in enumerate(self.project.scenarios)
+                         if s.slug == run["origin"]), None)
+            if back is not None and back != self.project.current:
+                self.project.current = back
+                self._activate_scenario()
+            self._refresh_scenarios_panel()
+            self.log.info("Calculate Project finished: %d scenario(s) computed \u2014 %s",
+                          len(run["done"]),
+                          ", ".join(labels.get(s, s) for s in run["done"]))
+            self.statusBar().showMessage(
+                f"Project computed: {len(run['done'])} scenario(s). "
+                f"Every one is in the Results tree under its label.", 8000)
+            return
+        slug = run["queue"].pop(0)
+        run["current"] = slug
+        row = next((i for i, s in enumerate(self.project.scenarios) if s.slug == slug), None)
+        if row is None:                      # removed meanwhile: nothing to compute
+            return self._project_step()
+        if row != self.project.current:
+            self._capture_scenario()
+            self.project.current = row
+            self._activate_scenario()
+        if self._machine_of != slug:         # it failed to open, and said why
+            self._project_run = None
+            self.log.error("Calculate Project stopped: '%s' could not be opened.", slug)
+            return
+        self._refresh_scenarios_panel()
+        before = getattr(self, "worker", None)
+        self._calc_machine()
+        if getattr(self, "worker", None) is before:
+            # nothing was started (the config could not be read, for one): a
+            # queue waiting for a run that never comes would lock the panel
+            self._project_run = None
+            self.log.error("Calculate Project stopped at '%s': the calculation "
+                           "did not start. Not computed: %s", slug,
+                           ", ".join([slug] + run["queue"]) )
+
+    def _project_continue(self):
+        """Called when a machine run finishes: go on with the queue, if any."""
+        run = self._project_run
+        if run is None:
+            return
+        if run["current"]:
+            run["done"].append(run["current"])
+            run["current"] = None
+        # after the current handler returns, so the finished worker is let go
+        QTimer.singleShot(0, self._project_step)
+
     def _grid_target(self):
         """Where an edited grid goes, and the sentence that says so.
 
@@ -2533,6 +2679,7 @@ class MainWindow(QMainWindow):
             if sc is not None and self._machine_of == sc.slug:
                 from datetime import datetime
                 sc.computed_at = datetime.now().isoformat(timespec="seconds")
+                sc.computed_hash = scenario_fingerprint(self.project, sc)
                 self._save_project(quiet=True)
                 self._refresh_scenarios_panel()
         self._store_results(info["out"])
@@ -2545,6 +2692,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Done \u2192 {info['out']} \u2014 pick quantities from the Results tree",
             6000)
+        self._project_continue()
 
     def _on_calc_done(self, payload):
         result, info = payload["result"], payload["info"]
@@ -2559,6 +2707,7 @@ class MainWindow(QMainWindow):
             if sc is not None and self._machine_of == sc.slug:
                 from datetime import datetime
                 sc.computed_at = datetime.now().isoformat(timespec="seconds")
+                sc.computed_hash = scenario_fingerprint(self.project, sc)
                 self._save_project(quiet=True)
                 self._refresh_scenarios_panel()
         kind = getattr(self, "_run_kind", "machine")
@@ -2605,6 +2754,8 @@ class MainWindow(QMainWindow):
             prob.appendPlainText("No collisions.")
         self.statusBar().showMessage(
             f"Done \u2192 {info['out']} \u2014 pick quantities from the Results tree", 6000)
+        if kind == "machine":
+            self._project_continue()
 
     def _weighting_problems(self, result, stats):
         """What the transverse weighting is, and when not to trust the total.
@@ -2644,6 +2795,14 @@ class MainWindow(QMainWindow):
         con.appendPlainText("\nFAILED:\n" + tb)
         self.docks["console"].raise_()
         self.statusBar().showMessage("Calculation failed \u2014 see Console", 5000)
+        run = self._project_run
+        if run is not None:
+            # stop at the first failure: the scenarios after it would be computed
+            # while the Console still asks for attention to this one
+            self._project_run = None
+            left = [run["current"]] + run["queue"]
+            con.appendPlainText(
+                "\nCalculate Project stopped. Not computed: " + ", ".join(left))
 
     # ---- placeholder for actions wired in later phases ----
     def _export_results(self, fmt: str = "csv"):

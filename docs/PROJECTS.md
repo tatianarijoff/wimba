@@ -47,6 +47,11 @@ into a project is refused, with the two ways forward spelled out.
 The copy records where it came from (`derived_from`), so a comparison can always
 say what a curve is a variation *of*.
 
+A project holds **at most ten scenarios**. Past ten the plot's colours repeat and
+a legend of real and imaginary pairs stops being readable, so the comparison the
+project exists for is lost. *Duplicate Scenario* says so when the ceiling is
+reached; a larger study is better split into two projects.
+
 ## What may differ between scenarios
 
 | may differ | how |
@@ -148,7 +153,7 @@ machine quotes its own working points.
 | *File → Open Project…* | reopen, with the results of every computed scenario already loaded |
 | *File → Close Project* | saves first, then clears the panels; files untouched |
 | *File → Save Project* | writes `project.yaml` and each scenario's config |
-| *File → Duplicate Scenario…* | the only way to add a scenario |
+| *File → Duplicate Scenario…* | the only way to add a scenario (at most ten) |
 | *File → Rename / Remove Scenario* | folder and config follow the rename |
 
 The **Scenarios** panel lists them with their beam and provenance; the **Beam**
@@ -157,6 +162,27 @@ panel (tabbed with Optics) edits the current one.
 *Calculate → Whole Machine* needs no file dialog inside a project: it uses the
 current scenario's config, routes to the `run` or the `build` pipeline according
 to the dialect, and writes into `<slug>/output/`.
+
+### Computing every scenario
+
+*Calculate → Calculate Project…* runs the scenarios one after the other, each
+exactly as *Whole Machine* would run it, and returns to the scenario you were on.
+By default it computes only the ones that need it:
+
+- never computed, or their `output/` folder is empty;
+- changed since they were computed — the scenario's config, the project's grid,
+  or the scenario's beam.
+
+WIMBA knows the last point because a finished run stores a fingerprint of those
+three things in `project.yaml` (`computed_hash`, beside `computed_at`). A project
+computed before fingerprints existed falls back to comparing the config's date
+with `computed_at`. The dialog lists what will run and also offers to recompute
+everything. If the current scenario holds unsaved edits, it asks first, as
+*Whole Machine* does outside a project.
+
+The run stops at the first failure and the Console names the scenarios left
+uncomputed. While it runs, clicking another scenario is refused, since the next
+result would be filed under the wrong label.
 
 ### Reading two scenarios on one plot
 

@@ -307,6 +307,10 @@ do not choose, and the Console says which one it took.
 Inside a project the results go to `<scenario slug>/output` without asking, and
 the scenario is stamped with the time it was computed.
 
+`Calculate → Calculate Project…` computes the project's scenarios in sequence —
+by default only those never computed or changed since — and comes back to the
+one you were on. See [PROJECTS.md](PROJECTS.md#computing-every-scenario).
+
 Outside a project, a machine is computed **from its file on disk**, so Calculate
 first makes sure that file says what the window shows:
 
