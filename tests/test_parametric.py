@@ -188,8 +188,11 @@ def test_the_dialog_enables_ok_only_for_a_sweep_it_can_write(tmp_path):
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialogButtonBox
 from wimba.gui.sweep_dialog import SweepDialog
-d = SweepDialog({str(BASE)!r})
+d = SweepDialog()
 ok = lambda: d.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+print('NOBASE', ok(), d.elements.isEnabled(), 'Start by choosing' in d.preview.text())
+d.set_base({str(BASE)!r})
+print('BASE', d.elements.isEnabled(), d.elements.count(), d.name.text())
 print('START', ok())
 d.elements.item(0).setCheckState(Qt.CheckState.Checked)
 d.field.setCurrentText('thickness')
@@ -201,6 +204,8 @@ d.layer.setValue(2)
 print('BOUNDARY', ok())
 print('SWEEP', d.sweep()['parameter'])
 """, tmp_path)
+    assert "NOBASE False False True" in out           # nothing to do before a base
+    assert "BASE True 2 CHIMERA_injection sweep" in out
     assert "START False" in out and "NOFOLDER False" in out
     assert "READY True 2 case(s): t = 10 \u00b5m, t = 1 mm" in out
     assert "BOUNDARY False" in out

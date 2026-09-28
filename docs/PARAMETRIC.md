@@ -60,8 +60,10 @@ config with no beam.
 
 ## Making one
 
-**In the window:** *File → New Parametric Project…*. Pick the base config first,
-then, in the dialog:
+**In the window:** *File → New Parametric Project…*. The dialog's first line
+asks which config to **start from**: a parametric project is not built from
+nothing, it varies a machine that already exists, and every case is a copy of
+it. Everything below stays disabled until that config is chosen. Then:
 
 - the project name and an empty folder;
 - the elements, ticked from those whose layers the config writes out;
@@ -69,9 +71,9 @@ then, in the dialog:
 - the parameter, and the values: a list to tick for materials, one line of
   numbers otherwise.
 
-The line at the bottom lists the cases that will be written, or says why the
-sweep cannot be; OK stays disabled until it can. The project opens as soon as
-it is written.
+The line at the bottom says what to do next, lists the cases that will be
+written, or — in red — why the sweep cannot be; OK stays disabled until it can.
+The project opens as soon as it is written.
 
 **From the shell:**
 

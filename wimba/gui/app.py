@@ -1186,22 +1186,14 @@ class MainWindow(QMainWindow):
 
     def _new_parametric_project(self):
         """A project generated from one config: one layer parameter, N values."""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "New Parametric Project \u2014 the config every case starts from",
-            self._last_dir if hasattr(self, "_last_dir") else "",
-            "WIMBA config (*.yaml *.yml);;All files (*)")
-        if not path:
-            return
         from .sweep_dialog import SweepDialog
         from .. import parametric
-        try:
-            dialog = SweepDialog(path, self)
-        except Exception as exc:
-            QMessageBox.critical(self, "New Parametric Project",
-                                 f"Could not read {path}:\n{exc}")
+        # the dialog itself asks for the base config, on its first line: a file
+        # dialog opened first read as "open something", not "start from this"
+        dialog = SweepDialog(parent=self, start_dir=getattr(self, "_last_dir", ""))
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.base_config() is None:
             return
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
+        path = str(dialog.base_config())
         if self.project is not None:
             self._close_project()
             if self.project is not None:          # the user cancelled the close
