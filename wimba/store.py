@@ -42,13 +42,18 @@ def materialize(scenario, out_dir):
     machine, freqs, times = scenario.machine, scenario.freqs, scenario.times
     if freqs is None and times is None:
         raise ValueError(
-            f"scenario '{scenario.name}' has no frequency and no time grid: the "
-            "grids live on the project, so attach it to one before computing.")
+            f"scenario '{scenario.name}' has no frequency and no time grid to "
+            "compute on: state one in a 'grid:' block of the machine file, or "
+            "in the project it belongs to.")
     out.mkdir(parents=True, exist_ok=True)
 
     resume = {"name": scenario.name,
               "grid": _Flow({"frequency": _grid_spec(freqs), "time": _grid_spec(times)}),
               "components": [], "total": {}, "groups": {}, "additional": []}
+    if getattr(getattr(scenario, "project", None), "grid_default", False):
+        # the file stated no grid: the numbers above are WIMBA's default, and
+        # the resume has to say so, or the sampling reads as a choice someone made
+        resume["grid_source"] = "default"
     beam = getattr(scenario, "beam", None)
     if beam is not None:
         resume["beam"] = _Flow(beam if isinstance(beam, dict) else beam.to_dict())

@@ -75,6 +75,10 @@ class Project:
     freqs: Optional[np.ndarray] = None
     times: Optional[np.ndarray] = None
     out_dir: Optional[str] = None
+    # True when the file stated no grid and WIMBA's default was used: the
+    # Console and the resume say so, since a default nobody chose still shapes
+    # the result
+    grid_default: bool = False
 
     def __post_init__(self):
         # transitional: Project(name, machine, freqs, times) - the old signature -
@@ -408,9 +412,20 @@ def load_scenario(path, project: Optional[Project] = None) -> Scenario:
         return project.add(scenario)
 
     grid = data.get("grid") or {}
+    freq_spec = grid.get("frequency") or grid.get("freq")
+    time_spec = grid.get("time")
+    # A file that states neither grid is computed on WIMBA's default rather
+    # than refused: the sampling is a choice, not a property of the machine
+    # the way the energy is. A file that states only one keeps exactly that -
+    # leaving the time grid out is how a study says it wants no wake.
+    stated = bool(freq_spec or time_spec)
+    if not stated:
+        from ..grids import default_grid
+        fallback = default_grid()
+        freq_spec, time_spec = fallback["frequency"], fallback["time"]
     Project(name=name, scenarios=[scenario],
-            freqs=_grid(grid.get("frequency") or grid.get("freq")),
-            times=_grid(grid.get("time")))
+            freqs=_grid(freq_spec), times=_grid(time_spec),
+            grid_default=not stated)
     return scenario
 
 

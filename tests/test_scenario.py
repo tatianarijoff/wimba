@@ -74,7 +74,7 @@ def test_duplicate_scenario_name_is_refused():
 
 def test_materialize_without_a_grid_says_so():
     sc = Scenario("orphan", _machine())
-    with pytest.raises(ValueError, match="grids live on the project"):
+    with pytest.raises(ValueError, match="no frequency and no time grid"):
         materialize(sc, "unused")
 
 

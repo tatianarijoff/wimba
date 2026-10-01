@@ -973,10 +973,10 @@ def component_config_text(cfg: dict, method: str = "") -> str:
 # `source: pytlwall` (not `chamber`), `length` (not `length_m`), and resonances
 # as `resonators: [{term, Rs, Q, fr}]`.
 
-DEFAULT_MACHINE_GRID = {
-    "frequency": {"min": 1.0e5, "max": 1.0e10, "n": 200, "log": True},
-    "time": {"min": 1.0e-12, "max": 5.0e-9, "n": 200},
-}
+# the same default the loader computes with when a file states no grid: one
+# definition, so a machine saved from the window and a file written by hand
+# without `grid:` are sampled identically
+from ..grids import DEFAULT_GRID as DEFAULT_MACHINE_GRID  # noqa: E402
 
 
 def _machine_beta(el: GElement) -> tuple:

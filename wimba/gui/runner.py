@@ -151,6 +151,24 @@ class BuildWorker(QThread):
                           f"scenarios of one project share a grid, and the file "
                           f"on disk is unchanged.")
 
+    def _note_default_grid(self, scenario):
+        """Say it when the grid is WIMBA's default rather than the file's.
+
+        A default nobody chose still ends up in the result, so it is stated
+        once, with its numbers and with where to change it.
+        """
+        project = getattr(scenario, "project", None)
+        if project is None or not getattr(project, "grid_default", False):
+            return
+        if self.grid:
+            # a project grid was imposed: the default was never used
+            project.grid_default = False
+            return
+        from ..grids import DEFAULT_GRID, describe
+        self.log.emit(f"  grid: {Path(self.config).name} states none, so WIMBA's "
+                      f"default is used - {describe(DEFAULT_GRID)}. A 'grid:' "
+                      f"block in the file sets your own.")
+
     def _apply_beam(self, scenario):
         if self.beam is None:
             return
@@ -174,6 +192,7 @@ class BuildWorker(QThread):
             scenario = load_scenario(self.config)
             self._apply_beam(scenario)
             self._apply_grid(scenario)
+            self._note_default_grid(scenario)
             # the panel's average and the weighting switch, like the beam: they
             # apply to this build, and the file on disk is not rewritten
             if self.smooth_beta:
@@ -201,5 +220,9 @@ class BuildWorker(QThread):
                 "stats": {"computed": n_el + n_add, "skipped": 0,
                           "elements": n_el, "additional": n_add,
                           "groups": n_groups, "notes": []}}})
+        except ValueError as exc:
+            # a refusal WIMBA words itself (no energy, an unknown material...):
+            # the message is the whole story, a traceback only buries it
+            self.failed.emit(str(exc))
         except Exception:
             self.failed.emit(traceback.format_exc())

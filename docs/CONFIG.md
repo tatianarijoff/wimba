@@ -38,7 +38,7 @@ groups:
 | `name` | study name; names the resume (`<name>_resume.yaml`) |
 | `output` | optional output dir (relative to the config); see BUILD.md for precedence |
 | `optics` | path to a MAD-X twiss (`.tfs`); elements matched by `NAME` |
-| `grid.frequency` / `grid.time` | `{min, max, n, log}` grids (time optional) |
+| `grid.frequency` / `grid.time` | `{min, max, n, log}` grids (time optional); WIMBA's default when absent, see below |
 | `beam` | the particle and its energy; see below. Required by any source that depends on it |
 | `groups` | named categories, each a list of elements |
 | `additional` | elements already summed/weighted, kept apart from the ring sum |
@@ -48,6 +48,23 @@ Instead of `optics:` you may inline `twiss: {NAME: [beta_x, beta_y]}` for quick 
 
 Inside a project the grid comes from the project and is shared by every scenario;
 see [PROJECTS.md](PROJECTS.md).
+
+A file with **no `grid:` block at all** is not refused: the grid is a sampling
+choice, not a property of the machine the way the energy is. It is computed on
+WIMBA's default, defined once in `wimba/grids.py`:
+
+```yaml
+grid:
+  frequency: {min: 1.0e5, max: 1.0e10, n: 200, log: true}
+  time:      {min: 1.0e-12, max: 5.0e-9, n: 200}
+```
+
+The Console (and `wimba build`) states it with its numbers, and the resume
+records `grid_source: default`, so a result never looks as if someone chose that
+sampling. A file that states only `grid.frequency` keeps exactly that and
+computes no wake: the default fills in only when nothing was said. Save Machine
+writes this same grid into a machine built in the window; it does not add one to
+a file you wrote, which it only patches.
 
 ## The beam
 

@@ -86,6 +86,9 @@ def cmd_build(args):
 
         label = f"'{scenario.name}'" if single else f"scenario '{scenario.name}'"
         print(f"Built {label} from '{args.config}' -> {out}/")
+        if getattr(project, "grid_default", False):
+            from .grids import DEFAULT_GRID, describe
+            print(f"  grid: none stated, WIMBA's default - {describe(DEFAULT_GRID)}")
         print(f"  resume: {resume.name}")
         for g in store.groups():
             els = store.elements(g)
