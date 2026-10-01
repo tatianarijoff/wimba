@@ -147,6 +147,37 @@ What it covers:
 - the cell-boundary trap — the same device a few centimetres apart can see two
   very different betas.
 
+### ▶ [Machines — Computing it, and what comes out](https://youtu.be/7yjLYnARTIc)
+
+What it covers:
+
+- starting from an example config: one Calculate, and the different pipelines
+  it runs underneath;
+- the default-pipe checkbox, and what it adds to the rest of the ring;
+- what the Console states before any number appears — the energy and the
+  frequency grid actually used;
+- contributions and total: each device's share and the sum they add up to;
+- what to check before believing a result — including telling a β = 1 fallback
+  on a single device from a machine computed with no optics at all.
+
+### ▶ [Machines — A machine from a file](https://youtu.be/WeYjHlq3_K4)
+
+What it covers:
+
+- starting from an empty folder and a text editor: the smallest machine file
+  that loads — one group, one element, and the few keys an element cannot do
+  without;
+- what an element has to say: what it is made of, how long it is, and where to
+  find its beta — and why, while learning, it pays to write out even what a
+  default would cover;
+- the loop that is the whole method: write a little, reload, and read what the
+  Inspector and the Console say about it;
+- a missing beam versus missing optics: the first is refused, naming the
+  element, the second loads and computes with every beta set to one;
+- adding elements and groups, and why a group is worth naming with care;
+- when to stop listing elements and switch to the config dialect, which states
+  a rule and an optics file.
+
 Read alongside: [`docs/GUI.md`](docs/GUI.md) ·
 [`docs/CONFIG.md`](docs/CONFIG.md) ·
 [`docs/ASSEMBLE_AND_RUN.md`](docs/ASSEMBLE_AND_RUN.md)
