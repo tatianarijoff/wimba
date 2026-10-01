@@ -189,7 +189,7 @@ calculation and raised automatically when there is something in it. See
 | menu | what is in it |
 |---|---|
 | **View** | show or hide each dock, jump to the Plot Workspace or the Results Table, switch theme (dark / light), set the log level, and save, reload or reset the window layout |
-| **Machine** | Add Group, Add Element, and Rename, Duplicate or Delete what is selected — this is how a machine is built from nothing |
+| **Machine** | Add Group, Add Element, and Rename, Duplicate or Delete what is selected — this is how a machine is built from nothing. A new element starts as the same chamber New Component gives (round, 2 cm radius, 1 m, one boundary layer of the default material), so it can be saved and computed before anything is changed |
 | **Component** | the component bench: see [COMPONENT.md](COMPONENT.md) |
 | **Materials** | Add, Show and Delete a material: see [Materials](#materials) |
 | **Optics** | Load Optics — the same button as the one in the Optics dock |

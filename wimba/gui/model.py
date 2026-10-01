@@ -411,6 +411,34 @@ def new_element(name) -> GElement:
                     models=default_models())
 
 
+def new_chamber(name) -> GElement:
+    """An element that can be saved and computed as soon as it exists.
+
+    The one starting point for both doors that create a chamber in the window,
+    New Component and Machine > Add Element. They used to differ: the bench
+    started from a round pipe with one named wall, Add Element from a length
+    and nothing else - so an element added to a machine could not be saved
+    ("no radius in its geometry") until every field had been typed in, and the
+    Save Machine As offered by Calculate appeared to do nothing.
+
+    Round, 2 cm radius, 1 m long, one boundary layer of the catalogue's
+    default material, infinitely thick.
+    """
+    from .. import materials
+    el = new_element(name)
+    layer = {"type": "CW", "thickness": "inf", "boundary": True}
+    default_material = materials.default_name()
+    if default_material:
+        # a named material, not a bare conductivity that belongs to nothing;
+        # apply_to writes the parameters only, so the flags are set after it
+        materials.apply_to(layer, default_material)
+    layer["boundary"] = True            # a single layer is the boundary
+    layer["thickness"] = "inf"
+    el.layers = [layer]
+    el.geometry = {"length": 1.0, "radius": 0.02, "shape": "CIRCULAR"}
+    return el
+
+
 def optics_completeness(gm: GMachine):
     need = have = 0
     for _, e in gm.all_elements():
@@ -1111,7 +1139,7 @@ def machine_config(gm: GMachine, optics=None, grid=None) -> dict:
     return cfg
 
 
-def machine_config_text(cfg: dict) -> str:
+def machine_config_text(cfg: dict, file_name: str = None) -> str:
     """A machine config as text, with a header saying what the file is.
 
     The header is where the unweighted case is declared: a file with no optics
@@ -1127,7 +1155,9 @@ def machine_config_text(cfg: dict) -> str:
         "# Written by the GUI. Reopen it with File > Load Machine, or compute",
         "# it with:",
         "#",
-        f"#     wimba build {name}.yaml",
+        # the file's own name, not the machine's: a machine called Ring saved
+        # as my_ring.yaml is built with `wimba build my_ring.yaml`
+        f"#     wimba build {file_name or name + '.yaml'}",
         "#",
     ]
     if not cfg.get("optics"):

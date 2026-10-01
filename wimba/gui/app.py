@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QDockWidget, QFileDialog,
 
 from .theme import THEMES, build_style
 from .model import (GGroup, GProject, GScenario, freeze_config, from_config,
-                    from_machine_file, grid_conflict, grid_of, new_element,
+                    from_machine_file, grid_conflict, grid_of, new_chamber,
                     new_machine, scenario_fingerprint, slugify,
                     stale_scenarios, write_config, TOO_MANY_SCENARIOS)
 from .panels import (BeamPanel, ElementPanel, InspectorPanel, MachineTree,
@@ -867,6 +867,11 @@ class MainWindow(QMainWindow):
         if not dest:
             return
         dest = Path(dest)
+        if dest.suffix.lower() not in (".yaml", ".yml"):
+            # Qt's own dialog does not add the extension the filter names, and
+            # Load Machine only lists .yaml/.yml: a file saved as "my_ring"
+            # could not be opened again from the window
+            dest = dest.with_name(dest.name + ".yaml")
         if source is None:
             # nothing to patch: write the machine out in full
             if not self._dump_machine_to(dest):
@@ -903,7 +908,7 @@ class MainWindow(QMainWindow):
         from .model import clear_added, machine_config, machine_config_text
         try:
             cfg = machine_config(self.machine)
-            path.write_text(machine_config_text(cfg))
+            path.write_text(machine_config_text(cfg, path.name))
         except Exception as exc:
             self.log.error("Could not write %s: %s", path, exc)
             QMessageBox.warning(self, "Save Machine As",
@@ -1386,6 +1391,11 @@ class MainWindow(QMainWindow):
         self.selected = None
         self.component = None
         self.config_path = None
+        # both doors, not one: a machine_path left behind made the NEXT machine
+        # look saved - New Machine after Load Machine skipped the Save Machine
+        # As question, and Calculate built the previous machine's file instead
+        self.machine_path = None
+        self._config_dirty = False
         self.inspector.set_ref(None)
 
         self._refresh_all()
@@ -1449,7 +1459,7 @@ class MainWindow(QMainWindow):
                 f"Names identify an element in the config, in the results and "
                 f"in the optics file, so two of them cannot share one.")
             return
-        e = new_element(name)
+        e = new_chamber(name)   # savable and computable as it stands
         e.added = True          # created here: it has no entry in any file yet
         g.elements.append(e)
         self._config_dirty = True
@@ -1627,21 +1637,9 @@ class MainWindow(QMainWindow):
                                         text="COMP")
         if not ok or not name:
             return
-        from .. import materials
-        from .model import default_models, new_element
-        el = new_element(name)
-        el.models = default_models()
-        # The first layer is a named material, not a hand-written conductivity:
-        # a bare 1.4e6 belongs to nothing, so the Layers tab had to show it as
-        # custom and the user could not tell what they had started from.
-        layer = {"type": "CW", "thickness": 0.002, "boundary": True}
-        default_material = materials.default_name()
-        if default_material:
-            materials.apply_to(layer, default_material)
-            layer["boundary"] = True         # a single layer is the boundary
-            layer["thickness"] = "inf"
-        el.layers = [layer]
-        el.geometry = {"length": 1.0, "radius": 0.02, "shape": "CIRCULAR"}
+        from .model import new_chamber
+        # the same starting chamber Machine > Add Element gives
+        el = new_chamber(name)
         self.component = el
         self._open_element(el)
         self.log.info("Component bench: new component '%s' (edit geometry/layers, "
