@@ -178,6 +178,20 @@ What it covers:
 - when to stop listing elements and switch to the config dialect, which states
   a rule and an optics file.
 
+### ▶ [Machines — A machine from the window](https://youtu.be/B0iPlsLpPm0)
+
+What it covers:
+
+- the same machine as the previous video, built without a text editor:
+  File ▸ New Machine, then groups and elements added from the Machine menu;
+- a new element starts as a complete chamber, so it can be saved and computed
+  before anything is changed;
+- editing what the element is made of, its length and its optics in its panels;
+- why Calculate stops on a machine that has never been saved — outside a
+  project a machine is computed from its file — and offers Save Machine As;
+- what Save Machine As writes: an ordinary machine file, the same dialect as one
+  written by hand, which reopens with File ▸ Load Machine.
+
 Read alongside: [`docs/GUI.md`](docs/GUI.md) ·
 [`docs/CONFIG.md`](docs/CONFIG.md) ·
 [`docs/ASSEMBLE_AND_RUN.md`](docs/ASSEMBLE_AND_RUN.md)
