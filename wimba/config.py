@@ -98,7 +98,7 @@ def save_config(data: dict) -> Path:
     p = config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "w") as fh:
-        yaml.safe_dump(data, fh, sort_keys=False)
+        yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True)
     return p
 
 

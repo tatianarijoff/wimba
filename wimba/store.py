@@ -135,7 +135,7 @@ def materialize(scenario, out_dir):
 
     resume_path = out / f"{naming.safe(scenario.name)}_resume.yaml"
     with open(resume_path, "w") as fh:
-        yaml.safe_dump(resume, fh, sort_keys=False)
+        yaml.safe_dump(resume, fh, sort_keys=False, allow_unicode=True)
     return resume_path
 
 

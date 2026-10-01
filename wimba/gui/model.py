@@ -977,7 +977,7 @@ def component_config_text(cfg: dict, method: str = "") -> str:
             "# it will refuse to run until one is added.",
             "",
         ]
-    return "\n".join(header) + _yaml.safe_dump(cfg, sort_keys=False)
+    return "\n".join(header) + _yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
 
 
 # ============================================ machine -> machine-dialect config
@@ -1176,7 +1176,7 @@ def machine_config_text(cfg: dict, file_name: str = None) -> str:
             "#",
         ]
     header.append("")
-    return "\n".join(header) + _yaml.safe_dump(cfg, sort_keys=False)
+    return "\n".join(header) + _yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
 
 
 def is_unweighted(gm: GMachine) -> bool:
@@ -1679,7 +1679,7 @@ def write_yaml_text(data) -> str:
     y = _rt()
     if y is None:
         import yaml
-        return yaml.safe_dump(data, sort_keys=False)
+        return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
     import io
     buf = io.StringIO()
     y.dump(data, buf)

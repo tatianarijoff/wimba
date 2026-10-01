@@ -757,10 +757,16 @@ class ElementPanel(QWidget):
         """The editor for a resonator: what defines the element, in place of a
         geometry.
 
-        Read-only inside a machine, for the same reason the beam is: the modes
-        came from the config the machine was loaded from, and editing them here
-        would change a number the file still states.
+        Editable wherever a save can write them back: in the bench, for an
+        element added in the window, and for a resonator whose modes the config
+        states inline (every machine file does). Read-only only when they come
+        from somewhere a save cannot reach, such as a HOM table an assembly
+        device points to: editing them there would change a number the file
+        still states.
         """
+        self._modes_editable = (self.machine is None
+                                or getattr(self.el, "added", False)
+                                or getattr(self.el, "modes_inline", False))
         box = QGroupBox("Resonator modes")
         v = QVBoxLayout(box)
         self.modes_tab = QTableWidget(0, len(self.MODE_COLS))
@@ -797,7 +803,7 @@ class ElementPanel(QWidget):
     def _mode_row(self, mode: GMode):
         r = self.modes_tab.rowCount()
         self.modes_tab.insertRow(r)
-        editable = self.machine is None
+        editable = self._modes_editable
 
         comp = QComboBox(); comp.addItems(list(MODE_COMPONENTS))
         comp.setCurrentText(mode.q if mode.q in MODE_COMPONENTS else "ZLong")
@@ -870,13 +876,13 @@ class ElementPanel(QWidget):
         base = method_base(method).lower()
         is_res = base == "resonator"
         self.modes_box.setVisible(is_res)
-        self._mode_buttons.setVisible(is_res and self.machine is None)
-        if is_res and self.machine is not None:
+        self._mode_buttons.setVisible(is_res and self._modes_editable)
+        if is_res and not self._modes_editable:
             self._mode_note.setText(
-                "These modes come from the config this machine was loaded "
-                "from, so they are shown and not edited. A resonator of your "
-                "own goes in the Component bench (Component \u25b8 New "
-                "Component).")
+                "These modes are read through the assembly config, often "
+                "from a file it points to, and a save here could not write "
+                "them back, so they are shown and not edited. Change them in "
+                "the config, or in that file.")
         for i in self._wall_tabs:
             self.tabs.setTabEnabled(i, not is_res)
             self.tabs.setTabToolTip(
@@ -887,7 +893,7 @@ class ElementPanel(QWidget):
             # otherwise land the user on a tab that is greyed out and says
             # nothing about why
             self.tabs.setCurrentIndex(self.tabs.count() - 1)      # Models
-        if is_res and not self.el.modes and self.machine is None:
+        if is_res and not self.el.modes and self._modes_editable:
             # an empty table says nothing about what is missing; one blank row
             # is the shape of the answer
             self._mode_add()

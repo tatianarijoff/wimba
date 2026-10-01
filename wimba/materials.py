@@ -421,6 +421,7 @@ def save_custom(entries: dict, path=None) -> Path:
         for name, entry in entries.items()}}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(header + yaml.safe_dump(body, sort_keys=False,
-                                            default_flow_style=False))
+                                            default_flow_style=False,
+                                            allow_unicode=True))
     reload()
     return path

@@ -107,15 +107,47 @@ def test_adding_and_removing_rows_follows_the_element(app):
     assert p.modes_tab.rowCount() == len(el.modes) == 1
 
 
-def test_an_element_in_a_machine_shows_its_modes_read_only(app):
+def test_a_machine_file_resonator_is_editable(app):
+    """A machine file states its modes inline, so a save can write them back:
+    they are edited like any other value of the element."""
     gm = from_machine_file("examples/resonator/resonator_input.yaml")
     el = gm.groups[0].elements[0]
     p = ElementPanel(el, lambda *a: None, lambda *a: None, machine=gm)
     p.show()
     assert p.modes_tab.rowCount() == len(el.modes) == 2
-    assert not p._mode_buttons.isVisible()
-    assert not p.modes_tab.cellWidget(0, 0).isEnabled()       # component combo
-    assert p.modes_tab.cellWidget(0, 1).isReadOnly()          # Rs
+    assert not p._mode_buttons.isHidden()
+    assert p.modes_tab.cellWidget(0, 0).isEnabled()           # component combo
+    assert not p.modes_tab.cellWidget(0, 1).isReadOnly()      # Rs
+
+
+def test_a_resonator_added_in_the_window_is_editable(app):
+    """The case that was broken: New Machine, Add Element, method resonator.
+    The Models tab showed an empty, locked table and sent the user to the
+    Component bench, although the element was born here and has no file."""
+    from wimba.gui.model import new_element, new_machine
+    gm = new_machine("Ring")
+    el = new_element("CAV.1")
+    el.added = True
+    gm.groups[0].elements.append(el)
+    p = ElementPanel(el, lambda *a: None, lambda *a: None, machine=gm)
+    p.show()
+    p._apply_method("resonator")
+    assert not p._mode_buttons.isHidden()
+    assert p.modes_tab.rowCount() == 1                        # the blank starter row
+    assert not p.modes_tab.cellWidget(0, 1).isReadOnly()
+
+
+def test_modes_read_through_an_assembly_config_stay_read_only(app):
+    """Chimera's cavity reads its modes from a JSON file the config points to:
+    a save could not write edits back, so the table only shows them."""
+    from wimba.gui.model import from_config
+    gm = from_config("examples/Chimera_Project/injection_config.yaml")
+    el = next(e for _g, e in gm.all_elements() if e.modes)
+    p = ElementPanel(el, lambda *a: None, lambda *a: None, machine=gm)
+    p.show()
+    assert p._mode_buttons.isHidden()
+    assert p.modes_tab.cellWidget(0, 1).isReadOnly()
+    assert "a file it points to" in p._mode_note.text()
 
 
 def test_opening_a_resonator_does_not_land_on_a_dead_tab(app):

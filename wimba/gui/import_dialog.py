@@ -123,5 +123,5 @@ class ImportMapDialog(QDialog):
                                col_im=self.col_im.value(), col_z=self.col_re.value())
         self.map_path = self.data_path.with_name(self.data_path.stem + ".map.yaml")
         header = "# WIMBA import map (written by the GUI). Columns are numbered from 1.\n"
-        self.map_path.write_text(header + yaml.safe_dump(desc, sort_keys=False))
+        self.map_path.write_text(header + yaml.safe_dump(desc, sort_keys=False, allow_unicode=True))
         self.accept()

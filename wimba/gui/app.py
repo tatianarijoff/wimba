@@ -1087,7 +1087,7 @@ class MainWindow(QMainWindow):
         self._capture_scenario(write=not quiet)
         path = Path(self.project_path or (self._project_dir() / "project.yaml"))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.safe_dump(self.project.to_dict(), sort_keys=False))
+        path.write_text(yaml.safe_dump(self.project.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8")
         self.project_path = str(path)
         self.log.info("Project saved: %s (%d scenario(s))", path,
                       len(self.project.scenarios))
@@ -1941,7 +1941,7 @@ class MainWindow(QMainWindow):
                 "component (Component \u25b8 Save Component As) to keep its "
                 "results beside it.", el.name)
         cfg_path = run_dir / f"{safe(cfg['name'])}.yaml"
-        cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False))
+        cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
         self.log.info("Component config emitted: %s", cfg_path)
         self.log.debug("Emitted config:\n%s", cfg_path.read_text())
 
@@ -2200,7 +2200,7 @@ class MainWindow(QMainWindow):
             return
         run_dir = Path(tempfile.mkdtemp(prefix="wimba_element_"))
         cfg_path = run_dir / f"{safe(cfg['name'])}.yaml"
-        cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False))
+        cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
 
         con = self._dock_text("console")
         self.docks["console"].raise_()
